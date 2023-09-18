@@ -165,44 +165,41 @@ contract OrderBookTest is StdCheats, Test {
     function testRemoveBuyOrderFailsIfNotMaker() public placeOneBuyOrder {
         vm.prank(USER2);
         vm.expectRevert("removeOrder: Only maker can remove order");
-        orderBook.removeOrder(0);
+        orderBook.removeOrder(0, PLACE_BASE_QUANTITY);
     }
 
     function testRemoveBuyOrder() public placeOneBuyOrder {
         vm.prank(USER1);
-        orderBook.removeOrder(0);
-        assertEq(0, orderBook.getBookSize());
+        orderBook.removeOrder(0, PLACE_QUOTE_QUANTITY);
+        assertEq(1, orderBook.getBookSize());
     }
 
     function testRemoveBuyOrderCheckBalances() public placeOneBuyOrder {
         uint256 OrderBookBalance = quoteToken.balanceOf(address(orderBook));
         uint256 userBalance = quoteToken.balanceOf(USER1);
         vm.prank(USER1);
-        orderBook.removeOrder(0);
+        orderBook.removeOrder(0, PLACE_QUOTE_QUANTITY);
         uint256 OrderBookBalanceAfter = quoteToken.balanceOf(
             address(orderBook)
         );
         uint256 userBalanceAfter = quoteToken.balanceOf(USER1);
-        assertEq(
-            OrderBookBalanceAfter,
-            OrderBookBalance - PLACE_QUOTE_QUANTITY
-        );
-        assertEq(userBalanceAfter, userBalance + PLACE_QUOTE_QUANTITY);
+        assertEq(OrderBookBalanceAfter, OrderBookBalance);
+        assertEq(userBalanceAfter, userBalance);
     }
 
     function testRemoveThenReplaceBuyOrder() public placeOneBuyOrder {
         vm.prank(USER1);
-        orderBook.removeOrder(0);
+        orderBook.removeOrder(0, PLACE_QUOTE_QUANTITY);
         vm.prank(USER2);
         orderBook.placeOrder(PLACE_QUOTE_QUANTITY, BUY_ORDER_PRICE, true);
         OrderBook.Order memory order = orderBook.getOrder(0);
-        assertEq(order.maker, USER2);
-        assertEq(1, orderBook.getBookSize());
+        assertEq(order.maker, USER1);
+        assertEq(2, orderBook.getBookSize());
     }
 
     function testTakeBuyOrder() public placeOneBuyOrder {
         vm.prank(USER2);
-        orderBook.takeOrder(0);
+        orderBook.takeOrder(0, PLACE_QUOTE_QUANTITY);
         assertEq(0, orderBook.getBookSize());
     }
 
@@ -212,7 +209,7 @@ contract OrderBookTest is StdCheats, Test {
         uint256 takerQuoteBalance = quoteToken.balanceOf(USER2);
         uint256 takerBaseBalance = baseToken.balanceOf(USER2);
         vm.prank(USER2);
-        orderBook.takeOrder(0);
+        orderBook.takeOrder(0, PLACE_QUOTE_QUANTITY);
         uint256 makerQuoteBalanceAfter = quoteToken.balanceOf(USER1);
         uint256 makerBaseBalanceAfter = baseToken.balanceOf(USER1);
         uint256 takerQuoteBalanceAfter = quoteToken.balanceOf(USER2);

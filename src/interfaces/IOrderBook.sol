@@ -8,9 +8,9 @@ interface IOrderBook {
         bool _isBuyOrder
     ) external;
 
-    function removeOrder(uint256 _removedId) external;
+    function removeOrder(uint256 _removedId, uint256 removedQuantity) external;
 
-    function takeOrder(uint256 _takenId) external;
+    function takeOrder(uint256 _takenId, uint256 takenQuantity) external;
 
     event PlaceOrder(
         address maker,
@@ -34,9 +34,15 @@ interface IOrderBook {
     );
     event BorrowOrder(
         address borrower,
-        address lender,
+        uint256 orderId,
         uint256 quantity,
-        uint256 price,
+        bool isBuyOrder
+    );
+
+    event RepayBorrowedAssets(
+        address borrower,
+        uint256 orderId,
+        uint256 quantity,
         bool isBuyOrder
     );
 }
