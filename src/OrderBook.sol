@@ -156,7 +156,7 @@ contract OrderBook is IOrderBook {
             // otherwise adjust internal balances
 
             if (repositionedQuantity == removedOrder.quantity) {
-                updateOrderBookAfterRemoval(_removedId);
+                removeOrderFromTheBook(_removedId);
             } else {
                 removedOrder.quantity -= repositionedQuantity;
             }
@@ -278,7 +278,7 @@ contract OrderBook is IOrderBook {
         // otherwise adjust internal balances
 
         if (_takenQuantity == takenOrder.quantity) {
-            updateOrderBookAfterRemoval(_takenId);
+            removeOrderFromTheBook(_takenId);
         } else {
             takenOrder.quantity -= _takenQuantity;
         }
@@ -431,7 +431,7 @@ contract OrderBook is IOrderBook {
     // b) update row index of the last order to the new position
     // c) remove last element
 
-    function updateOrderBookAfterRemoval(
+    function removeOrderFromTheBook(
         uint256 _removedOrderId
     ) internal orderExists(_removedOrderId) {
         orders[_removedOrderId] = orders[orders.length - 1];
@@ -579,12 +579,80 @@ contract OrderBook is IOrderBook {
         }
     }
 
-    //
+    // takes the borrower address and the order taken or canceled
+    // borrower's debt is written off and his collateral is wiped out for the same amount
+    // iterate on the order book to find all orders made by the borrower in the opposite currency
+    // wipe out first the orders with the worst price (lowest for buy orders, highest for sell orders)
+    // liquidation is always full, i.e. the borrower's debt is fully written off
 
     function liquidate(
         address _borrower,
         uint256 _orderId
-    ) internal orderExists(_orderId) {}
+    ) internal orderExists(_orderId) {
+        (uint256 borrowedQuantity, uint256 borrowingId) = getBorrowerPosition(
+            _borrower,
+            _orderId
+        );
+
+        bool isBid = orders[_orderId].isBuyOrder; // type (buy or sell order) of orderOut
+
+        uint256[] memory collateralOrders = new uint256[](
+            getMakerNumberOrders(_borrower, isBid)
+        );
+        
+        // build the array with all orders placed as collateral by the borrower
+
+        uint256 count = 0;
+        for (uint256 i = 0; i < orders.length; i++) {
+            if (orders[i].maker == _borrower && orders[i].isBuyOrder != isBid) {
+                collateralOrders[count] = i;
+                count++;
+            }
+        }
+
+        uint256 collateralToWipeOut = borrowedQuantity;
+
+        for (uint256 i = 0; i < collateralOrders.length; i++) {
+
+            // find the order with the worst price
+
+            uint256 worstPrice = 0;
+            uint256 worstPriceId;
+
+            for (uint256 j = 0; j < collateralOrders.length; j++) {
+                uint256 jPrice = orders[collateralOrders[j]].price;
+                if (worstPrice == 0) {
+                    worstPrice = jPrice;
+                    worstPriceId = j;
+                } else if (
+                    (isBid && jPrice > worstPrice) ||
+                    (!isBid && jPrice < worstPrice)
+                ) {
+                    worstPrice = jPrice;
+                    worstPriceId = j;
+                }
+            }
+
+            uint256 worstPriceQuantity = orders[collateralOrders[worstPriceId]]
+                .quantity;
+
+            if (collateralToWipeOut >= worstPriceQuantity) {
+                collateralToWipeOut -= worstPriceQuantity;
+                orders[collateralOrders[worstPriceId]].quantity = 0;
+                removeOrderFromTheBook(collateralOrders[worstPriceId]);
+                // remove order from collateralOrders
+                collateralOrders[worstPriceId] = collateralOrders[collateralOrders.length - 1];
+                collateralOrders.pop();
+
+            } else {
+                collateralToWipeOut = 0;
+                orders[collateralOrders[worstPriceId]]
+                    .quantity -= collateralToWipeOut;
+                break;
+            }
+            borrowers[worstPriceId].borrowedAssets = 0;
+        }
+    }
 
     //////////********* View functions *********/////////
 
@@ -639,8 +707,9 @@ contract OrderBook is IOrderBook {
         }
     }
 
-    // get borrower's loan and borrower array id from a given order
-    // returns loan = 0 if the borrower doesn't borrow from the order
+    // takes as inputs the borrower's address and the order id from which assets are borrowed
+    // returns borrower's borrowed quantity and borrowing id in array borrowers
+    // returns borrowed quantity = 0 if the address doesn't borrow from the order
 
     function getBorrowerPosition(
         address _borrowerAddress,
@@ -719,5 +788,21 @@ contract OrderBook is IOrderBook {
             }
         }
         return totalLentAssets;
+    }
+
+    // get maker's number of placed orders in the quote or base token
+    function getMakerNumberOrders(
+        address _maker,
+        bool _isQuoteToken
+    ) internal view returns (uint256 numberOrders) {
+        numberOrders = 0;
+        for (uint256 i = 0; i < orders.length; i++) {
+            if (
+                orders[i].maker == _maker &&
+                orders[i].isBuyOrder == _isQuoteToken
+            ) {
+                numberOrders++;
+            }
+        }
     }
 }
