@@ -25,6 +25,7 @@ interface IOrderBook {
         uint256 price,
         bool isBuyOrder
     );
+
     event TakeOrder(
         address taker,
         address maker,
@@ -39,7 +40,7 @@ interface IOrderBook {
         bool isBuyOrder
     );
 
-    event RepayBorrowedAssets(
+    event repayBorrowing(
         address borrower,
         uint256 orderId,
         uint256 quantity,

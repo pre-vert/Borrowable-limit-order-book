@@ -174,6 +174,7 @@ contract OrderBook is IOrderBook {
     // Taking triggers liquidation of associated borrowing positions which cannot be repositioned
     // No partial liquidation: the order's borrowing can be partially repositioned,
     // but if they are liquidated, they are fully liquidated
+    // some borrowing positions can be liquidated while others are repositioned
 
     function takeOrder(
         uint256 _takenId,
@@ -367,7 +368,7 @@ contract OrderBook is IOrderBook {
 
     // decrease or close a borrowing position
 
-    function repayBorrowedAssets(
+    function repayBorrowing(
         uint256 _orderId,
         uint256 _repaidQuantity
     ) external orderExists(_orderId) {
@@ -378,34 +379,34 @@ contract OrderBook is IOrderBook {
 
         require(
             borrowedQuantity > 0,
-            "repayBorrowedAssets: No borrowing position found"
+            "repayBorrowing: No borrowing position found"
         );
 
         require(
             borrowedQuantity >= _repaidQuantity,
-            "repayBorrowedAssets: Repaid quantity exceeds borrowed quantity"
+            "repayBorrowing: Repaid quantity exceeds borrowed quantity"
         );
 
         if (orders[_orderId].isBuyOrder) {
             require(
                 quoteToken.balanceOf(msg.sender) >= _repaidQuantity,
-                "repayBorrowedAssets, quote token: Insufficient balance"
+                "repayBorrowing, quote token: Insufficient balance"
             );
             require(
                 quoteToken.allowance(msg.sender, address(this)) >=
                     _repaidQuantity,
-                "repayBorrowedAssets, quote token: Insufficient allowance"
+                "repayBorrowing, quote token: Insufficient allowance"
             );
             quoteToken.transferFrom(msg.sender, address(this), _repaidQuantity);
         } else {
             require(
                 baseToken.balanceOf(msg.sender) >= _repaidQuantity,
-                "repayBorrowedAssets, base token: Insufficient balance"
+                "repayBorrowing, base token: Insufficient balance"
             );
             require(
                 baseToken.allowance(msg.sender, address(this)) >=
                     _repaidQuantity,
-                "repayBorrowedAssets, base token: Insufficient allowance"
+                "repayBorrowing, base token: Insufficient allowance"
             );
             baseToken.transferFrom(msg.sender, address(this), _repaidQuantity);
         }
@@ -416,7 +417,7 @@ contract OrderBook is IOrderBook {
             borrowers.pop();
         }
 
-        emit RepayBorrowedAssets(
+        emit repayBorrowing(
             msg.sender,
             _orderId,
             _repaidQuantity,
@@ -437,28 +438,6 @@ contract OrderBook is IOrderBook {
         orders[_removedOrderId] = orders[orders.length - 1];
         orders[_removedOrderId].rowIndex = _removedOrderId;
         orders.pop();
-    }
-
-    // check if the maker is a borrower
-    function isMakerBorrower(
-        address _maker
-    ) internal view returns (bool isBorrower) {
-        isBorrower = false;
-        for (uint256 i = 0; i < borrowers.length; i++) {
-            if (borrowers[i].borrower == _maker) {
-                isBorrower = true;
-                break;
-            }
-        }
-    }
-
-    // check if the maker is not a borrower
-    // only assets which do not serve as collateral are borrowable
-
-    function isOrderBorrowable(
-        uint256 _orderId
-    ) internal view orderExists(_orderId) returns (bool) {
-        return !isMakerBorrower(getMaker(_orderId));
     }
 
     // the function takes as input the borrower's address and the order id which is taken or canceled ('orderOut')
@@ -579,11 +558,12 @@ contract OrderBook is IOrderBook {
         }
     }
 
-    // takes the borrower address and the order taken or canceled
+    // takes the borrower address and the order taken
     // borrower's debt is written off and his collateral is wiped out for the same amount
     // iterate on the order book to find all orders made by the borrower in the opposite currency
-    // wipe out first the orders with the worst price (lowest for buy orders, highest for sell orders)
+    // wipe out first the orders as they come
     // liquidation is always full, i.e. the borrower's debt is fully written off
+    // only change internal balances, no external transfer of assets
 
     function liquidate(
         address _borrower,
@@ -596,61 +576,28 @@ contract OrderBook is IOrderBook {
 
         bool isBid = orders[_orderId].isBuyOrder; // type (buy or sell order) of orderOut
 
-        uint256[] memory collateralOrders = new uint256[](
-            getMakerNumberOrders(_borrower, isBid)
-        );
-        
-        // build the array with all orders placed as collateral by the borrower
-
-        uint256 count = 0;
-        for (uint256 i = 0; i < orders.length; i++) {
-            if (orders[i].maker == _borrower && orders[i].isBuyOrder != isBid) {
-                collateralOrders[count] = i;
-                count++;
-            }
-        }
-
         uint256 collateralToWipeOut = borrowedQuantity;
 
-        for (uint256 i = 0; i < collateralOrders.length; i++) {
+        for (uint256 i = 0; i < orders.length; i++) {
+            if (orders[i].maker == _borrower && orders[i].isBuyOrder != isBid) {
+                uint256 orderAssets = orders[i].quantity;
 
-            // find the order with the worst price
-
-            uint256 worstPrice = 0;
-            uint256 worstPriceId;
-
-            for (uint256 j = 0; j < collateralOrders.length; j++) {
-                uint256 jPrice = orders[collateralOrders[j]].price;
-                if (worstPrice == 0) {
-                    worstPrice = jPrice;
-                    worstPriceId = j;
-                } else if (
-                    (isBid && jPrice > worstPrice) ||
-                    (!isBid && jPrice < worstPrice)
-                ) {
-                    worstPrice = jPrice;
-                    worstPriceId = j;
+                if (collateralToWipeOut >= orderAssets) {
+                    collateralToWipeOut -= orderAssets;
+                    // orders[i].quantity = 0;
+                    removeOrderFromTheBook(i);
+                } else {
+                    collateralToWipeOut = 0;
+                    orders[i].quantity -= collateralToWipeOut;
+                    break;
                 }
             }
-
-            uint256 worstPriceQuantity = orders[collateralOrders[worstPriceId]]
-                .quantity;
-
-            if (collateralToWipeOut >= worstPriceQuantity) {
-                collateralToWipeOut -= worstPriceQuantity;
-                orders[collateralOrders[worstPriceId]].quantity = 0;
-                removeOrderFromTheBook(collateralOrders[worstPriceId]);
-                // remove order from collateralOrders
-                collateralOrders[worstPriceId] = collateralOrders[collateralOrders.length - 1];
-                collateralOrders.pop();
-
-            } else {
-                collateralToWipeOut = 0;
-                orders[collateralOrders[worstPriceId]]
-                    .quantity -= collateralToWipeOut;
-                break;
-            }
-            borrowers[worstPriceId].borrowedAssets = 0;
+            require(
+                collateralToWipeOut == 0,
+                "liquidate: collateralToWipeOut != 0"
+            );
+            borrowers[borrowingId] = borrowers[borrowers.length - 1];
+            borrowers.pop();
         }
     }
 
@@ -680,6 +627,28 @@ contract OrderBook is IOrderBook {
         uint256 _orderId
     ) public view orderExists(_orderId) returns (address) {
         return orders[_orderId].maker;
+    }
+
+    // check if the maker is a borrower
+    function isMakerBorrower(
+        address _maker
+    ) internal view returns (bool isBorrower) {
+        isBorrower = false;
+        for (uint256 i = 0; i < borrowers.length; i++) {
+            if (borrowers[i].borrower == _maker) {
+                isBorrower = true;
+                break;
+            }
+        }
+    }
+
+    // only assets which do not serve as collateral are borrowable
+    // check if the maker is not a borrower
+
+    function isOrderBorrowable(
+        uint256 _orderId
+    ) internal view orderExists(_orderId) returns (bool) {
+        return !isMakerBorrower(getMaker(_orderId));
     }
 
     // get assets deposited by a trader/borrower in a given order, in the quote or base token
