@@ -42,6 +42,10 @@ contract OrderBook is IOrderBook {
         _;
     }
 
+    // let users place orders in the order book
+    // transfer the assets to the order book
+    // add a balance in the array orders
+
     function placeOrder(
         uint256 _quantity,
         uint256 _price,
@@ -85,9 +89,10 @@ contract OrderBook is IOrderBook {
         emit PlaceOrder(msg.sender, _quantity, _price, _isBuyOrder);
     }
 
-    // removal is subject to reallocation of borrowed assets
+    // let users remove their orders from the orderbook
+    // removal is subject to succesful reallocation of borrowed assets
     // desired quantity to be removed can be partial and the quantity actually removed can be even less:
-    // orders[_removedId].quantity =<_quantityToBeRemoved =< repositionedQuantity =< 0
+    // orders[_removedId].quantity >= _quantityToBeRemoved >= repositionedQuantity >= 0
 
     function removeOrder(
         uint256 _removedId,
@@ -97,7 +102,7 @@ contract OrderBook is IOrderBook {
 
         require(
             removedOrder.maker == msg.sender,
-            "removeOrder: Only maker can remove order"
+            "removeOrder: Only the maker can remove the order"
         );
 
         require(
@@ -105,7 +110,7 @@ contract OrderBook is IOrderBook {
             "removeOrder: Removed quantity exceeds deposit"
         );
 
-        // Total deposits must be enough to secure all borrowing positions
+        // Remaining total deposits must be enough to secure existing borrowing positions
 
         uint256 borrowerTotalDeposit = getUserTotalDeposit(
             msg.sender,
@@ -116,26 +121,29 @@ contract OrderBook is IOrderBook {
             "removeOrder: Close your borrowing positions before removing your orders"
         );
 
-        // reposition as much as possible borrowers liability in the order book
-        // but just enough to cover the removed quantity _quantityToBeRemoved
-        // repositioned debt can spread over several orders
-        // the loop detects the borrowing positions. The assets to reposition are the min between
-        // the quantity borrowed by the position and the remaining quantity to be repositioned
+        // recall that the same order can have its assets borrowed by several borrowing positions
+        // if removal is full, try to reposition all related borrowing positions elsewhere in the order book
+        // if removal is partial, try to reposition enough to cover removed quantity
+        // for each detected borrowing positions, the repositioned assets are either the quantity
+        // borrowed by the position (if less) or the remaining quantity to be repositioned (if less)
+        // a borrowing positions is either fully repositioned (all borrowed assets are moved) or not at all
+        // if not enough assets can be repositioned, the full removal fails and no position is repositioned
 
         uint256 repositionedQuantity = 0;
 
-        for (uint256 i = 0; i < borrowers.length; i++) {
-            if (borrowers[i].orderId == _removedId) {
-                uint256 quantityToReposition = borrowers[i].borrowedAssets.min(
+        for (uint256 j = 0; j < borrowers.length; j++) {
+            if (borrowers[j].orderId == _removedId) {
+                uint256 quantityToReposition = borrowers[j].borrowedAssets.min(
                     _quantityToBeRemoved - repositionedQuantity
                 );
                 uint256 newId = repositionDebt(
-                    borrowers[i].borrower,
+                    borrowers[j].borrower,
                     _removedId,
                     quantityToReposition
                 );
+
+                // if debt reposition is successful, update repositionedQuantity
                 if (newId != _removedId) {
-                    // transfer debt to new order
                     repositionedQuantity += quantityToReposition;
                     if (repositionedQuantity == _quantityToBeRemoved) {
                         break;
@@ -170,11 +178,12 @@ contract OrderBook is IOrderBook {
         );
     }
 
-    // Assets can be partially taken from the order book
-    // Taking triggers liquidation of associated borrowing positions which cannot be repositioned
-    // No partial liquidation: the order's borrowing can be partially repositioned,
-    // but if they are liquidated, they are fully liquidated
+    // let users take sell and buy orders on the book, regardless their assets are borrowed or not
+    // assets can be partially taken
+    // taking triggers liquidation of related borrowing positions which cannot be repositioned
     // some borrowing positions can be liquidated while others are repositioned
+    // borrowing positions can be partially repositioned if taking is partial
+    // if they are liquidated, they are in full
 
     function takeOrder(
         uint256 _takenId,
@@ -293,9 +302,11 @@ contract OrderBook is IOrderBook {
         );
     }
 
-    // create a borrowing position or increase an existing one; orders are borrowable if
+    // let users with assets on the book borrow assets on the other side of the book
+    // create a borrowing position or increase an existing one
+    // orders are borrowable if
     // - the maker is not a borrower (i.e. the assets are not used as collateral)
-    // - the borrower does not demand more than what is available
+    // - the borrower does not demand more assets than available
     // - the borrower has enough equity to borrow the assets
 
     function borrowOrder(
@@ -366,7 +377,7 @@ contract OrderBook is IOrderBook {
         );
     }
 
-    // decrease or close a borrowing position
+    // let users decrease or close a borrowing position
 
     function repayBorrowing(
         uint256 _repaidId,
@@ -443,8 +454,8 @@ contract OrderBook is IOrderBook {
     // the function takes as input the borrower's address and the order id which is taken or canceled ('orderOut')
     // borrowed assets from orderOut are repositioned to the next best-price order ('orderIn'), if exists
     // cannot reposition to more than one order and only if all borrowed assets in orderIn can be transferred,
-    // some of orderIn's asset could already be borrowed, and the new borrowing doesn't have to exhaust its remaining assets
-    // update internal debt balances, but doesn't perform the final removing or taking of orderOut
+    // some of orderIn's assets could already be borrowed, and the new borrowing doesn't have to exhaust its remaining assets
+    // update internal debt balances, but doesn't perform the final transfer (removing or taking of orderOut)
     // returns the id of orderIn if the reposition is successful, or the id of orderOut if a failure
 
     function repositionDebt(
@@ -558,12 +569,12 @@ contract OrderBook is IOrderBook {
         }
     }
 
-    // takes the borrower address and the order taken
+    // takes as input the borrower address and the order taken
     // borrower's debt is written off and his collateral is wiped out for the same amount
     // iterate on the order book to find all orders made by the borrower in the opposite currency
-    // wipe out first the orders as they come
+    // wipe out the orders as they come
     // liquidation is always full, i.e. the borrower's debt is fully written off
-    // only change internal balances, no external transfer of assets
+    // change internal balances, but doesn't execute external transfer of assets
 
     function liquidate(
         address _borrower,
