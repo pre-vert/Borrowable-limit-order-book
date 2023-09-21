@@ -12,6 +12,13 @@ interface IOrderBook {
 
     function takeOrder(uint256 _takenId, uint256 takenQuantity) external;
 
+    function borrowOrder(
+        uint256 _borrowedId,
+        uint256 borrowedQuantity
+    ) external;
+
+    function repayBorrowing(uint256 _repaidId, uint256 repaidQuantity) external;
+
     event PlaceOrder(
         address maker,
         uint256 quantity,
@@ -40,7 +47,7 @@ interface IOrderBook {
         bool isBuyOrder
     );
 
-    event repayBorrowing(
+    event repayLoan(
         address borrower,
         uint256 orderId,
         uint256 quantity,

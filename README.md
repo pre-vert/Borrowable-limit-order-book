@@ -1,4 +1,26 @@
-# Borrowed Limit Order
+# Borrowed Limit Order Book
+
+An orderbook which lets users borrow its deposited assets.
+
+## Overview
+
+A Borrowed limit order book (BLOB) is a special order book in which ($i$) the assets backing the limit orders can be borrowed and ($ii$) the borrowed assets of the bid side are collateralized by the assets in the ask side, and reciprocally.
+
+### Benefits
+
+The benefits of appending a lending protocol to an order book are multiple:
+
+- stop loss orders with guaranteed stop price
+- zero liquidation costs
+- high leverage
+- minimized loss ratio
+- no risk of bad debt and minimized governance
+
+
+#### Disclaimer
+
+This is experimental software and is provided on an "as is" and "as available" basis. We do not give any warranties and will not be liable for any loss incurred through any use of this codebase.
+
 
 ## Getting Started
 

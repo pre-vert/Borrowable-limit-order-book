@@ -369,12 +369,12 @@ contract OrderBook is IOrderBook {
     // decrease or close a borrowing position
 
     function repayBorrowing(
-        uint256 _orderId,
+        uint256 _repaidId,
         uint256 _repaidQuantity
-    ) external orderExists(_orderId) {
+    ) external orderExists(_repaidId) {
         (uint256 borrowedQuantity, uint256 borrowingId) = getBorrowerPosition(
             msg.sender,
-            _orderId
+            _repaidId
         );
 
         require(
@@ -387,7 +387,7 @@ contract OrderBook is IOrderBook {
             "repayBorrowing: Repaid quantity exceeds borrowed quantity"
         );
 
-        if (orders[_orderId].isBuyOrder) {
+        if (orders[_repaidId].isBuyOrder) {
             require(
                 quoteToken.balanceOf(msg.sender) >= _repaidQuantity,
                 "repayBorrowing, quote token: Insufficient balance"
@@ -417,11 +417,11 @@ contract OrderBook is IOrderBook {
             borrowers.pop();
         }
 
-        emit repayBorrowing(
+        emit repayLoan(
             msg.sender,
-            _orderId,
+            _repaidId,
             _repaidQuantity,
-            orders[_orderId].isBuyOrder
+            orders[_repaidId].isBuyOrder
         );
     }
 
