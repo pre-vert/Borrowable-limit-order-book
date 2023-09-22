@@ -13,26 +13,30 @@ contract OrderBook is IOrderBook {
     IERC20 private baseToken;
 
     struct Order {
-        address maker;
-        bool isBuyOrder;
+        address maker; // address of the maker
+        bool isBuyOrder; // true for buy orders, false for sell orders
         uint256 quantity; // assets deposited (quoteToken for buy orders, baseToken for sell orders)
         uint256 price; // price of the order
-        uint256 rowIndex; // index of the order in the array
+        uint256[] borrowingIds; // stores positions id in mapping borrowers who borrow from order
     }
-
-    mapping(address => uint256) private balances; // balances of the users (quoteToken for buy orders, baseToken for sell orders
 
     struct Borrower {
         address borrower; // address of the borrower
-        uint256 orderId; // index in the array orders of the order which assets are borrowed
+        uint256 orderId; // index in the mapping orders of the order which assets are borrowed
         uint256 borrowedAssets; // quantity of assets borrowed (quoteToken for buy orders, baseToken for sell orders)
     }
 
-    uint256 public constant minBaseDeposit = 1;
-    uint256 public constant minQuoteDeposit = 100;
+    // uint256 public constant minBaseDeposit = 1;
+    // uint256 public constant minQuoteDeposit = 100;
 
-    Order[] private orders; // Arrays to store buy and sell orders
-    Borrower[] private borrowers; // Arrays to store borrowers
+    uint256 lastOrderIndex = 0;
+    uint256 lastBorrowerIndex = 0;
+
+    mapping(uint256 orderIndex => Order) private orders;
+    mapping(uint256 borrowerIndex => Borrower) private borrowers;
+
+    // Order[] private orders; // Arrays to store buy and sell orders
+    // Borrower[] private borrowers; // Arrays to store borrowers
 
     constructor(address _quoteToken, address _baseToken) {
         quoteToken = IERC20(_quoteToken);
@@ -40,13 +44,17 @@ contract OrderBook is IOrderBook {
     }
 
     modifier orderExists(uint256 _orderId) {
-        require(_orderId < orders.length, "Order does not exist");
+        Order memory order = orders[_orderId];
+        require(
+            order.quantity != 0 && order.quantity != 0,
+            "Order does not exist"
+        );
         _;
     }
 
-    // let users place orders in the order book
-    // transfer the assets to the order book
-    // add a balance in the array orders
+    // lets users place orders in the order book
+    // transfers the assets to the order book
+    // adds a balance in the mapping orders
 
     function placeOrder(
         uint256 _quantity,
@@ -78,15 +86,17 @@ contract OrderBook is IOrderBook {
         }
 
         // Insert order in the book
+        uint256[] memory borrowingIndices; // Empty array
         Order memory newOrder = Order({
             maker: msg.sender,
             isBuyOrder: _isBuyOrder,
             quantity: _quantity,
             price: _price,
-            rowIndex: orders.length
+            borrowingIds: borrowingIndices
         });
 
-        orders.push(newOrder);
+        orders[lastOrderIndex] = newOrder;
+        lastOrderIndex++;
 
         emit PlaceOrder(msg.sender, _quantity, _price, _isBuyOrder);
     }
@@ -133,25 +143,27 @@ contract OrderBook is IOrderBook {
 
         uint256 repositionedQuantity = 0;
 
-        for (uint256 j = 0; j < borrowers.length; j++) {
-            if (borrowers[j].orderId == _removedOrderId) {
-                uint256 quantityToReposition = borrowers[j].borrowedAssets.min(
-                    _quantityToBeRemoved - repositionedQuantity
-                );
+        // iterate on the borrowing ids of the order to be removed
 
-                // try to reposition the borrowing position in full
-                uint256 newId = repositionDebt(
-                    borrowers[j].borrower,
-                    _removedOrderId,
-                    quantityToReposition
-                );
+        uint256[] memory borrowingIds = orders[_removedOrderId].borrowingIds;
 
-                // if debt reposition is successful, update repositionedQuantity
-                if (newId != _removedOrderId) {
-                    repositionedQuantity += quantityToReposition;
-                    if (repositionedQuantity == _quantityToBeRemoved) {
-                        break;
-                    }
+        for (uint256 i = 0; i < borrowingIds.length; i++) {
+            uint256 quantityToReposition = borrowers[borrowingIds[i]]
+                .borrowedAssets
+                .min(_quantityToBeRemoved - repositionedQuantity);
+
+            // try to reposition the borrowing position in full
+            uint256 newId = repositionDebt(
+                borrowers[borrowingIds[i]].borrower,
+                _removedOrderId,
+                quantityToReposition
+            );
+
+            // if debt reposition is successful, update repositionedQuantity
+            if (newId != _removedOrderId) {
+                repositionedQuantity += quantityToReposition;
+                if (repositionedQuantity == _quantityToBeRemoved) {
+                    break;
                 }
             }
         }
@@ -168,7 +180,7 @@ contract OrderBook is IOrderBook {
             // in this case, remove the order from the book, otherwise adjust internal balances
 
             if (repositionedQuantity == removedOrder.quantity) {
-                removeOrderFromTheBook(_removedOrderId);
+                delete orders[_removedOrderId];
             } else {
                 removedOrder.quantity -= repositionedQuantity;
             }
@@ -194,6 +206,7 @@ contract OrderBook is IOrderBook {
         uint256 _takenQuantity
     ) external orderExists(_takenOrderId) {
         Order memory takenOrder = orders[_takenOrderId];
+
         require(
             _takenQuantity <= takenOrder.quantity,
             "takeOrder: Taken quantity exceeds deposit"
@@ -221,8 +234,7 @@ contract OrderBook is IOrderBook {
             );
         }
 
-        // tries to reposition associated borrowing positions (if any) in the order book
-        // reposition as much as possible but just enough to cover the taken quantity
+        // tries to reposition enough associated borrowing positions (if any) in the order book to cover the taken quantity
         // for each borrowing position detected, the matching engine tries to reposition the full position
         // unless it is larger than what is left to be repositioned
         // example: Alice deposits 3600 USDC to buy 2 ETH at 1800; Bob borrows 1800 and Carole 1200 from Alice
@@ -241,35 +253,37 @@ contract OrderBook is IOrderBook {
         // 2) the quantity left to be repositioned is less than borrowed assets of a given order
         // the quantity to reposition is at most the quantity left to be repositioned
 
-        for (uint256 j = 0; j < borrowers.length; j++) {
-            if (borrowers[j].orderId == _takenOrderId) {
-                uint256 quantityToReposition = borrowers[j].borrowedAssets.min(
-                    _takenQuantity - repositionedQuantity
-                );
-                uint256 newId = repositionDebt(
-                    borrowers[j].borrower,
-                    _takenOrderId,
-                    quantityToReposition
-                );
+        uint256[] memory borrowingIds = orders[_takenOrderId].borrowingIds;
 
-                // 1a) success: the borrowing position is fully repositioned
-                // 1b) failure: the borrowing position is fully liquidated
-                // In both cases, repositionedQuantity =< _takenQuantity
-                // 2a) success: the borrowing position is partially repositioned
-                //     repositionedQuantity = _takenQuantity => process complete
-                //     => all remaining positions can live on the assets of the order which are not taken
-                // 2b) failure: the borrowing position is fully liquidated
+        for (uint256 i = 0; i < borrowingIds.length; i++) {
+            uint256 quantityToReposition = borrowers[borrowingIds[i]]
+                .borrowedAssets
+                .min(_takenQuantity - repositionedQuantity);
 
-                if (newId != _takenOrderId) {
-                    // 1a) or 2a)
-                    repositionedQuantity += quantityToReposition;
-                    if (repositionedQuantity == _takenQuantity) {
-                        break;
-                    }
-                } else {
-                    // 1b) or 2b)
-                    liquidate(borrowers[j].borrower, _takenOrderId);
+            // try to reposition the borrowing position in full
+            uint256 newId = repositionDebt(
+                borrowers[borrowingIds[i]].borrower,
+                _takenOrderId,
+                quantityToReposition
+            );
+
+            // 1a) success: the borrowing position is fully repositioned
+            // 1b) failure: the borrowing position is fully liquidated
+            // In both cases, repositionedQuantity =< _takenQuantity
+            // 2a) success: the borrowing position is partially repositioned
+            //     repositionedQuantity = _takenQuantity => process complete
+            //     => all remaining positions can live on the assets of the order which are not taken
+            // 2b) failure: the borrowing position is fully liquidated
+
+            if (newId != _takenOrderId) {
+                // 1a) or 2a)
+                repositionedQuantity += quantityToReposition;
+                if (repositionedQuantity == _takenQuantity) {
+                    break;
                 }
+            } else {
+                // 1b) or 2b)
+                liquidate(borrowers[borrowingIds[i]].borrower, _takenOrderId);
             }
         }
 
@@ -288,11 +302,11 @@ contract OrderBook is IOrderBook {
             baseToken.transfer(msg.sender, _takenQuantity);
         }
 
-        // if the taker swaps all the assets of the order, remove the order from the order book
+        // if the taker takes all the assets of the order, remove the order from the book
         // otherwise adjust internal balances
 
         if (_takenQuantity == takenOrder.quantity) {
-            removeOrderFromTheBook(_takenOrderId);
+            delete orders[_takenOrderId];
         } else {
             takenOrder.quantity -= _takenQuantity;
         }
@@ -314,18 +328,18 @@ contract OrderBook is IOrderBook {
     // - the borrower has enough equity to borrow the assets
 
     function borrowOrder(
-        uint256 _orderId,
+        uint256 _borrowedOrderId,
         uint256 _borrowedQuantity
-    ) external orderExists(_orderId) {
-        Order memory borrowedOrder = orders[_orderId];
+    ) external orderExists(_borrowedOrderId) {
+        Order memory borrowedOrder = orders[_borrowedOrderId];
 
         require(
-            isOrderBorrowable(_orderId),
+            isOrderBorrowable(_borrowedOrderId),
             "borrowOrder: Assets not available for borrowing"
         );
 
         uint256 availableAssets = borrowedOrder.quantity -
-            getTotalAssetsLentByOrder(_orderId);
+            getTotalAssetsLentByOrder(_borrowedOrderId);
         require(
             availableAssets >= _borrowedQuantity,
             "borrowOrder: Insufficient available assets"
@@ -350,13 +364,12 @@ contract OrderBook is IOrderBook {
         // update internal records for the new borrowing position
         // begin by searching for an existing borrowing position to update
 
+        uint256[] memory borrowingIds = orders[_borrowedOrderId].borrowingIds;
         bool borrowerExists = false;
-        for (uint256 j = 0; j < borrowers.length; j++) {
-            if (
-                borrowers[j].borrower == msg.sender &&
-                borrowers[j].orderId == _orderId
-            ) {
-                borrowers[j].borrowedAssets += _borrowedQuantity;
+
+        for (uint256 i = 0; i < borrowingIds.length; i++) {
+            if (borrowers[borrowingIds[i]].borrower == msg.sender) {
+                borrowers[borrowingIds[i]].borrowedAssets += _borrowedQuantity;
                 borrowerExists = true;
                 break;
             }
@@ -367,21 +380,23 @@ contract OrderBook is IOrderBook {
         if (!borrowerExists) {
             Borrower memory newBorrower = Borrower({
                 borrower: msg.sender,
-                orderId: _orderId,
+                orderId: _borrowedOrderId,
                 borrowedAssets: _borrowedQuantity
             });
-            borrowers.push(newBorrower);
+
+            borrowers[lastBorrowerIndex] = newBorrower;
+            lastBorrowerIndex++;
         }
 
         emit BorrowOrder(
             msg.sender,
-            _orderId,
+            _borrowedOrderId,
             _borrowedQuantity,
             borrowedOrder.isBuyOrder
         );
     }
 
-    // let users decrease or close a borrowing position
+    // lets users decrease or close a borrowing position
 
     function repayBorrowing(
         uint256 _repaidOrderId,
@@ -427,9 +442,10 @@ contract OrderBook is IOrderBook {
         }
 
         borrowers[borrowingId].borrowedAssets -= _repaidQuantity;
+
+        // if the borrowing line is emptied, delete it from the borrowers mapping
         if (borrowers[borrowingId].borrowedAssets == 0) {
-            borrowers[borrowingId] = borrowers[borrowers.length - 1];
-            borrowers.pop();
+            delete borrowers[borrowingId];
         }
 
         emit repayLoan(
@@ -441,19 +457,6 @@ contract OrderBook is IOrderBook {
     }
 
     ///////******* Internal functions *******///////
-
-    // update the order book after an order has been removed:
-    // a) move last order into the place to delete
-    // b) update row index of the last order to the new position
-    // c) remove last element
-
-    function removeOrderFromTheBook(
-        uint256 _removedOrderId
-    ) internal orderExists(_removedOrderId) {
-        orders[_removedOrderId] = orders[orders.length - 1];
-        orders[_removedOrderId].rowIndex = _removedOrderId;
-        orders.pop();
-    }
 
     // the function takes as input the borrower's address and the order id which is taken or canceled ('orderOut')
     // borrowed assets from orderOut are repositioned to the next best-price order ('orderIn'), if exists
@@ -467,6 +470,7 @@ contract OrderBook is IOrderBook {
         uint256 _orderOutId,
         uint256 _quantityToReposition
     ) internal orderExists(_orderOutId) returns (uint256 newOrderId) {
+
         newOrderId = _orderOutId;
         bool isBid = orders[_orderOutId].isBuyOrder; // type (buy or sell order) of orderOut
 
@@ -476,6 +480,12 @@ contract OrderBook is IOrderBook {
         // have the best price (highest for buy orders, lowest for sell orders)
 
         uint256 bestPrice = 0;
+
+        uint256[] memory borrowingIds = orders[_takenOrderId].borrowingIds;
+
+        for (uint256 i = 0; i < borrowingIds.length; i++) {
+            uint256 quantityToReposition = borrowers[borrowingIds[i]]
+        
 
         for (uint256 i = 0; i < orders.length; i++) {
             if (
@@ -600,7 +610,7 @@ contract OrderBook is IOrderBook {
 
                 if (remainingCollateralToWipeOut >= orderAssets) {
                     remainingCollateralToWipeOut -= orderAssets;
-                    removeOrderFromTheBook(i);
+                    delete orders[i];
                 } else {
                     remainingCollateralToWipeOut = 0;
                     orders[i].quantity -= remainingCollateralToWipeOut;
