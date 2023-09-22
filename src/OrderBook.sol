@@ -20,6 +20,8 @@ contract OrderBook is IOrderBook {
         uint256 rowIndex; // index of the order in the array
     }
 
+    mapping(address => uint256) private balances; // balances of the users (quoteToken for buy orders, baseToken for sell orders
+
     struct Borrower {
         address borrower; // address of the borrower
         uint256 orderId; // index in the array orders of the order which assets are borrowed
