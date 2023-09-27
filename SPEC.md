@@ -19,8 +19,8 @@
 
 Possible solutions:
 
-- Cancelling liquidates positions which cannot be repositioned => makes 1) irrelevant ; ok if the book has enough liquidity to allow relocation most of the time
-- Pulling the price of an oracle before any taking to forbid unprofitable takings => forbids 2)
+- Cancelling liquidates positions which cannot be repositioned => makes 1. irrelevant ; ok if the book has enough liquidity to allow relocation most of the time
+- Pulling the price of an oracle before any taking to forbid unprofitable takings => forbids 2.
 - Imposing a minimum amount to take from an order to makes the attack costly (seems better)
 
 ## Core functions
