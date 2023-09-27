@@ -36,16 +36,15 @@ contract OrderBook is IOrderBook {
     mapping(address user => User) private users;
     mapping(uint256 positionIndex => Position) private positions;
 
-    // when an order is removed, we need to iterate on orders to find a new one to reposition the debt
+    // when an order is removed, we need to iterate on orders to reposition the debt
     // gas costs from looping on the book is bounded by:
-    // - looping only on relevant orders = from the same side and which assets are borrowable
-    //   borrowable orders: with non-borowed assets and which do not serve as collateral
-    // - the maximum number of orders to be screened is capped at maxListSize
+    // - looping only on relevant orders = same side, with non-borowed and non-collateral assets
+    // - setting a maxListSize for the number of orders to be scanned
 
     uint256[] buyOrderList; // unordered list of buy orders id 
-    uint256[] sellOrderList; // unordered list of sell orders id with non-borowed assets and which do not serve as collateral
-
-    uint256 maxListSize = 10; // maximum number of orders, sorted by price, in the top-n list
+    uint256[] sellOrderList; // unordered list of sell orders id 
+    uint256 maxListSize = 10; // maximum number of orders to be scanned when repositioning debt
+    
     uint256 lastOrderIndex = 0;
     uint256 lastPositionIndex = 0;
 
@@ -91,8 +90,6 @@ contract OrderBook is IOrderBook {
         _;
     }
 
-    
-
     // lets users place orders in the order book
     // transfers the assets to the order book
     // adds a balance in the mapping orders
@@ -103,12 +100,12 @@ contract OrderBook is IOrderBook {
         bool _isBuyOrder
     ) external isPositive(_quantity) isPositive(_price) {
 
-        transferFrom(msg.sender, _quantity, _isBuyOrder);
+        transferTokenFrom(msg.sender, _quantity, _isBuyOrder);
         
         if (_isBuyOrder) {
-            borrowableBuyOrders.push(lastBuyOrderIndex);
+            buyOrderList.push(lastBuyOrderIndex);
         } else {
-            borrowableSellOrders.push(lastSellOrderIndex);
+            sellOrderList.push(lastSellOrderIndex);
         }
 
         // Update orders mapping
@@ -159,14 +156,12 @@ contract OrderBook is IOrderBook {
         onlyMaker(orders[_removedOrderId].maker)
     {
         Order memory removedOrder = orders[_removedOrderId];
-        require(
-            removedOrder.quantity >= _quantityToBeRemoved,
+        require(removedOrder.quantity >= _quantityToBeRemoved,
             "removeOrder: Removed quantity exceeds deposit"
         );
 
         // Remaining total deposits must be enough to secure existing borrowing positions
-        require(
-            _quantityToBeRemoved <= getBorrowerExcessCollateral(removedOrder.isBuyOrder),
+        require(_quantityToBeRemoved <= getBorrowerExcessCollateral(removedOrder.isBuyOrder),
             "removeOrder: Close your borrowing positions before removing your orders"
         );
 
@@ -193,7 +188,7 @@ contract OrderBook is IOrderBook {
                 // update repositionedQuantity
                 repositionedQuantity += quantityToReposition;
             }
-            // if enough assets are repositioned, removal is finished 
+            // if enough assets are repositioned, removal is completed
             if (repositionedQuantity == _quantityToBeRemoved) {
                 break;
             }
@@ -201,7 +196,7 @@ contract OrderBook is IOrderBook {
 
         // removal is executed for the quantity actually repositioned
         if (repositionedQuantity > 0) {
-            transferTo(msg.sender, repositionedQuantity, removedOrder.isBuyOrder);
+            transferTokenTo(msg.sender, repositionedQuantity, removedOrder.isBuyOrder);
 
             // if all borrowed assets could be repositioned, removal is complete
             // in this case, remove the order from the book, otherwise adjust internal balances
@@ -209,7 +204,7 @@ contract OrderBook is IOrderBook {
             if (repositionedQuantity == removedOrder.quantity) {
                 delete orders[_removedOrderId];
             } else {
-                removedOrder.quantity -= repositionedQuantity;
+                orders[_removedOrderId].quantity -= repositionedQuantity;
             }
         }
 
@@ -323,9 +318,9 @@ contract OrderBook is IOrderBook {
             uint256 quantity = _takenQuantity * takenOrder.price;
         }
 
-        transferFrom(msg.sender, quantity, takenOrder.isBuyOrder);
-        transferTo(takenOrder.maker, quantity, takenOrder.isBuyOrder);
-        transferTo(msg.sender, _takenQuantity, takenOrder.isBuyOrder);
+        transferTokenFrom(msg.sender, quantity, takenOrder.isBuyOrder);
+        transferTokenTo(takenOrder.maker, quantity, takenOrder.isBuyOrder);
+        transferTokenTo(msg.sender, _takenQuantity, takenOrder.isBuyOrder);
 
         // if the taker takes all the assets of the order, remove the order from the book
         // otherwise adjust internal balances
@@ -389,7 +384,7 @@ contract OrderBook is IOrderBook {
             "borrowOrder: Deposit more collateral"
         );
 
-        transferTo(msg.sender, _borrowedQuantity, borrowedOrder.isBuyOrder);
+        transferTokenTo(msg.sender, _borrowedQuantity, borrowedOrder.isBuyOrder);
 
         // update internal records for the new borrowing position
         // begin by searching for an existing borrowing position to update
@@ -599,7 +594,7 @@ contract OrderBook is IOrderBook {
             uint256 closestPrice;
             if (isBid) {
                 maxIterations = (maxListSize / positionIds.length).min(
-                borrowableBuyOrders.length);
+                buyOrderList.length);
                 for (uint256 i = 0; i < maxIterations; i++) {
                     uint256 k = borrowableSellOrders[i];
                     if (i != _orderOutId &&
@@ -740,7 +735,7 @@ contract OrderBook is IOrderBook {
         }
     }
 
-    function transferTo(address _to, uint256 _quantity, bool _isBuyOrder) 
+    function transferTokenTo(address _to, uint256 _quantity, bool _isBuyOrder) 
         internal returns (bool success) {
         if (_isBuyOrder) {
             quoteToken.transfer(_to, _quantity);
@@ -750,7 +745,7 @@ contract OrderBook is IOrderBook {
         success = true;
     }
 
-    function transferFrom(address _from, uint256 _quantity, bool _isBuyOrder) 
+    function transferTokenFrom(address _from, uint256 _quantity, bool _isBuyOrder) 
         internal returns (bool success) {
         if (_isBuyOrder) {
             require(quoteToken.balanceOf(_from) >= _quantity,
