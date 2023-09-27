@@ -167,35 +167,10 @@ contract OrderBook is IOrderBook {
             "removeOrder: Close your borrowing positions before removing your orders"
         );
 
-        // if removal is full, try to reposition *all* related borrowing positions
-        // if removal is partial, try to reposition enough to cover removed quantity
-        // for each borrowing positions, the assets are always fully relocated at once 
-        // to a new order which must have enough available assets, 
-        // the total quantity relocated will be typically greater than the removed quantity
-        // a borrowing position is either fully repositioned (all borrowed assets are moved) or not at all
-        // if not enough assets are repositioned, removal is equal to removed quantity
+        // remove borrowing positions eqyivalent to the removed quantity
+        // output the quantity actually repositioned
 
-        uint256 repositionedQuantity = 0;
-
-        // iterate on the borrowing ids of the order to be removed
-        uint256[] memory positionIds = orders[_removedOrderId].positionIds;
-
-        for (uint256 i = 0; i < positionIds.length; i++) {
-            // try to reposition the borrowing position in full
-            uint256 newId = findNewPosition(positionIds[i]);
-            // if a new order is found, reposition the borrowing position
-            if (newId != _removedOrderId) {
-                uint256 borrowedAssets = positions[positionIds[i]]
-                .borrowedAssets;
-                reposition(_removedOrderId, newId, borrowedAssets);
-                // update repositionedQuantity
-                repositionedQuantity += borrowedAssets;
-            }
-            // if enough assets are repositioned, removal is completed
-            if (repositionedQuantity >= _quantityToBeRemoved) {
-                break;
-            }
-        }
+        uint256 repositionedQuantity = repositionAssets(_removedOrderId, _quantityToBeRemoved);
 
         // removal is executed for the quantity actually repositioned
         uint256 transferredQuantity = repositionedQuantity.min(_quantityToBeRemoved);
@@ -584,6 +559,40 @@ contract OrderBook is IOrderBook {
         removeOrderFromBorrowFromIds(orders[_removedOrderId].maker, _removedOrderId);
     }
     
+    // if removal is full, try to reposition *all* related borrowing positions
+    // if removal is partial, try to reposition enough to cover removed quantity
+    // for each borrowing positions, the assets are always fully relocated at once 
+    // to a new order which must have enough available assets, 
+    // the total quantity relocated will be typically greater than the removed quantity
+    // a borrowing position is either fully repositioned (all borrowed assets are moved) or not at all
+    // if not enough assets are repositioned, removal is equal to removed quantity
+
+    function repositionAssets(uint256 _orderId, uint256 _quantityToBeRemoved) 
+        internal return(uint256 repositionedQuantity) {
+            
+            repositionedQuantity = 0;
+
+            // iterate on the borrowing ids of the order to be removed
+            uint256[] memory positionIds = orders[_orderId].positionIds;
+
+            for (uint256 i = 0; i < positionIds.length; i++) {
+                // try to reposition the borrowing position in full
+                uint256 newId = findNewPosition(positionIds[i]);
+                // if a new order is found, reposition the borrowing position
+                if (newId != _orderId) {
+                    uint256 borrowedAssets = positions[positionIds[i]]
+                    .borrowedAssets;
+                    reposition(_orderId, newId, borrowedAssets);
+                    // update repositionedQuantity
+                    repositionedQuantity += borrowedAssets;
+                }
+                // if enough assets are repositioned, removal is completed
+                if (repositionedQuantity >= _quantityToBeRemoved) {
+                    break;
+                }
+            }
+        }
+
     // the function takes as input the borrower's address and the order id which is taken or canceled ('orderFrom')
     // borrowed assets from orderFrom are repositioned to the next best-price order ('orderTo'), if exists
     // cannot reposition to more than one order and only if all _borrowedAssets can be transferred to orderTo,

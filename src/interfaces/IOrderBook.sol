@@ -8,16 +8,22 @@ interface IOrderBook {
         bool _isBuyOrder
     ) external;
 
-    function removeOrder(uint256 _removedId, uint256 removedQuantity) external;
-
-    function takeOrder(uint256 _takenId, uint256 takenQuantity) external;
-
-    function borrowOrder(
-        uint256 _borrowedId,
-        uint256 borrowedQuantity
+    function removeOrder(
+        uint256 _removedOrderId,
+        uint256 _quantityToBeRemoved
     ) external;
 
-    function repayBorrowing(uint256 _repaidId, uint256 repaidQuantity) external;
+    function takeOrder(uint256 _takenOrderId, uint256 _takenQuantity) external;
+
+    function borrowOrder(
+        uint256 _borrowedOrderId,
+        uint256 _borrowedQuantity
+    ) external;
+
+    function repayBorrowing(
+        uint256 _repaidOrderId,
+        uint256 _repaidQuantity
+    ) external;
 
     event PlaceOrder(
         address maker,

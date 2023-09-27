@@ -2,10 +2,26 @@
 
 ## Actors
 
-- Makers: only place orders
-- Makers/borrowers: place orders and borrow from other-side orders (borrowers for short)
+- Makers: only place orders, receive interest
+- Makers/borrowers: place orders and borrow from other-side orders (borrowers for short), pay interest rate
 - Takers: take orders
 - Keepers: liquidate borderline positions due to growing interest rate
+
+## Allowances
+
+- Taking an order liquidates all positions which borrow from it and cannot be relocated
+- Cancelling an order cannot liquidate positions, only relocate them on the order book
+
+## Issues
+
+1. A maker takes his own limit order instead of cancelling it => bypasses the cancellation constraint
+2. A taker takes a limit order for \$1 at an arbitray price and liquidate borrowing positions => dust attack
+
+Possible solutions:
+
+- Cancelling liquidates positions which cannot be repositioned => makes 1) irrelevant ; ok if the book has enough liquidity to allow relocation most of the time
+- Pulling the price of an oracle before any taking to forbid unprofitable takings => forbids 2)
+- Imposing a minimum amount to take from an order to makes the attack costly (seems better)
 
 ## Core functions
 
