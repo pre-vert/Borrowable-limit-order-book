@@ -14,18 +14,47 @@
 
 ## Issues
 
-1. A maker takes his own limit order instead of cancelling it => bypasses the cancellation constraint
-2. A taker takes a limit order for \$1 at an arbitray price and liquidates borrowing positions => dust attack
+Issue 1. The liquidation of a borrowing position following the removal of an order could be challenging.
 
-Possible solutions:
+Example:
 
-- Cancelling liquidates positions which cannot be repositioned => makes 1. irrelevant ; ok if the book has enough liquidity to allow relocation most of the time
-- Pulling the price of an oracle before any taking to forbid unprofitable takings => forbids 2.
-- Imposing a minimum amount to take from an order to makes the attack costly (seems better)
+- Alice deposits 3600 USDC and places a buy order at price 1800 for 2 ETH
+- Bob deposits 1 ETH and places a sell order at price 2200 USDC
+- Bob borrows 1800 USDC from Alice's buy order
+- At current price $p \in (1800, 2200)$, Alice removes her order and claims 3600 USDC
+- If Bob's position cannot be relocated, he's liquidated, but his collateral is in ETH, not USDC
+
+Solutions:
+
+- The protocol takes enough ETH from Bob, swaps them for 1800 USDC and gives Alice the proceeds (if the proceeds is less than 1800 USDC, the swap is canceled and Alice is given 1 ETH)
+- Alice is prevented from removing the part of assets which would liquidate the borrowing positions
+
+I have a slight preference for the second solution. The first one relies on the protocole being able to programmatically execute a swap on an external AMM at a satisfactory rate, which could be challenging.
+
+Issue 2 (critical). A maker takes her own limit order instead of cancelling it, which hurts the borrowing positions
+
+Example:
+
+- Alice deposits 3600 USDC and places a buy order at price 1800 for 2 ETH
+- Bob deposits 1 ETH and places a sell order at price 2200 USDC
+- With the collateral, he borrows 1800 USDC from Alice's buy order
+- At current price $p \in (1800, 2200)$, Alice takes her own buy order for 1 ETH and receives 1800 USDC
+- If Bob's position cannot be relocated, this forces Bob to exchange his collateral (1 ETH) against 1800 USDC
+- Bob has lost $p - 1800$ USDC. Alice profits.
+
+Relocating the debt to another buy order avoids Bob's liquidation and prevents the attack but won't be always feasible.
+
+Solution: pulling the price of an oracle before any taking to forbid snapping an order at a loss.
 
 ## Core functions
 
-### PlaceOrder()
+```solidity
+placeOrder(
+        uint256 _quantity,
+        uint256 _price,
+        bool _isBuyOrder
+    ) external;
+```
 
 Who: Maker
 
@@ -43,7 +72,12 @@ Tasks:
 - update orders, users and borrowable list
 - emit event
 
-### RemoveOrder()
+```solidity
+removeOrder(
+        uint256 _removedOrderId,
+        uint256 _quantityToBeRemoved
+    ) external;
+```
 
 Who: Maker (remover)
 
@@ -64,15 +98,34 @@ Tasks:
 - update orders, users (borrowFromIds) and borrowable list (delete removed order)
 - emit event
 
-### TakeOrder()
+```solidity
+function takeOrder(
+        uint256 _takenOrderId,
+        uint256 _takenQuantity
+    ) external;
+```
 
-### BorrowOrder()
+```solidity
+borrowOrder(
+        uint256 _borrowedOrderId,
+        uint256 _borrowedQuantity
+    ) external;
+```
 
-### RepayBorrowing()
+```solidity
+repayBorrowing(
+        uint256 _repaidOrderId,
+        uint256 _repaidQuantity
+    ) external;
+```
 
 ## Internal functions
 
-### findNewPosition()
+```solidity
+findNewPosition(uint256 _positionId)
+        internal
+        returns (uint256 newOrderId)
+```
 
 Called by removeOrder() for each borrowing position to relocate
 
