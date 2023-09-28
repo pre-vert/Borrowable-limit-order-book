@@ -81,7 +81,7 @@ contract OrderBook is IOrderBook {
     }
 
     modifier isPositive(uint256 _var) {
-        require(_var > 0, "Mmust be positive");
+        require(_var > 0, "Must be positive");
         _;
     }
 
@@ -201,47 +201,35 @@ contract OrderBook is IOrderBook {
 
     // let users take sell and buy orders on the book, regardless their assets are borrowed or not
     // assets can be partially taken
-    // taking triggers liquidation of related borrowing positions which cannot be repositioned
+    // taking triggers liquidation of related borrowing positions if they cannot be relocated
     // some borrowing positions can be liquidated while others are repositioned
-    // the marginal borrowing position can be partially repositioned if taking is partial
-    // if they are liquidated, they are in full
+    // the marginal borrowing position can be partially relocated if taking is partial
+    // if they are relocated or liquidated, they are in full
 
     function takeOrder(
         uint256 _takenOrderId,
         uint256 _takenQuantity
     ) external orderExists(_takenOrderId) isPositive(_takenQuantity) {
+
         Order memory takenOrder = orders[_takenOrderId];
 
         require(
             _takenQuantity <= takenOrder.quantity,
             "takeOrder: Taken quantity exceeds deposit"
         );
+
+        uint256 quantity;
         if (takenOrder.isBuyOrder) {
-            uint256 baseQuantity = _takenQuantity / takenOrder.price;
-            require(
-                baseToken.balanceOf(msg.sender) >= baseQuantity,
-                "takeOrder, base token: Insufficient balance"
-            );
-            require(
-                baseToken.allowance(msg.sender, address(this)) >= baseQuantity,
-                "takeOrder, base token: Insufficient allowance"
-            );
+            quantity = _takenQuantity / takenOrder.price;
         } else {
-            uint256 quoteQuantity = _takenQuantity * takenOrder.price;
-            require(
-                quoteToken.balanceOf(msg.sender) >= quoteQuantity,
-                "takeOrder, quote token: Insufficient balance"
-            );
-            require(
-                quoteToken.allowance(msg.sender, address(this)) >=
-                    quoteQuantity,
-                "takeOrder, quote token: Insufficient allowance"
-            );
+            quantity = _takenQuantity * takenOrder.price;
         }
 
-        // tries to reposition enough associated borrowing positions (if any) in the order book to cover the taken quantity
-        // for each borrowing position detected, the matching engine tries to reposition the full position
-        // unless it is larger than what is left to be repositioned
+        checkAllowanceAndBalance(msg.sender, quantity, takenOrder.isBuyOrder);
+
+        // tries to reposition enough borrowing positions (if any) in the order book to cover the taken quantity
+        // for each borrowing position, the matching engine relocates the full position or nothing
+        // The last relocation can (if taking is partial) is typically larger than what is left to be repositioned
         // example: Alice deposits 3600 USDC to buy 2 ETH at 1800; Bob borrows 1800 and Carole 1200 from Alice
         // half of Alice's order is taken: the borrowing of 1800 USDC must be repositionned
         // Carole's borrowing is fully repositionned: remains 600 USDC to reposition
@@ -778,6 +766,29 @@ contract OrderBook is IOrderBook {
         success = true;
     }
 
+    function checkAllowanceAndBalance(address _user, uint256 _quantity, bool _isBuyOrder) {
+        if (_isBuyOrder) {
+            require(
+                baseToken.balanceOf(_user) >= _quantity,
+                "takeOrder, base token: Insufficient balance"
+            );
+            require(
+                baseToken.allowance(_user, address(this)) >= quantity,
+                "takeOrder, base token: Insufficient allowance"
+            );
+        } else {
+            require(
+                quoteToken.balanceOf(_user) >= quantity,
+                "takeOrder, quote token: Insufficient balance"
+            );
+            require(
+                quoteToken.allowance(_user, address(this)) >=
+                    quantity,
+                "takeOrder, quote token: Insufficient allowance"
+            );
+        }
+    }
+    
     function transferTokenFrom(address _from, uint256 _quantity, bool _isBuyOrder) 
         internal returns (bool success) {
         if (_isBuyOrder) {

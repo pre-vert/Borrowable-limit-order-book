@@ -15,7 +15,7 @@
 ## Issues
 
 1. A maker takes his own limit order instead of cancelling it => bypasses the cancellation constraint
-2. A taker takes a limit order for \$1 at an arbitray price and liquidate borrowing positions => dust attack
+2. A taker takes a limit order for \$1 at an arbitray price and liquidates borrowing positions => dust attack
 
 Possible solutions:
 
