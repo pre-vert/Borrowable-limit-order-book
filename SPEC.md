@@ -122,7 +122,7 @@ repayBorrowing(
 ## Internal functions
 
 ```solidity
-findNewPosition(uint256 _positionId)
+_findNewPosition(uint256 _positionId)
         internal
         returns (uint256 newOrderId)
 ```
@@ -135,7 +135,14 @@ input: positionId
 
 Tasks:
 
-### reposition()
+```solidity
+_reposition(
+    uint256 _positionId,
+    uint256 _orderToId,
+    uint256 _borrowedAssets)
+        internal
+        returns (bool success)
+```
 
 Called by RemoveOrder(), once a new order have been found
 
