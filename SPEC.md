@@ -7,56 +7,30 @@
 - Takers: take orders
 - Keepers: liquidate borderline positions due to growing interest rate
 
-## Allowances
+## Rules
 
-- Taking an order liquidates all positions which borrow from it and cannot be relocated
+- Taking an order relocates or liquidates all positions which borrow from it
 - Cancelling an order cannot liquidate positions, only relocate them on the order book
-
-## Issues
-
-Issue 1. The liquidation of a borrowing position following the removal of an order could be challenging.
-
-Example:
-
-- Alice deposits 3600 USDC and places a buy order at price 1800 for 2 ETH
-- Bob deposits 1 ETH and places a sell order at price 2200 USDC
-- Bob borrows 1800 USDC from Alice's buy order
-- At current price $p \in (1800, 2200)$, Alice removes her order and claims 3600 USDC
-- If Bob's position cannot be relocated, he's liquidated, but his collateral is in ETH, not USDC
-
-Solutions:
-
-- The protocol takes enough ETH from Bob, swaps them for 1800 USDC and gives Alice the proceeds (if the proceeds is less than 1800 USDC, the swap is canceled and Alice is given 1 ETH)
-- Alice is prevented from removing the part of assets which would liquidate the borrowing positions
-
-I have a slight preference for the second solution. The first one relies on the protocole being able to programmatically execute a swap on an external AMM at a satisfactory rate, which could be challenging.
-
-Issue 2 (critical). A maker takes her own limit order instead of cancelling it, which hurts the borrowing positions
-
-Example:
-
-- Alice deposits 3600 USDC and places a buy order at price 1800 for 2 ETH
-- Bob deposits 1 ETH and places a sell order at price 2200 USDC
-- With the collateral, he borrows 1800 USDC from Alice's buy order
-- At current price $p \in (1800, 2200)$, Alice takes her own buy order for 1 ETH and receives 1800 USDC
-- If Bob's position cannot be relocated, this forces Bob to exchange his collateral (1 ETH) against 1800 USDC
-- Bob has lost $p - 1800$ USDC. Alice profits.
-
-Relocating the debt to another buy order avoids Bob's liquidation and prevents the attack but won't be always feasible.
-
-Solution: pulling the price of an oracle before any taking to forbid snapping an order at a loss.
+- Taking an order which assets serve as collateral for a borrowing position has the effect of closing the borrowing position (see Potential issue 3. in [ISSUES.md](ISSUES.md#3))
+- Orders cannot be taken at a loss. A price oracle is pulled before any taking to check the condition (see Potential issue 2. in [ISSUES.md](ISSUES.md))
 
 ## Core functions
 
 ```solidity
 placeOrder(
-        uint256 _quantity,
-        uint256 _price,
-        bool _isBuyOrder
-    ) external;
+    uint256 _quantity,
+    uint256 _price,
+    bool _isBuyOrder
+) external;
 ```
 
 Who: Maker
+
+Consequences:
+
+- increases collateral and borrowing capacity for the maker
+- more borrowable assets for other borrower
+- more orders to relocate positions from removed orders
 
 Inputs :
 
@@ -67,19 +41,24 @@ Inputs :
 
 Tasks:
 
-- sanity checks
-- transfer tokens to the pool
-- update orders, users and borrowable list
-- emit event
+- performs sanity checks
+- transfers tokens to the pool
+- updates orders, users and borrowable list
+- emits event
 
 ```solidity
 removeOrder(
-        uint256 _removedOrderId,
-        uint256 _quantityToBeRemoved
-    ) external;
+    uint256 _removedOrderId,
+    uint256 _quantityToBeRemoved
+) external;
 ```
 
 Who: Maker (remover)
+
+Consequences:
+
+- less collateral and borrowing capacity for the remover
+- less borrowable assets for other borrower
 
 Inputs :
 
@@ -88,20 +67,25 @@ Inputs :
 
 Tasks:
 
-- sanity checks
+- performs sanity checks
 - calls \_displaceAssets(): scan available orders to reposition debt at least equal to quantity to be removed
-- transfer tokens to the remover (full or partial)
-- update orders, users (borrowFromIds) and borrowable list (delete removed order)
-- emit event
+- transfers tokens to the remover (full or partial)
+- updates orders, users (borrowFromIds) and borrowable list (delete removed order)
+- emits event
 
 ```solidity
 function takeOrder(
-        uint256 _takenOrderId,
-        uint256 _takenQuantity
-    ) external;
+    uint256 _takenOrderId,
+    uint256 _takenQuantity
+) external;
 ```
 
-Who: anyone (including the maker and borrowers of the taken order)
+Who: anyone (including the maker and borrowers of the order)
+
+Consequences:
+
+- less orders and assets in the book
+- less collateral and borrowing capacity for the maker which order is taken
 
 Inputs :
 
@@ -110,33 +94,78 @@ Inputs :
 
 Tasks:
 
-- sanity checks
+- performs sanity checks
 - calls \_displaceAssets(): relocates all borrowing positions, liquidates those which couldn't be relocated
 - checks taker's balance and allowance
+- if taking is full, remove:
+  - order in orders
+  - orderId in depositIds array in users
+  - orderId from the list of borrowable orders
+- otherwise adjust internal balances
 - transfers ERC20 tokens between the taker and the maker
-- updates orders, users (depositIds) and borrowable list (delete removed order)
-- emit event
+- emits event
 
 ```solidity
 borrowOrder(
-        uint256 _borrowedOrderId,
-        uint256 _borrowedQuantity
-    ) external;
+    uint256 _borrowedOrderId,
+    uint256 _borrowedQuantity
+) external;
 ```
+
+Who: makers with enough deposited assets
+
+Inputs :
+
+- \_borrowedOrderId id of the order which assets are borrowed
+- \_borrowedQuantity quantity of assets borrowed from the order
+
+Tasks:
+
+- sanity checks
+- checks if borrower has enough collateral
+- updates users: add orderId to borrowFromIds
+- updates position and orders if a new borrowing position is created
+- updates borrowable list: delete order if its assets are fully borrowed
+- transfers ERC20 tokens to borrower
+- emits event
 
 ```solidity
 repayBorrowing(
-        uint256 _repaidOrderId,
-        uint256 _repaidQuantity
-    ) external;
+    uint256 _repaidOrderId,
+    uint256 _repaidQuantity
+) external;
 ```
+
+Who: borrowers
+
+Consequences:
+
+- releases collateral for the borrower
+- may unlock removal of collateral
+- more borrowable assets for other borrower
+
+Inputs :
+
+- \_borrowedOrderId id of the order which assets are borrowed
+- \_borrowedQuantity quantity of assets borrowed from the order
+
+Tasks:
+
+- sanity checks
+- update positions: decrease borrowed assets
+- if borrowing is fully repaid, delete:
+  - position in positions
+  - positionId from positionIds in orders
+  - if user is not a borrower anymore, include all his orders in the borrowable list
+- transfers ERC20 tokens to borrower
+- emits event
 
 ## Internal functions
 
 ```solidity
 _findNewPosition(uint256 _positionId)
-        internal
-        returns (uint256 newOrderId)
+    internal
+    returns (uint256 newOrderId)
 ```
 
 Called by removeOrder() for each borrowing position to relocate
@@ -152,8 +181,8 @@ _reposition(
     uint256 _positionId,
     uint256 _orderToId,
     uint256 _borrowedAssets)
-        internal
-        returns (bool success)
+    internal
+    returns (bool success)
 ```
 
 Called by RemoveOrder(), once a new order have been found
@@ -175,9 +204,9 @@ Tasks:
 
 ```solidity
 function _displaceAssets(
-        uint256 _orderId,
-        uint256 _quantityToBeDisplaced,
-        bool _forceLiquidation
+    uint256 _orderId,
+    uint256 _quantityToBeDisplaced,
+    bool _forceLiquidation
     )
 internal
 returns (uint256 displacedQuantity)

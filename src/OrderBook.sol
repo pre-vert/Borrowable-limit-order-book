@@ -26,6 +26,8 @@ contract OrderBook is IOrderBook {
     /// mapping positions links orders and borrowers ina P2P fashion and stores borrowing positions in a struct Position
     /// buyOrderList and sellOrderList are unordered lists of buy and sell orders id to scan for new orders
 
+    bool internal constant FORCE_LIQUIDATION = true;
+    
     struct Order {
     address maker; // address of the maker
     bool isBuyOrder; // true for buy orders, false for sell orders
@@ -126,13 +128,8 @@ contract OrderBook is IOrderBook {
         bool _isBuyOrder
     ) external isPositive(_quantity) isPositive(_price) {
 
+        _checkAllowanceAndBalance(msg.sender, _quantity, _isBuyOrder);
         _transferTokenFrom(msg.sender, _quantity, _isBuyOrder);
-        
-        if (_isBuyOrder) {
-            buyOrderList.push(lastOrderId);
-        } else {
-            sellOrderList.push(lastOrderId);
-        }
 
         // Update orders mapping
         uint256[] memory borrowingIds; // Empty array
@@ -154,13 +151,9 @@ contract OrderBook is IOrderBook {
         users[msg.sender] = user;
 
         // Update list of borrowable orders
-        if (_isBuyOrder) {
-            buyOrderList.push(lastOrderId);
-        } else {
-            sellOrderList.push(lastOrderId);
-        }
-
+        _pushOrderInBorrowables(lastOrderId);   
         lastOrderId++;
+        
         emit PlaceOrder(msg.sender, _quantity, _price, _isBuyOrder);
     }
 
@@ -196,8 +189,7 @@ contract OrderBook is IOrderBook {
         // remove borrowing positions eqyivalent to the removed quantity
         // output the quantity actually repositioned
 
-        bool forceLiquidation = false;
-        uint256 repositionedQuantity = _displaceAssets(_removedOrderId, _quantityToBeRemoved, forceLiquidation);
+        uint256 repositionedQuantity = _displaceAssets(_removedOrderId, _quantityToBeRemoved, !FORCE_LIQUIDATION);
 
         // removal is executed for the quantity actually relocated
         uint256 transferredQuantity = repositionedQuantity.min(_quantityToBeRemoved);
@@ -248,8 +240,7 @@ contract OrderBook is IOrderBook {
         // remove or liquidate all borrowing positions
         // output the quantity actually displaced, which must be >= the taken quantity
 
-        bool forceLiquidation = true;
-        uint256 displacedQuantity = _displaceAssets(_takenOrderId, _takenQuantity, forceLiquidation);
+        uint256 displacedQuantity = _displaceAssets(_takenOrderId, _takenQuantity, FORCE_LIQUIDATION);
         require(
             displacedQuantity >= _takenQuantity,
             "takeOrder: insufficient displaced quantity"
@@ -263,10 +254,7 @@ contract OrderBook is IOrderBook {
             exchangedQuantity = _takenQuantity * takenOrder.price;
         }
 
-        _checkAllowanceAndBalance(msg.sender, exchangedQuantity, takenOrder.isBuyOrder);
-        _transferTokenFrom(msg.sender, exchangedQuantity, takenOrder.isBuyOrder);
-        _transferTokenTo(takenOrder.maker, exchangedQuantity, takenOrder.isBuyOrder);
-        _transferTokenTo(msg.sender, _takenQuantity, takenOrder.isBuyOrder);
+        _checkAllowanceAndBalance(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder);
 
         // if taking is full:
         // - remove order in orders
@@ -280,6 +268,12 @@ contract OrderBook is IOrderBook {
         } else {
             takenOrder.quantity -= _takenQuantity;
         }
+
+        // if a buy order is taken, the taker pays the quoteToken and receives the baseToken
+        _checkAllowanceAndBalance(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder);
+        _transferTokenFrom(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder);
+        _transferTokenTo(takenOrder.maker, exchangedQuantity, takenOrder.isBuyOrder);
+        _transferTokenTo(msg.sender, _takenQuantity, takenOrder.isBuyOrder);
 
         emit TakeOrder(
             msg.sender,
@@ -324,8 +318,6 @@ contract OrderBook is IOrderBook {
             "borrowOrder: Insufficient equity to borrow assets, deposit more collateral"
         );
 
-        _transferTokenTo(msg.sender, _borrowedQuantity, borrowedOrder.isBuyOrder);
-
         // update users: add orderId in borrowFromIds array
         // check first if borrower already borrows from order
         uint256 row = getBorrowFromIdsRowInUser(msg.sender, _borrowedOrderId);
@@ -355,6 +347,8 @@ contract OrderBook is IOrderBook {
             _removeOrderFromBorrowables(_borrowedOrderId);
         }
 
+        _transferTokenTo(msg.sender, _borrowedQuantity, borrowedOrder.isBuyOrder);
+
         emit BorrowOrder(
             msg.sender,
             _borrowedOrderId,
@@ -371,30 +365,47 @@ contract OrderBook is IOrderBook {
     function repayBorrowing(
         uint256 _repaidOrderId,
         uint256 _repaidQuantity
-    ) external orderExists(_repaidOrderId) isPositive(_repaidQuantity) {
-        (uint256 borrowedQuantity, uint256 borrowingId) = getBorrowerPosition(
-            msg.sender,
-            _repaidOrderId
-        );
+    ) external 
+    orderExists(_repaidOrderId) 
+    isPositive(_repaidQuantity)
+    {
+        Orders memory repaidOrder = orders[_repaidOrderId];
 
+        uint256 positionId = getPositionIdInPositions(msg.sender, _repaidOrderId);
         require(
-            borrowedQuantity > 0,
+            positionId != 2**256 - 1 && position[positionId].borrowedAssets > 0,
             "repayBorrowing: No borrowing position found"
         );
 
         require(
-            borrowedQuantity >= _repaidQuantity,
+            _repaidQuantity <= position[positionId].borrowedAssets,
             "repayBorrowing: Repaid quantity exceeds borrowed quantity"
         );
 
-        trasnferFrom(mes.sender, _repaidQuantity, orders[_repaidOrderId].isBuyOrder);
+        // update positions: decrease borrowedAssets
+        position[positionId].borrowedAssets -= _repaidQuantity;
 
-        positions[borrowingId].borrowedAssets -= _repaidQuantity;
-
-        // if the borrowing line is emptied, delete it from the positions mapping
+        // if borrowing is fully repaid, delete position in positions and positionId from positionIds in orders
         if (positions[borrowingId].borrowedAssets == 0) {
             delete positions[borrowingId];
+            uint256 row = getPositionIdsRowInOrders(_repaidOrderId, positionId);
+            if (row != 2**256 - 1) {
+                orders[_repaidOrderId].positionIds[row] 
+                = orders[_repaidOrderId].positionIds[orders[_repaidOrderId].positionIds.length - 1];
+                orders[_repaidOrderId].positionIds.pop();
+            }
+            // if user is not a borrower anymore, his own orders become borrowable
+            // => include all his orders in the borrowable list
+            if (!isMakerBorrower(msg.sender)) {
+                for (uint256 i = 0; i < users[msg.sender].depositIds.length; i++) {
+                    uint256 orderId = users[msg.sender].depositIds[i];
+                    _pushOrderInBorrowables(orderId);
+                }
+            }
         }
+
+        _checkAllowanceAndBalance(ms.sender, _repaidQuantity, orders[_repaidOrderId].isBuyOrder);
+        _transferTokenFrom(ms.sender, _repaidQuantity, orders[_repaidOrderId].isBuyOrder);
 
         emit repayLoan(
             msg.sender,
@@ -466,7 +477,7 @@ contract OrderBook is IOrderBook {
 
     function _reposition(uint256 _positionId, uint256 _orderToId, uint256 _borrowedAssets)
         internal
-        positionExists(_positionId) positionExists(_orderToId)
+        positionExists(_positionId) orderExists(_orderToId)
         returns (bool success)
     {
         address borrower = positions[_positionId].borrower;
@@ -504,21 +515,24 @@ contract OrderBook is IOrderBook {
             orders[_orderToId].positionIds.push(newPosition);
         }
 
-        // update users: delete positionId in borrowFromIds
-        
+        // update users: delete positionId in borrowFromIds array
         users[borrower].borrowFromIds[row] 
         = users[borrower].borrowFromIds[users[borrower].borrowFromIds.length - 1];
         users[borrower].borrowFromIds.pop();
         // delete orderFrom from positionIds in orders mapping
         uint256 row = getPositionIdsRowInOrders(positions[_positionId].orderId, _positionId);
-        orderFrom.positionIds[row] = orderFrom.positionIds[orderFrom.positionIds.length - 1];
+        if (row != 2**256 - 1) {
+            Order orderFrom = orders[positions[_positionId].orderId];
+            orderFrom.positionIds[row] = orderFrom.positionIds[orderFrom.positionIds.length - 1];
         orderFrom.positionIds.pop();
+        }
+        
 
 
         _removeOrderFromBorrowFromIds(orders[_removedOrderId].maker, _removedOrderId);
     }
     
-    // called by removeOrder with _forceLiquidation = false and takeOrder with _forceLiquidation = true
+    // called by removeOrder with FORCE_LIQUIDATION and takeOrder with !FORCE_LIQUIDATION
     // if removal or taking is full, try to reposition *all* related borrowing positions
     // if removal or taking is partial, try to reposition enough to cover removed or taken quantity
     // positions are fully relocated or not at all
@@ -529,7 +543,7 @@ contract OrderBook is IOrderBook {
     function _displaceAssets(
         uint256 _orderId, 
         uint256 _quantityToBeDisplaced, 
-        bool _forceLiquidation
+        bool _liquidate
     ) 
     internal returns (uint256 displacedQuantity) {
         
@@ -547,7 +561,7 @@ contract OrderBook is IOrderBook {
                 _reposition(_orderId, newId, borrowedAssets);
                 // update displacedQuantity
                 displacedQuantity += borrowedAssets;
-            } else if (_forceLiquidation) {
+            } else if (_liquidate) {
                 // if no new order is found, liquidate the borrowing position
                 _liquidate(positions[positionIds[i]].borrower, _orderId);
                 displacedQuantity += borrowedAssets;
@@ -734,6 +748,7 @@ contract OrderBook is IOrderBook {
         }
     }
 
+    // tranfer ERC20 tokens from the contract to the user
     function _transferTokenTo(address _to, uint256 _quantity, bool _isBuyOrder) 
         internal returns (bool success) {
         if (_isBuyOrder) {
@@ -744,6 +759,9 @@ contract OrderBook is IOrderBook {
         success = true;
     }
 
+    // check allowance and balance before ERC20 transfer
+    // 
+    
     function _checkAllowanceAndBalance(
         address _user, 
         uint256 _quantity,
@@ -752,44 +770,34 @@ contract OrderBook is IOrderBook {
         success = false;
         if (_isBuyOrder) {
             require(
-                baseToken.balanceOf(_user) >= _quantity,
-                "takeOrder, base token: Insufficient balance"
+                quoteToken.balanceOf(_user) >= _quantity,
+                "quote token: Insufficient balance"
             );
             require(
-                baseToken.allowance(_user, address(this)) >= quantity,
-                "takeOrder, base token: Insufficient allowance"
+                quoteToken.allowance(_user, address(this)) >= quantity,
+                "quote token: Insufficient allowance"
             );
         } else {
             require(
-                quoteToken.balanceOf(_user) >= quantity,
-                "takeOrder, quote token: Insufficient balance"
+                baseToken.balanceOf(_user) >= quantity,
+                "base token: Insufficient balance"
             );
             require(
-                quoteToken.allowance(_user, address(this)) >=
+                baseToken.allowance(_user, address(this)) >=
                     quantity,
-                "takeOrder, quote token: Insufficient allowance"
+                "base token: Insufficient allowance"
             );
         }
         success = true;
     }
     
+    // transfer ERC20 tokens from user to the contract
     function _transferTokenFrom(address _from, uint256 _quantity, bool _isBuyOrder) 
-        internal returns (bool success) {
+        internal returns (bool success) 
+    {
         if (_isBuyOrder) {
-            require(quoteToken.balanceOf(_from) >= _quantity,
-                "quote token: Insufficient balance"
-            );
-            require(quoteToken.allowance(_from, address(this)) >= _quantity,
-                "quote token: Insufficient allowance"
-            );
             quoteToken.transferFrom(_from, address(this), _quantity);
         } else {
-            require(baseToken.balanceOf(_from) >= _quantityy,
-                "base token: Insufficient balance"
-            );
-            require(baseToken.allowance(_from, address(this)) >= _quantity
-                "base token: Insufficient allowance"
-            );
             baseToken.transferFrom(_from, address(this), _quantity);
         }
         success = true;
@@ -825,6 +833,24 @@ contract OrderBook is IOrderBook {
             users[_maker].depositIds.pop();
             success = true;
         }
+    }
+
+    // push order in the list of borrowable orders
+    function _pushOrderInBorrowables(uint256 _orderId)
+        internal
+        orderExists(_orderId)
+        returns (bool success)
+    {
+        success = false;
+        uint256 row = getOrderIdRowInBorrowables(_orderId);
+        if (row == 2**256 - 1) {
+            if (orders[_orderId]_isBuyOrder) {
+                buyOrderList.push(lastOrderId);
+            } else {
+                sellOrderList.push(lastOrderId);
+            }
+        }
+        success = true;
     }
 
     // remove order from the list of borrowable orders
