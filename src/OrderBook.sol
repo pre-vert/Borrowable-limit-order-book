@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.20;
 
+/// @title A borrowable order book for ERC20 tokens
+/// @author Pré-vert
+/// @notice Allows users to place limit orders on the book, take orders, and borrow assets
+/// @dev A money market for the pair base/quote is handled by a single contract
+/// which manages both order book operations lending/borrowing operations
+
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IOrderBook} from "./interfaces/IOrderBook.sol";
@@ -13,12 +19,20 @@ contract OrderBook is IOrderBook {
     IERC20 private quoteToken;
     IERC20 private baseToken;
 
+    
+    /// @notice provide core public functions (place, take, remove, borrow, repay),
+    /// internal functions (find new orders, reposition, liquidate) and view functions
+    /// @dev mapping orders stores orders in a struct Order
+    /// mapping users stores users (makers and borrowers) in a struct User
+    /// mapping positions links orders and borrowers ina P2P fashion and stores borrowing positions in a struct Position
+    /// buyOrderList and sellOrderList are unordered lists of buy and sell orders id to scan for new orders
+
     struct Order {
-        address maker; // address of the maker
-        bool isBuyOrder; // true for buy orders, false for sell orders
-        uint256 quantity; // assets deposited (quoteToken for buy orders, baseToken for sell orders)
-        uint256 price; // price of the order
-        uint256[] positionIds; // stores positions id in mapping positions who borrow from order
+    address maker; // address of the maker
+    bool isBuyOrder; // true for buy orders, false for sell orders
+    uint256 quantity; // assets deposited (quoteToken for buy orders, baseToken for sell orders)
+    uint256 price; // price of the order
+    uint256[] positionIds; // stores positions id in mapping positions who borrow from order
     }
 
     struct User {
@@ -90,9 +104,11 @@ contract OrderBook is IOrderBook {
         _;
     }
 
-    // lets users place orders in the order book
-    // transfers the assets to the order book
-    // adds a balance in the mapping orders
+    /// @notice lets users place orders in the order book
+    /// @dev Update ERC20 balances. The order is stored in the mapping orders
+    /// @param _quantity The quantity of assets deposited (quoteToken for buy orders, baseToken for sell orders)
+    /// @param _price price of the buy or sell order
+    /// @param _isBuyOrder true for buy orders, false for sell orders
 
     function placeOrder(
         uint256 _quantity,
@@ -135,16 +151,16 @@ contract OrderBook is IOrderBook {
         }
 
         lastOrderId++;
-
         emit PlaceOrder(msg.sender, _quantity, _price, _isBuyOrder);
     }
 
-    // lets users partially or fully remove their orders from the book
-    // the same order can have multiple borrowers
-    // full removal is subject to succesful reallocation of all borrowed assets
-    // partial removal is subject to relocation of enough borrowing positions
-    // all assets in the removed order >= desired quantity >= quantity actually removed
-    // orders[_removedOrderId].quantity >= _quantityToBeRemoved >= repositionedQuantity >= 0
+    /// @notice lets user partially or fully remove her order from the book
+    /// The same order can have multiple borrowers, which position must be displaced
+    /// Full removal is subject to succesful reallocation of all borrowed assets
+    /// Partial removal is subject to relocation of enough borrowing positions
+    /// If removal is partial, the order is updated with the remaining quantity
+    /// @param _removedOrderId id of the order to be removed
+    /// @param _quantityToBeRemoved desired quantity of assets removed
 
     function removeOrder(
         uint256 _removedOrderId,
@@ -199,11 +215,13 @@ contract OrderBook is IOrderBook {
         );
     }
 
-    // let users take limit orders on the book, regardless their assets are borrowed or not
-    // assets can be partially taken
-    // taking triggers liquidation of related borrowing positions if they cannot be relocated
-    // some borrowing positions can be liquidated while others are repositioned
-    // regardless they are relocated or liquidated, they are in full
+    /// @notice Let users take limit orders on the book, regardless their assets are borrowed or not
+    /// Assets can be partially taken
+    /// taking triggers liquidation of borrowing positions which couldn't be relocated
+    /// some borrowing positions can be liquidated while others are repositioned
+    /// regardless they are relocated or liquidated, they are in full
+    /// @param _takenOrderId id of the order to be taken
+    /// @param _takenQuantity quantity of assets taken from the order
 
     function takeOrder(
         uint256 _takenOrderId,
@@ -264,12 +282,15 @@ contract OrderBook is IOrderBook {
         );
     }
 
-    // let users with assets on the book borrow assets on the other side of the book
-    // create a borrowing position or increase an existing one
-    // orders are borrowable if
-    // - the maker is not a borrower (i.e. the assets are not used as collateral)
-    // - the borrower does not demand more assets than available
-    // - the borrower has enough equity to borrow the assets
+    /// @notice Lets users borrow assets on the book
+    /// Borrowers need to place first orders on the othe side of the book with enough assets
+    /// Creates or increases a borrowing position
+    /// orders are borrowable if:
+    /// - the maker is not a borrower (his deposited assets are not used as collateral)
+    /// - the borrower does not demand more assets than available
+    /// - the borrower has enough equity to borrow the assets
+    /// @param _borrowedOrderId id of the order which assets are borrowed
+    /// @param _borrowedQuantity quantity of assets borrowed from the order
 
     function borrowOrder(
         uint256 _borrowedOrderId,
