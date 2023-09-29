@@ -89,11 +89,7 @@ Inputs :
 Tasks:
 
 - sanity checks
-- scan available orders to reposition debt at least equal to quantity to be removed
-  - find available orders: findNewPosition()
-  - relocate debt from removed order to available orders: reposition()
-  - update repositioned quantity
-  - stop when repositioned quantity >= quantity to be removed
+- calls \_displaceAssets(): scan available orders to reposition debt at least equal to quantity to be removed
 - transfer tokens to the remover (full or partial)
 - update orders, users (borrowFromIds) and borrowable list (delete removed order)
 - emit event
@@ -104,6 +100,22 @@ function takeOrder(
         uint256 _takenQuantity
     ) external;
 ```
+
+Who: anyone (including the maker and borrowers of the taken order)
+
+Inputs :
+
+- \_takenOrderId id of the order to be taken
+- \_takenQuantity quantity of assets taken from the order
+
+Tasks:
+
+- sanity checks
+- calls \_displaceAssets(): relocates all borrowing positions, liquidates those which couldn't be relocated
+- check taker's balance and allowance
+- transfer ERC20 tokens between the taker and the taker (full or partial)
+- update orders, users (depositIds) and borrowable list (delete removed order)
+- emit event
 
 ```solidity
 borrowOrder(
@@ -160,3 +172,22 @@ Tasks:
 - update positionIds in orders (create a new positionId)
 - update borrowFromIds in users (delete previous positionId, create new positionId)
 - update buy or sellOrderList (orderTo may become unborrowable)
+
+```solidity
+function _displaceAssets(
+        uint256 _orderId,
+        uint256 _quantityToBeDisplaced,
+        bool _forceLiquidation
+    )
+internal
+returns (uint256 displacedQuantity)
+```
+
+Called by removeOrder() and takeOrder()
+
+Scan orders in borrowable list to reposition the debt at least equal to quantity to be removed or taken:
+
+- calls findNewPosition(): finds available orders:
+- calls reposition(): relocate debt from removed order to available orders
+- updates repositioned quantity
+- stop when repositioned quantity >= quantity to be removed

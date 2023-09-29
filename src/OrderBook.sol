@@ -271,8 +271,6 @@ contract OrderBook is IOrderBook {
             takenOrder.quantity -= _takenQuantity;
         }
 
-        // update users: remove from depositsIds if taking is full
-
         emit TakeOrder(
             msg.sender,
             takenOrder.maker,
@@ -282,11 +280,10 @@ contract OrderBook is IOrderBook {
         );
     }
 
-    /// @notice Lets users borrow assets on the book
-    /// Borrowers need to place first orders on the othe side of the book with enough assets
-    /// Creates or increases a borrowing position
+    /// @notice Lets users borrow assets on the book (creates or increases a borrowing position)
+    /// Borrowers need to place orders first on the othe side of the book with enough assets
     /// orders are borrowable if:
-    /// - the maker is not a borrower (his deposited assets are not used as collateral)
+    /// - the maker is not a borrower (his assets are not used as collateral)
     /// - the borrower does not demand more assets than available
     /// - the borrower has enough equity to borrow the assets
     /// @param _borrowedOrderId id of the order which assets are borrowed
@@ -366,7 +363,10 @@ contract OrderBook is IOrderBook {
         );
     }
 
-    // lets users decrease or close a borrowing position
+
+    /// @notice lets users decrease or close a borrowing position
+    /// @param _repaidOrderId id of the order which assets are paid back
+    /// @param _repaidQuantity quantity of assets paid back
 
     function repayBorrowing(
         uint256 _repaidOrderId,
@@ -531,7 +531,7 @@ contract OrderBook is IOrderBook {
         uint256 _quantityToBeDisplaced, 
         bool _forceLiquidation
     ) 
-    internal return(uint256 displacedQuantity) {
+    internal returns (uint256 displacedQuantity) {
         
         displacedQuantity = 0;
         // iterate on the borrowing ids of the order to be removed
