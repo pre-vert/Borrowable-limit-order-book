@@ -19,7 +19,6 @@ contract OrderBook is IOrderBook {
     IERC20 private quoteToken;
     IERC20 private baseToken;
 
-    
     /// @notice provide core public functions (place, take, remove, borrow, repay),
     /// internal functions (find new orders, reposition, liquidate) and view functions
     /// @dev mapping orders stores orders in a struct Order
@@ -60,7 +59,7 @@ contract OrderBook is IOrderBook {
     uint256 maxListSize = 10; // maximum number of orders to be scanned when repositioning debt
     
     uint256 lastOrderId = 0;
-    uint256 lastPositionIndex = 0;
+    uint256 lastPositionId = 0;
 
     constructor(address _quoteToken, address _baseToken) {
         quoteToken = IERC20(_quoteToken);
@@ -101,6 +100,17 @@ contract OrderBook is IOrderBook {
 
     modifier onlyMaker(address maker) {
         require(maker == msg.sender, "removeOrder: Only the maker can remove the order");
+        _;
+    }
+
+    // only assets which do not serve as collateral are borrowable
+    // check if the maker is not a borrower
+
+    modifier isBorrowable(uint256 _orderId) {
+        require(
+            !isMakerBorrower(getMaker(_orderId)),
+            "Assets used as collateral: not available for borrowing"
+        );
         _;
     }
 
@@ -296,18 +306,9 @@ contract OrderBook is IOrderBook {
         external
         orderExists(_borrowedOrderId)
         isPositive(_borrowedQuantity)
+        isBorrowable(_borrowedOrderId)
     {
         Order memory borrowedOrder = orders[_borrowedOrderId];
-
-        require(
-            _borrowedQuantity > 0,
-            "borrowOrder: Borrowed assets must be positive"
-        );
-
-        require(
-            isOrderBorrowable(_borrowedOrderId),
-            "borrowOrder: Assets not available for borrowing"
-        );
 
         uint256 availableAssets = borrowedOrder.quantity -
             getTotalAssetsLentByOrder(_borrowedOrderId);
@@ -316,43 +317,42 @@ contract OrderBook is IOrderBook {
             "borrowOrder: Insufficient available assets"
         );
 
-        // borrowerEquity is excess deposit available to collateralize additional debt
-        uint256 borrowerEquity = getUserTotalDeposit(
-            msg.sender,
-            borrowedOrder.isBuyOrder
-        ) - getBorrowerNeededCollateral(msg.sender, borrowedOrder.isBuyOrder);
+        // userEquity: excess deposits available to collateralize additional debt
         require(
-            borrowedOrder.quantity <= borrowerEquity,
-            "borrowOrder: Deposit more collateral"
+            getUserEquity(msg.sender, borrowedOrder.isBuyOrder) >=
+            borrowedOrder.quantity,
+            "borrowOrder: Insufficient equity to borrow assets, deposit more collateral"
         );
 
         _transferTokenTo(msg.sender, _borrowedQuantity, borrowedOrder.isBuyOrder);
 
-        // update internal records for the new borrowing position
-        // begin by searching for an existing borrowing position to update
-
-        uint256[] memory positionIds = orders[_borrowedOrderId].positionIds;
-        bool borrowerExists = false;
-
-        for (uint256 i = 0; i < positionIds.length; i++) {
-            if (positions[positionIds[i]].user == msg.sender) {
-                positions[positionIds[i]].borrowedAssets += _borrowedQuantity;
-                borrowerExists = true;
-                break;
-            }
+        // update users: add orderId in borrowFromIds array
+        // check first if borrower already borrows from order
+        uint256 row = getBorrowFromIdsRowInUser(msg.sender, _borrowedOrderId);
+        if (row == 2**256 - 1) {
+            users[msg.sender].borrowFromIds.push(_borrowedOrderId);
         }
 
-        // if no existing borrowing position, create a new one
-
-        if (!borrowerExists) {
-            Position memory newBorrower = Position({
+        // update positions: add borrowing position
+        // check first if a borrowing position alreday exists
+        uint256 positionId = getPositionIdInPositions(msg.sender, _borrowedOrderId);
+        if (positionId != 2**256 - 1) {
+            positions[positionId].borrowedAssets += _borrowedQuantity;
+        } else {
+            Position memory newPosition = Position({
                 borrower: msg.sender,
                 orderId: _borrowedOrderId,
                 borrowedAssets: _borrowedQuantity
             });
+            positions[lastPositionId] = newPosition;
+            // update orders: add positionId in positionIds array
+            orders[_borrowedOrderId].positionIds.push(lastPositionId);
+            lastPositionId ++;
+        }
 
-            positions[lastBorrowerIndex] = newBorrower;
-            lastBorrowerIndex++;
+        // update borrowables: remove order from borrowables if no more assets available
+        if (getTotalAssetsLentByOrder(_borrowedOrderId) == orders[_borrowedOrderId].quantity) {
+            _removeOrderFromBorrowables(_borrowedOrderId);
         }
 
         emit BorrowOrder(
@@ -474,7 +474,7 @@ contract OrderBook is IOrderBook {
         // update orders: add new positionId in positionIds array
         // check first that borrower does not borrow from _orderTo already
 
-        uint256 row = getPositionIdRowInPosition(_orderToId, borrower);
+        uint256 row = getPositionIdRowInOrders(borrower, _orderToId);
         if (row != 2**256 - 1) {
             positions[_positionId].borrowedAssets += _borrowedAssets;
         } else {
@@ -510,7 +510,7 @@ contract OrderBook is IOrderBook {
         = users[borrower].borrowFromIds[users[borrower].borrowFromIds.length - 1];
         users[borrower].borrowFromIds.pop();
         // delete orderFrom from positionIds in orders mapping
-        uint256 row = getOrderIdRowInPosition(positions[_positionId].orderId, _positionId);
+        uint256 row = getPositionIdsRowInOrders(positions[_positionId].orderId, _positionId);
         orderFrom.positionIds[row] = orderFrom.positionIds[orderFrom.positionIds.length - 1];
         orderFrom.positionIds.pop();
 
@@ -827,6 +827,7 @@ contract OrderBook is IOrderBook {
         }
     }
 
+    // remove order from the list of borrowable orders
     function _removeOrderFromBorrowables(uint256 _orderId)
         internal
         orderExists(_orderId)
@@ -845,6 +846,25 @@ contract OrderBook is IOrderBook {
             success = true;
         }
     }
+
+
+    // update orders: add new positionId in positionIds array
+    // check first that borrower does not borrow from _orderTo already
+
+    function _addOrderToPositions(address _borrower, uint256 _orderId, uint256 _borrowedAssets)
+
+        uint256 row = getPositionIdRowInPosition(borrower, _orderToId);
+        if (row != 2**256 - 1) {
+            positions[_positionId].borrowedAssets += _borrowedAssets;
+        } else {
+            newPosition = Position({
+                borrower: borrower,
+                orderId: _orderToId,
+                borrowedAssets: _borrowedAssets
+            });
+            orders[_orderToId].positionIds.push(newPosition);
+        }
+
     
 
     //////////********* View functions *********/////////
@@ -886,15 +906,6 @@ contract OrderBook is IOrderBook {
         bool _isBuyOrder
     ) internal view returns (uint256[] memory oderList) {
         orderList = _isBuyOrder ? buyOrderList : sellOrderList;
-    }
-
-    // only assets which do not serve as collateral are borrowable
-    // check if the maker is not a borrower
-
-    function isOrderBorrowable(
-        uint256 _orderIndex
-    ) internal view orderExists(_orderId) returns (bool) {
-        return !isMakerBorrower(getMaker(_orderIndex));
     }
 
     // get all assets deposited by a trader/borrower backing his limit orders, in the quote or base token
@@ -994,8 +1005,8 @@ contract OrderBook is IOrderBook {
         }
     }
     
-    // find in users if _borrower borrows from _orderId
-    // and, if so, what is its row in the borrowFromIds array
+    // check if user borrows from order
+    // if so, returns the row in the borrowFromIds array
 
     getBorrowFromIdsRowInUser(
         address _borrower,
@@ -1014,7 +1025,7 @@ contract OrderBook is IOrderBook {
     // find in positionIds from orders if _positionId is included 
     // and, if so, at which row in positionIds array
 
-    function getOrderIdRowInPosition(
+    function getPositionIdsRowInOrders(
         uint256 _orderId,
         uint256 _positionId // in the positionIds array of the order _orderId
     ) internal view returns (uint256 PositionIdRow) {
@@ -1031,9 +1042,9 @@ contract OrderBook is IOrderBook {
     // find in positionIds from orders if _borrower borrows from _orderId
     // and, if so, at which row in the positionId array
 
-    function getPositionIdRowInPosition(
-        uint256 _orderId,
-        address _borrower
+    function getPositionIdRowInOrders(
+        address _borrower,
+        uint256 _orderId
     ) internal view returns (uint256 positionIdRow) {
         PositionIdRow = 2**256 - 1;
         uint256[] memory positionIds = orders[_orderId].positionIds;
@@ -1042,6 +1053,15 @@ contract OrderBook is IOrderBook {
                 PositionIdRow = i;
                 break
             }
+        }
+    }
+
+    function getPositionIdInPositions(address _borrower, uint256 _OrderId)
+    intenal view returns (uint256 positionId) {
+        positionId = 2**256 - 1;
+        uint256 row = getPositionIdsRowInOrders(_borrower, _orderId);
+        if (row != 2**256 - 1) {
+            positionId = orders[_orderId].positionIds[row];
         }
     }
 

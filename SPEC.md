@@ -112,9 +112,9 @@ Tasks:
 
 - sanity checks
 - calls \_displaceAssets(): relocates all borrowing positions, liquidates those which couldn't be relocated
-- check taker's balance and allowance
-- transfer ERC20 tokens between the taker and the taker (full or partial)
-- update orders, users (depositIds) and borrowable list (delete removed order)
+- checks taker's balance and allowance
+- transfers ERC20 tokens between the taker and the maker
+- updates orders, users (depositIds) and borrowable list (delete removed order)
 - emit event
 
 ```solidity
