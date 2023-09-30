@@ -9,9 +9,9 @@
 
 ## Rules
 
-- Taking an order relocates or liquidates all positions which borrow from it
+- Taking an order either relocates or liquidates all positions which borrow from it
 - Cancelling an order cannot liquidate positions, only relocate them on the order book
-- Taking an order which assets serve as collateral for a borrowing position has the effect of closing the borrowing position (see Potential issue 3. in [ISSUES.md](ISSUES.md#3))
+- Taking an order which assets serve as collateral for a borrowing position elsewhere in the book has the effect of closing the borrowing position (see Potential issue 3. in [ISSUES.md](ISSUES.md#3))
 - Orders cannot be taken at a loss. A price oracle is pulled before any taking to check the condition (see Potential issue 2. in [ISSUES.md](ISSUES.md))
 
 ## Core functions
@@ -121,11 +121,15 @@ Inputs :
 
 Tasks:
 
-- sanity checks
+- performs sanity checks
 - checks if borrower has enough collateral
-- updates users: add orderId to borrowFromIds
-- updates position and orders if a new borrowing position is created
-- updates borrowable list: delete order if its assets are fully borrowed
+- if the borrower doesn't currently borrow from the order, a new borrowing position is created:
+  - adds orderId to borrowFromIds array in users
+  - adds position to positions array
+  - adds positionId to positionIds array in orders
+- updates borrowable list:
+  - deletes order if its assets are now fully borrowed
+  - removes all orders placed by the borrower from the borrowable list
 - transfers ERC20 tokens to borrower
 - emits event
 

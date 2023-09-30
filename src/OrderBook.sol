@@ -311,7 +311,7 @@ contract OrderBook is IOrderBook {
             "borrowOrder: Insufficient available assets"
         );
 
-        // userEquity: excess deposits available to collateralize additional debt
+        // userEquity is excess deposits available to collateralize additional debt
         require(
             getUserEquity(msg.sender, borrowedOrder.isBuyOrder) >=
             borrowedOrder.quantity,
