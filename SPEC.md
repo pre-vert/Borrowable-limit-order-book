@@ -9,7 +9,7 @@
 
 ## Rules
 
-- Taking an order either relocates or liquidates all positions which borrow from it
+- Taking an order liquidates all positions which borrow from it
 - Cancelling an order cannot liquidate positions, only relocate them on the order book
 - Taking an order which assets serve as collateral for a borrowing position elsewhere in the book has the effect of closing the borrowing position (see Potential issue 3. in [ISSUES.md](ISSUES.md#3))
 - Orders cannot be taken at a loss. A price oracle is pulled before any taking to check the condition (see Potential issue 2. in [ISSUES.md](ISSUES.md))
@@ -84,6 +84,7 @@ Who: anyone (including the maker and borrowers of the order)
 
 Consequences:
 
+- borrowing positions are liquidated
 - less orders and assets in the book
 - less collateral and borrowing capacity for the maker which order is taken
 
@@ -95,9 +96,9 @@ Inputs :
 Tasks:
 
 - performs sanity checks
-- calls \_displaceAssets(): relocates all borrowing positions, liquidates those which couldn't be relocated
+- calls \_displaceAssets(): liquidates all borrowing positions
 - checks taker's balance and allowance
-- if taking is full, remove:
+- if all assets are taken, remove:
   - order in orders
   - orderId in depositIds array in users
   - orderId from the list of borrowable orders
@@ -173,12 +174,14 @@ _findNewPosition(uint256 _positionId)
 ```
 
 Called by removeOrder() for each borrowing position to relocate
-
 Scan buyOrderList or sellOrderList for alternative order
 
-input: positionId
+input: positionId: borrowing position to be relocated
+output: returns newOrderId: the new order id if succesful or the removed order id if failuer
 
 Tasks:
+
+- compute maxIterations as the min between maxListSize and
 
 ```solidity
 _reposition(
@@ -189,7 +192,7 @@ _reposition(
     returns (bool success)
 ```
 
-Called by RemoveOrder(), once a new order have been found
+Called by RemoveOrder(), once a new order has been found
 
 Update balances and state variables following a debt repositioning
 
