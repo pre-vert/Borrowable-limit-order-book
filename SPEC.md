@@ -7,7 +7,7 @@
 - Takers: take orders on the book and exchange at limit price
 - Keepers: liquidate borderline positions due to growing interest rate
 
-## :closed-book: Rules
+## :closed_book: Rules
 
 - Taking an order liquidates all positions which borrow from it
 - Cancelling an order cannot liquidate positions, only relocate them on the order book
