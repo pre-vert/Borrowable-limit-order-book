@@ -3,11 +3,11 @@
 ## Actors
 
 - Makers: only place orders, receive interest
-- Makers/borrowers: place orders and borrow from other-side orders (borrowers for short), pay interest rate
-- Takers: take orders
+- Makers/borrowers: place orders and borrow from other-side orders (borrowers for short), pay interest
+- Takers: take orders on the book and exchange at limit price
 - Keepers: liquidate borderline positions due to growing interest rate
 
-## Rules
+## :closed-book: Rules
 
 - Taking an order liquidates all positions which borrow from it
 - Cancelling an order cannot liquidate positions, only relocate them on the order book

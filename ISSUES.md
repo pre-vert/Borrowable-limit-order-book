@@ -55,3 +55,5 @@ Two solutions:
   - In compensation she gets 1900 USDC instead of 1800 USDC
 
 The first solution is more in line with what Alice and Bob intended when she placed a buy order and he borrowed from it.
+
+### Potential issue 4. Maker borrows her own order.
