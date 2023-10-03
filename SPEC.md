@@ -1,20 +1,34 @@
-# Borrowable Limit Order Book - SPEC
+# :book: Borrowable Limit Order Book - SPEC
 
-## Actors
+## :family: Actors
 
 - Makers: only place orders, receive interest
 - Makers/borrowers: place orders and borrow from other-side orders (borrowers for short), pay interest
 - Takers: take orders on the book and exchange at limit price
 - Keepers: liquidate borderline positions due to growing interest rate
 
-## :closed_book: Rules
+## :card_index: Orders: type and status
 
-- Taking an order liquidates all positions which borrow from it
-- Cancelling an order cannot liquidate positions, only relocate them on the order book
-- Taking an order which assets serve as collateral for a borrowing position elsewhere in the book has the effect of closing the borrowing position (see Potential issue 3. in [ISSUES.md](ISSUES.md#3))
-- Orders cannot be taken at a loss. A price oracle is pulled before any taking to check the condition (see Potential issue 2. in [ISSUES.md](ISSUES.md))
+- Limit buy order (or bid): order to buy the base token (e.g., ETH) at a price lower than current price in exchange of quote tokens (e.g., USDC)
+- Limit sell order (or ask): order to sell the base token at a price higher than current price in exchange of quote tokens
+- Collateral order: limit order which assets (quote token for a buy order, base token for a sell order) serve as collateral for a borrowing position on the other side of the book (example: borrow ETH from a sell order by depositing USDC in a buy order)
+- Borrowable order: order which assets can be borrowed
+- Unborrowable order: order which asset cannot be borowed, either because the maker made it unborrowable or because the maker is a borrower
 
-## Core functions
+## :scroll: Rules
+
+1. Taking an order liquidates all positions which borrow from it
+2. Removing an order cannot liquidate positions, only relocate them on the order book
+3. If not enough assets can be relocated, removing is partial
+4. Users cannot borrow assets from collateral orders (see definition supra)
+5. Users whose assets are borrowed cannot borrow
+6. A borrower cannot have his collateral orders borrowed
+7. Taking a collateral order has the effect of closing the maker's borrowing positions (see Potential issue 3. in [ISSUES.md](ISSUES.md#3))
+8. Orders cannot be taken at a loss. A price oracle is pulled before any taking to check the condition (see Potential issue 2. in [ISSUES.md](ISSUES.md))
+
+Notes regarding 4. and 5. Users have to choose between being a lender or a borrower. They can be lender in one side of the book and borrower in the other side though. In a future version, they could still borrow based on the part of their assets wwhich are not borrowed.
+
+## :hammer: Core functions
 
 ```solidity
 placeOrder(
@@ -114,6 +128,10 @@ borrowOrder(
 ```
 
 Who: makers with enough deposited assets
+
+Consequences:
+
+-
 
 Inputs :
 
