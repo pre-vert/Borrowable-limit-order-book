@@ -1,6 +1,6 @@
-# Borrowable Limit Order Book - POTENTIAL ISSUES
+# :neutral_face: Borrowable Limit Order Book - POTENTIAL ISSUES
 
-### Potential issue [1](#1). The liquidation of a borrowing position following the removal of an order would need a swap in an external AMM
+### Issue [1](#1). The liquidation of a borrowing position following the removal of an order would need a swap in an external AMM
 
 Example:
 
@@ -17,7 +17,7 @@ Solutions:
 
 I have a preference for the second solution. The first one relies on the protocole being able to programmatically execute a swap on an external AMM at a satisfactory rate, which could be challenging.
 
-### Potential issue [2](#2) (critical). A maker takes her own limit order instead of cancelling it. This hurts the borrowing positions
+### Issue [2](#2) (critical). A maker takes her own limit order instead of cancelling it. This hurts the borrowing positions
 
 Example:
 
@@ -32,7 +32,7 @@ Relocating the debt to another buy order avoids Bob's liquidation and prevents t
 
 Solution: pulling the price of an oracle before any taking to forbid snapping an order at a loss.
 
-### Potential issue [3](#3). When collateral orders (orders which serve as collateral for borrowing positions) are taken, an asset mismatch appears.
+### Issue [3](#3). When collateral orders (orders which serve as collateral for borrowing positions) are taken, an asset mismatch appears.
 
 Example:
 
@@ -56,6 +56,6 @@ Two solutions:
 
 The first solution is more in line with what Alice and Bob intended when she placed a buy order and he borrowed from it.
 
-### Potential issue [4](#4). Maker borrows her own order.
+### Issue [4](#4). Maker borrows her own order.
 
 ?
