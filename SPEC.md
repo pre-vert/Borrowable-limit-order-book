@@ -41,8 +41,14 @@ Strictly speaking, users doesn't have to choose between being a lender or a borr
 - They can always borrow based on their excess collateral
 - Users can borrow their excess collateral
 
-**Excess collateral** in base token X  is total deposits of X backing all users sell orders minus 
+**Excess collateral** in base token X is total deposits of X backing all users sell orders minus
 
+## :clipboard: TO DO list
 
+#### Give users the choice to make their orders non borrowable
 
+#### Implement interest rate model
 
+#### Implement price feed
+
+#### Implement getBookSize

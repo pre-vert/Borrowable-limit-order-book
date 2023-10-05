@@ -1,4 +1,4 @@
-# :neutral_face: Borrowable Limit Order Book - POTENTIAL ISSUES
+# :microscope: Borrowable Limit Order Book - POTENTIAL ISSUES
 
 ### Issue [1](#1). The liquidation of a borrowing position following the removal of an order would need a swap in an external AMM
 
@@ -10,7 +10,7 @@ Example:
 - At current price $p \in (1800, 2200)$, Alice removes her order and claims 3600 USDC
 - If Bob's position cannot be relocated, he's liquidated, but his collateral is in ETH, not USDC
 
-Solutions:
+:pill: Solutions:
 
 - The protocol takes enough ETH from Bob, swaps them for 1800 USDC and gives Alice the proceeds (if the proceeds is less than 1800 USDC, the swap is canceled and Alice is given 1 ETH)
 - Alice is prevented from removing the part of assets which would liquidate the borrowing positions
@@ -30,7 +30,7 @@ Example:
 
 Relocating the debt to another buy order avoids Bob's liquidation and prevents the attack but won't be always feasible.
 
-Solution: pulling the price of an oracle before any taking to forbid snapping an order at a loss.
+:pill: Solution: pulling the price of an oracle before any taking to forbid snapping an order at a loss.
 
 ### Issue [3](#3). When collateral orders (orders which serve as collateral for borrowing positions) are taken, an asset mismatch appears.
 
@@ -43,7 +43,7 @@ Example:
 - Bob's collateral is now 1900 USDC instead of 1 ETH.
 - If the price reverts and decreases to 1800 USDC, Alice claims 1 ETH but could only obtain 1900 USDC
 
-Two solutions:
+:pill: Two solutions:
 
 - Bob's borrowing position is closed when his own order is taken first
   - the protocol uses the 1900 USDC to pay back his borowing position of 1800 USDC

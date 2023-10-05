@@ -1,4 +1,4 @@
-# :hammer: Borrowable Limit Order Book - FUNCTIONS
+# :book: Borrowable Limit Order Book - FUNCTIONS
 
 ## Core functions
 
@@ -35,7 +35,7 @@ Tasks:
 ```solidity
 removeOrder(
     uint256 _removedOrderId,
-    uint256 _quantityToBeRemoved
+    uint256 _quantityToRemove
 ) external;
 ```
 
@@ -158,9 +158,42 @@ Tasks:
 ## Internal functions
 
 ```solidity
-_findNewPosition(uint256 _positionId)
+_evaluateNewOrder(
+    uint256 targetPrice, // ideal price (price of removed order)
+    uint256 closestPrice, // best price so far
+    uint256 newPrice, // price of next order in order list
+    address borrower, // borrower of displaced order
+    bool isBuyOrder // type of removed order (buy or sell)
+)
     internal
-    returns (uint256 newOrderId)
+    returns (uint256 bestPrice)
+```
+
+```solidity
+_displaceAssets(
+  uint256 _fromOrderId, // order from which borrowing positions must be cleared
+  uint256 _quantityToDisplace, // quantity removed or taken
+  bool _liquidate // true if taking, false if removing
+)
+  internal
+    returns (uint256 displacedQuantity)
+```
+
+Called by removeOrder() and takeOrder()
+
+Scan orders in borrowable list to reposition the debt at least equal to quantity to be removed or taken:
+
+- calls findNewPosition(): finds available orders:
+- calls reposition(): relocate debt from removed order to available orders
+- updates repositioned quantity
+- stop when repositioned quantity >= quantity to be removed
+
+```solidity
+_findNewPosition(uint256 _positionId
+)
+  internal
+  positionExists(_positionId)
+  returns (uint256 bestOrderId)
 ```
 
 Called by removeOrder() for each borrowing position to relocate
@@ -175,11 +208,13 @@ Tasks:
 
 ```solidity
 _reposition(
-    uint256 _positionId,
-    uint256 _orderToId,
-    uint256 _borrowedAssets)
-    internal
-    returns (bool success)
+  uint256 _fromPositionId, // position id to be removed
+  uint256 _toOrderId // order id to which the borrowing is relocated
+)
+  internal
+  positionExists(_fromPositionId)
+  orderExists(_toOrderId)
+  returns (bool success)
 ```
 
 Called by RemoveOrder(), once a new order has been found
@@ -200,20 +235,8 @@ Tasks:
 - update buy or sellOrderList (orderTo may become unborrowable)
 
 ```solidity
-function _displaceAssets(
-    uint256 _orderId,
-    uint256 _quantityToBeDisplaced,
-    bool _forceLiquidation
-    )
-internal
-returns (uint256 displacedQuantity)
+_liquidate(uint256 _positionId
+)
+  internal
+  positionExists(_position[_positionId])
 ```
-
-Called by removeOrder() and takeOrder()
-
-Scan orders in borrowable list to reposition the debt at least equal to quantity to be removed or taken:
-
-- calls findNewPosition(): finds available orders:
-- calls reposition(): relocate debt from removed order to available orders
-- updates repositioned quantity
-- stop when repositioned quantity >= quantity to be removed
