@@ -210,7 +210,8 @@ contract OrderBook is IOrderBook {
     /// @notice Let users take limit orders, regardless the orders' assets are borrowed or not
     /// Assets can be partially taken
     /// partial taking liquidates enough borrowing positions to cover the taken quantity
-    /// full taking liquidates all borrowing positions and liquidated position are in full
+    /// liquidated position are in full
+    /// full taking liquidates all borrowing positions
     /// taking of a collateral order triggers the borrower's liquidation for enough assets (TO DO)
     /// @param _takenOrderId id of the order to be taken
     /// @param _takenQuantity quantity of assets taken from the order
@@ -224,10 +225,8 @@ contract OrderBook is IOrderBook {
         isPositive(_takenQuantity)
     {
         Order memory takenOrder = orders[_takenOrderId];
-        require(
-            _takenQuantity <= takenOrder.quantity,
-            "takeOrder: Taken quantity exceeds deposit"
-        );
+        require(_takenQuantity <= takenOrder.quantity,
+            "takeOrder: Taken quantity exceeds deposit");
 
         // liquidate enough borrowing positions
         // output the quantity actually displaced, whtakenOrderich must be >= taken quantity
@@ -238,19 +237,17 @@ contract OrderBook is IOrderBook {
             afterRemoving
         );
 
-        // quantity given by taker in exchange of _takenQuantity
+        require(displacedQuantity >= _takenQuantity,
+            "Not enough quantity displaced");
 
+        // quantity given by taker in exchange of _takenQuantity
         uint256 exchangedQuantity = _converts(
             _takenQuantity,
             takenOrder.price,
             takenOrder.isBuyOrder
         );
 
-        _checkAllowanceAndBalance(
-            msg.sender,
-            exchangedQuantity,
-            !takenOrder.isBuyOrder
-        );
+        _checkAllowanceAndBalance(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder);
 
         // remove orderId in depositIds array in users (if taking is full)
         _removeOrderIdFromDepositIdsInUsers(takenOrder.maker, _takenOrderId);
@@ -362,29 +359,21 @@ contract OrderBook is IOrderBook {
     function repayBorrowing(
         uint256 _repaidOrderId,
         uint256 _repaidQuantity
-    ) external orderExists(_repaidOrderId) isPositive(_repaidQuantity)
+    )
+        external
+        orderExists(_repaidOrderId)
+        isPositive(_repaidQuantity)
     {
         Order memory repaidOrder = orders[_repaidOrderId];
-        uint256 positionId = getPositionIdInPositions(
-            _repaidOrderId,
-            msg.sender
-        );
+        uint256 positionId = getPositionIdInPositions(_repaidOrderId, msg.sender);
 
-        require(
-            positionId != ABSENT && positions[positionId].borrowedAssets > 0,
-            "repayBorrowing: No borrowing position found"
-        );
+        require(positionId != ABSENT && positions[positionId].borrowedAssets > 0,
+            "repayBorrowing: No borrowing position found");
 
-        require(
-            _repaidQuantity <= positions[positionId].borrowedAssets,
-            "repayBorrowing: Repaid quantity exceeds borrowed quantity"
-        );
+        require(_repaidQuantity <= positions[positionId].borrowedAssets,
+            "repayBorrowing: Repaid quantity exceeds borrowed quantity");
 
-        _checkAllowanceAndBalance(
-            msg.sender,
-            _repaidQuantity,
-            repaidOrder.isBuyOrder
-        );
+        _checkAllowanceAndBalance(msg.sender, _repaidQuantity, repaidOrder.isBuyOrder);
 
         // update positions: decrease borrowedAssets
         positions[positionId].borrowedAssets -= _repaidQuantity;
@@ -432,7 +421,9 @@ contract OrderBook is IOrderBook {
         uint256 _fromOrderId, // order from which borrowing positions must be cleared
         uint256 _quantityToDisplace, // quantity removed or taken
         bool _afterRemoving // true if removing, false if taking
-    ) internal returns (uint256 displacedQuantity)
+    )
+        internal
+        returns (uint256 displacedQuantity)
     {
         displacedQuantity = 0;
         uint256[] memory positionIds = orders[_fromOrderId].positionIds;
