@@ -333,17 +333,13 @@ contract OrderBook is IOrderBook {
 
         _checkAllowanceAndBalance(msg.sender, _repaidQuantity, repaidOrder.isBuyOrder);
 
-        // update positions: decrease borrowedAssets
-        positions[positionId].borrowedAssets -= _repaidQuantity;
+        // update positions: decrease borrowedAssets, delete position if emptied
+        _reduceBorrowingByQuantity(positionId, _repaidQuantity);
 
-        // if borrowing is fully repaid, delete position in positions
-        // TO DO: reducePositionByQuantity
-        _deletePositionFromPositions(positionId);
-
-        // and remove positionId from positionIds in orders
+        // remove positionId from positionIds in orders (check if removal is full before)
         _removePositionIdFromPositionIdsInOrders(positionId, _repaidOrderId);
 
-        // and remove repaid order id from borrowFromIds in users
+        // remove repaid order id from borrowFromIds in users (check if removal is full before)
         _removeOrderIdFromBorrowFromIdsInUsers(msg.sender, _repaidOrderId);
 
         _transferTokenFrom(msg.sender, _repaidQuantity, repaidOrder.isBuyOrder);
@@ -358,18 +354,16 @@ contract OrderBook is IOrderBook {
 
     ///////******* Internal functions *******///////
 
-    // displace assets from an order to another or liquidate
-    // called by removeOrder() if _afterRemoving (never liquidate) and takeOrder() if !_afterRemoving (always liquidate)
-    // if removal, relocate enough assets or forbid removal of non-relocated assets
-    // positions are fully relocated to one order (1 to 1), or locked
-    // => total quantity actually removed can be greater or lower than the quantity to be removed
-    // if taking is partial, liquidate enough borrowing positions (randomly)
-    // outputs the quantity actually relocated (removal) or liquidated (taking)
-    // doesn't perform the final transfers (removing or taking)
+    /// @notice Liquidate borrowing positions after taking an order
+    /// if taking is partial, liquidate enough borrowing positions (one by one as they come)
+    /// outputs the quantity liquidated
+    /// doesn't perform the final transfers (removing or taking)
+    /// @param _fromOrderId order from which borrowing positions must be cleared
+    /// @param _takenQuantity quantity taken
 
     function _liquidateAssets(
-        uint256 _fromOrderId, // order from which borrowing positions must be cleared
-        uint256 _takenQuantity // quantity taken
+        uint256 _fromOrderId,
+        uint256 _takenQuantity
     )
         internal
         returns (uint256 liquidatedQuantity)
@@ -377,7 +371,7 @@ contract OrderBook is IOrderBook {
         liquidatedQuantity = 0;
         uint256[] memory positionIds = orders[_fromOrderId].positionIds;
 
-        // iterate on the position ids which borrow form the order to be taken
+        // iterate on the position ids which borrow frOm the order to be taken
         for (uint256 i = 0; i < positionIds.length; i++) {
             Position memory fromPosition = positions[positionIds[i]];
             // liquidate borrowing position one by one
@@ -390,13 +384,14 @@ contract OrderBook is IOrderBook {
         }
     }
 
-    // liquidate a position: seize collateral and write off debt for the same amount
-    // liquidation of a position is always full, i.e. borrower's debt is fully written off
-    // as multiple orders by the same borrower may collateralize the liquidated position:
-    //  - iterate on collateral orders made by borrower in the opposite currency
-    //  - seize collateral orders as they come, stops when borrower's debt is fully written off
-    //  - change internal balances
-    // doesn't execute final external transfer of assets
+    /// @notice liquidate a borrowing position: seize collateral and write off debt for the same amount
+    /// liquidation of a position is always full, i.e. borrower's debt is fully written off
+    /// as multiple orders by the same borrower may collateralize the liquidated position:
+    ///  - iterate on collateral orders made by borrower in the opposite currency
+    ///  - seize collateral orders as they come, stops when borrower's debt is fully written off
+    ///  - change internal balances
+    /// doesn't execute final external transfer of assets
+    /// @param _positionId id of the position to be liquidated
 
     function _liquidate(
         uint256 _positionId
@@ -405,7 +400,7 @@ contract OrderBook is IOrderBook {
         positionExists(_positionId)
     {
         Position memory position = positions[_positionId]; // position to be liquidated
-        uint256 takenOrderId = position.orderId;
+        uint256 takenOrderId = position.orderId; // id of the order from which assets are taken
         // collateral to seize given borrowed quantity:
         uint256 collateralToSeize = _converts(
             position.borrowedAssets,
@@ -431,9 +426,10 @@ contract OrderBook is IOrderBook {
             } else {
                 // enough collateral assets are seized before borrower's order is fully seized
                 collateralToSeize = 0;
-                orders[id].quantity -= collateralToSeize;
+                _reduceOrderByQuantity(id, collateralToSeize);
                 break;
             }
+
         }
         require(collateralToSeize == 0, "Some collateral couldn't be seized");
     }
@@ -516,11 +512,21 @@ contract OrderBook is IOrderBook {
     {
         uint256 row = getBorrowFromIdsRowInUsers(_user, _orderId);
         if (row != ABSENT) {
-            users[_user].borrowFromIds[row] = 
-            users[_user].borrowFromIds[users[_user].borrowFromIds.length - 1];
-            users[_user].borrowFromIds.pop();
+            _removeElementFromArray(users[_user].borrowFromIds, row);
         }
     }
+
+    function _removeElementFromArray(
+        uint256[] storage _array,
+        uint256 row
+    )
+        internal
+    {
+        require(row < _array.length, "Row out of bounds");
+        _array[row] = _array[_array.length - 1];
+        _array.pop();
+    }
+
 
     function _removeOrderIdFromPositionIdsInOrders(
         address _borrower,
@@ -529,9 +535,7 @@ contract OrderBook is IOrderBook {
     {
         uint256 row = getPositionIdsRowInOrders(_orderId, _borrower);
         if (row != ABSENT) {
-            orders[_orderId].positionIds[row]
-            = orders[_orderId].positionIds[orders[_orderId].positionIds.length - 1];
-            orders[_orderId].positionIds.pop();
+            _removeElementFromArray(orders[_orderId].positionIds, row);
         }
     }
 
@@ -559,17 +563,17 @@ contract OrderBook is IOrderBook {
         if (orders[_orderId].quantity == 0) {
             uint256 row = getDepositIdsRowInUsers(_user, _orderId);
             if (row != ABSENT) {
-                users[_user].depositIds[row] = users[_user].depositIds[
-                    users[_user].depositIds.length - 1
-                ];
-                users[_user].depositIds.pop();
+                _removeElementFromArray(users[_user].depositIds, row);
             }
         }
     }
 
-    // update positions: add new position in positions mapping
-    // check first that position doesn't exist already
-    // returns existing or new position id in positions mapping
+    /// @notice update positions: add new position in positions mapping
+    /// check first that position doesn't exist already
+    /// returns existing or new position id in positions mapping
+    /// @param _borrower address of the borrower
+    /// @param _orderId id of the order from which assets are borrowed
+    /// @param _borrowedQuantity quantity of assets borrowed (quoteToken for buy orders, baseToken for sell orders)
 
     function _addPositionToPositions(
         address _borrower,
@@ -597,12 +601,15 @@ contract OrderBook is IOrderBook {
         }
     }
 
-    function _deletePositionFromPositions(
-        uint256 _positionId
+    // update positions: decrease borrowedAssets, delete position if no more borrowing
+    function _reduceBorrowingByQuantity(
+        uint256 _positionId,
+        uint256 _repaidQuantity
     )
         internal
         positionExists(_positionId)
     {
+        positions[_positionId].borrowedAssets -= _repaidQuantity;
         if (positions[_positionId].borrowedAssets == 0) {
             delete positions[_positionId];
         }
@@ -643,9 +650,7 @@ contract OrderBook is IOrderBook {
                 position.borrower
             );
             if (row != ABSENT) {
-                orders[_orderId].positionIds[row]
-                = orders[_orderId].positionIds[orders[_orderId].positionIds.length - 1];
-                orders[_orderId].positionIds.pop();
+                _removeElementFromArray(orders[_orderId].positionIds, row);
             }
         }
     }
@@ -664,7 +669,6 @@ contract OrderBook is IOrderBook {
     }
 
     // reduce quantity offered in order, delete order if emptied
-
     function _reduceOrderByQuantity(
         uint256 _orderId,
         uint256 _quantity
