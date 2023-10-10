@@ -2,10 +2,16 @@
 pragma solidity ^0.8.20;
 
 interface IOrderBook {
+
     function placeOrder(
         uint256 _quantity,
         uint256 _price,
         bool _isBuyOrder
+    ) external;
+
+    function increaseDeposit(
+        uint256 _orderId,
+        uint256 _increasedQuantity
     ) external;
 
     function removeOrder(
@@ -25,11 +31,19 @@ interface IOrderBook {
         uint256 _repaidQuantity
     ) external;
 
+    // Events
+
     event PlaceOrder(
         address maker,
         uint256 quantity,
         uint256 price,
         bool isBuyOrder
+    );
+
+    event increaseOrder(
+        address maker,
+        uint256 orderId,
+        uint256 increasedQuantity
     );
 
     event RemoveOrder(

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.20;
 
-/// @title A borrowable order book for ERC20 tokens
+/// @title A lending order book for ERC20 tokens
 /// @author Pré-vert
 /// @notice Allows users to place limit orders on the book, take orders, and borrow assets
 /// @dev A money market for the pair base/quote is handled by a single contract
@@ -15,12 +15,11 @@ contract OrderBook is IOrderBook {
     IERC20 private quoteToken;
     IERC20 private baseToken;
 
-    /// @notice provide core public functions (place, take, remove, borrow, repay),
-    /// internal functions (find new orders, reposition, liquidate) and view functions
+    /// @notice provide core public functions (place, increase deposit, remove, take, borrow, repay),
+    /// internal functions (liquidate) and view functions
     /// @dev mapping orders stores orders in a struct Order
     /// mapping users stores users (makers and borrowers) in a struct User
     /// mapping positions links orders and borrowers ina P2P fashion and stores borrowing positions in a struct Position
-    /// buyOrderList and sellOrderList are unordered lists of buy and sell orders id to scan for new orders
 
     struct Order {
         address maker; // address of the maker
@@ -31,7 +30,7 @@ contract OrderBook is IOrderBook {
     }
 
     struct User {
-        uint256[] depositIds; // stores orders id in mapping orders to which borrower deposits
+        uint256[] depositIds; // stores orders id in mapping orders in which borrower deposits
         uint256[] borrowFromIds; // stores orders id in mapping orders from which borrower borrows
     }
 
@@ -41,7 +40,7 @@ contract OrderBook is IOrderBook {
         uint256 borrowedAssets; // quantity of assets borrowed (quoteToken for buy orders, baseToken for sell orders)
     }
 
-    uint256 constant ABSENT = 2 ** 256 - 1; // id for non existing order, position, user, etc.
+    uint256 constant ABSENT = 2 ** 256 - 1; // id for non existing order or position
 
     mapping(uint256 orderId => Order) private orders;
     mapping(address user => User) private users;
@@ -100,7 +99,6 @@ contract OrderBook is IOrderBook {
         _checkAllowanceAndBalance(msg.sender, _quantity, _isBuyOrder);
 
         // update orders: add order to orders, output the id of the new order
-        uint256 orderListRow = 0;
         uint256[] memory positionIds = new uint256[](0);
         uint256 newOrderId = _addOrderToOrders(
             msg.sender,
@@ -116,6 +114,31 @@ contract OrderBook is IOrderBook {
         _transferTokenFrom(msg.sender, _quantity, _isBuyOrder);
 
         emit PlaceOrder(msg.sender, _quantity, _price, _isBuyOrder);
+    }
+
+    /// @notice lets users increase deposited assets in their order
+    /// @param _orderId id of the order in which assets are deposited
+    /// @param _increasedQuantity quantity of assets added
+
+    function increaseDeposit(
+        uint256 _orderId,
+        uint256 _increasedQuantity
+    )
+        external
+        orderExists(_orderId)
+        isPositive(_increasedQuantity)
+        onlyMaker(getMaker(_orderId))
+    {
+        bool isBid = orders[_orderId].isBuyOrder;
+        
+        _checkAllowanceAndBalance(msg.sender, _increasedQuantity, isBid);
+
+        // update orders: add quantity to orders
+        _increaseOrderByQuantity(_orderId, _increasedQuantity);
+
+        _transferTokenFrom(msg.sender, _increasedQuantity, isBid);
+
+        emit increaseOrder(msg.sender, _orderId, _increasedQuantity);
     }
 
     /// @notice lets user partially or fully remove her order from the book
@@ -134,36 +157,31 @@ contract OrderBook is IOrderBook {
         onlyMaker(getMaker(_removedOrderId))
     {
         Order memory removedOrder = orders[_removedOrderId];
-        address remover = removedOrder.maker;
 
         require(removedOrder.quantity >= _quantityToRemove,
             "removeOrder: Removed quantity exceeds deposit"
         );
 
         // Remaining total deposits must be enough to secure existing borrowing positions
-        require(_quantityToRemove <=  getUserExcessCollateral(remover, removedOrder.isBuyOrder),
+        require(_quantityToRemove <=  
+            getUserExcessCollateral(removedOrder.maker, removedOrder.isBuyOrder),
             "removeOrder: Close your borrowing positions before removing your orders"
         );
 
         // removal is allowed for non-borrowed assets
-        uint256 transferredQuantity = min(getNonBorrowedAssets(_removedOrderId), _quantityToRemove);
+        uint256 transferredQuantity = 
+            min(getNonBorrowedAssets(_removedOrderId), _quantityToRemove);
 
         // reduce quantity in order, delete order if emptied
         _reduceOrderByQuantity(_removedOrderId, transferredQuantity);
 
         // remove orderId in depositIds array in users, if fully removed
-        _removeOrderIdFromDepositIdsInUsers(remover, _removedOrderId);
+        _removeOrderIdFromDepositIdsInUsers(removedOrder.maker, _removedOrderId);
 
-        if (transferredQuantity > 0) {
-            _transferTokenTo(
-                msg.sender,
-                transferredQuantity,
-                removedOrder.isBuyOrder
-            );
-        }
+        _transferTokenTo(msg.sender, transferredQuantity, removedOrder.isBuyOrder);
 
         emit RemoveOrder(
-            remover,
+            removedOrder.maker,
             transferredQuantity,
             removedOrder.price,
             removedOrder.isBuyOrder
@@ -171,10 +189,10 @@ contract OrderBook is IOrderBook {
     }
 
     /// @notice Let users take limit orders, regardless the orders' assets are borrowed or not
-    /// Assets can be partially taken
-    /// partial taking liquidates enough borrowing positions to cover the taken quantity
-    /// liquidated position are in full
     /// full taking liquidates all borrowing positions
+    /// Assets can be partially taken
+    /// partial taking liquidates enough borrowing positions to cover taken quantity
+    /// if a positions is liquidated, it is in full
     /// taking of a collateral order triggers the borrower's liquidation for enough assets (TO DO)
     /// @param _takenOrderId id of the order to be taken
     /// @param _takenQuantity quantity of assets taken from the order
@@ -189,7 +207,7 @@ contract OrderBook is IOrderBook {
     {
         Order memory takenOrder = orders[_takenOrderId];
         require(_takenQuantity <= takenOrder.quantity,
-            "takeOrder: Taken quantity exceeds deposit");
+            "Taken quantity exceeds deposit");
 
         // liquidate enough borrowing positions
         // output the quantity actually liquidated (can be >= taken quantity)
@@ -207,13 +225,13 @@ contract OrderBook is IOrderBook {
 
         _checkAllowanceAndBalance(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder);
 
-        // remove order in orders if taking is full, otherwise adjust internal balances
+        // reduce quantity in order, delete if emptied
         _reduceOrderByQuantity(_takenOrderId, _takenQuantity);
 
-        // remove orderId in depositIds array in users (if taking is full)
+        // remove orderId in depositIds array in users (check taking is full before)
         _removeOrderIdFromDepositIdsInUsers(takenOrder.maker, _takenOrderId);
 
-        // external transfers: if a buy order is taken, the taker pays the quoteToken and receives the baseToken
+        // if a buy order is taken, the taker pays the quoteToken and receives the baseToken
         _transferTokenFrom(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder);
         _transferTokenTo(takenOrder.maker, exchangedQuantity, takenOrder.isBuyOrder);
         _transferTokenTo(msg.sender, _takenQuantity, takenOrder.isBuyOrder);
@@ -282,11 +300,7 @@ contract OrderBook is IOrderBook {
         // update orders: add new positionId in positionIds array
         _pushNewPositionIdInOrders(positionId, _borrowedOrderId);
 
-        _transferTokenTo(
-            msg.sender,
-            _borrowedQuantity,
-            borrowedOrder.isBuyOrder
-        );
+        _transferTokenTo(msg.sender, _borrowedQuantity, borrowedOrder.isBuyOrder);
 
         emit BorrowOrder(
             msg.sender,
@@ -323,6 +337,7 @@ contract OrderBook is IOrderBook {
         positions[positionId].borrowedAssets -= _repaidQuantity;
 
         // if borrowing is fully repaid, delete position in positions
+        // TO DO: reducePositionByQuantity
         _deletePositionFromPositions(positionId);
 
         // and remove positionId from positionIds in orders
@@ -633,6 +648,19 @@ contract OrderBook is IOrderBook {
                 orders[_orderId].positionIds.pop();
             }
         }
+    }
+
+    // reduce quantity offered in order, delete order if emptied
+
+    function _increaseOrderByQuantity(
+        uint256 _orderId,
+        uint256 _quantity
+    )
+        internal
+        orderExists(_orderId)
+        isPositive(_quantity)
+    {
+        orders[_orderId].quantity -= _quantity;
     }
 
     // reduce quantity offered in order, delete order if emptied

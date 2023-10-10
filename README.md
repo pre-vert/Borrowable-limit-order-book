@@ -4,7 +4,7 @@ This repository contains the core Solidity contract for an order book which lets
 
 ## Overview
 
-A Borrowed limit order book (BLOB) is a special order book in which ($i$) the assets backing the limit orders can be borrowed and ($ii$) the borrowed assets of the bid side are collateralized by the assets in the ask side, and reciprocally.
+A Lending limit order book is a special order book in which ($i$) the assets backing the limit orders can be borrowed and ($ii$) the borrowed assets of the bid side are collateralized by the assets in the ask side, and reciprocally.
 
 ### Benefits
 

@@ -33,6 +33,14 @@ Tasks:
 - emits event
 
 ```solidity
+function increaseDeposit(
+    uint256 _orderId,
+    uint256 _increasedQuantity
+) external;
+```
+
+
+```solidity
 removeOrder(
     uint256 _removedOrderId,
     uint256 _quantityToRemove
