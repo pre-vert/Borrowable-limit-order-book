@@ -22,21 +22,21 @@ The interest rate is chosen by makers when the order is placed.
 
 A price feed is pulled whenever a borrowed order is taken to check that the order is not taken at a loss.
 
-### 4. Implement getBookSize
+### 4. getBookSize
 
 Number of orders on both sides of the book.
 
-## Things to be done with low priority
+## Lower priority to do
 
-### 5. Implement changeLimitPrice()
+### 5. Change limit price
 
-Allows Maker to change the limit price of their order. If the order is borrowed, the change takes effect after the borrowing is paid back.
+Implement changeLimitPrice(): allows Maker to change the limit price of their order. If the order is borrowed, the change takes effect after the borrowing is paid back.
 
-### 6. Gives the possibility to borrow or lend based on excess collateral
+### 6. Borrow and lend based on excess collateral
 
-Users can currently be lender in one side of the book and borrower in the other side but cannot be both borrower and lender on the same side. A more capital efficient way is to condition on excess collateral.
+Users can currently be lenders in one side of the book and borrowers in the other side but cannot be both borrowers and lenders on the same side. A more capital efficient way is to condition on excess collateral.
 
-Excess collateral in X is total deposits of X minus collateral needed to provide liquidated assets, were all borrowing positions in Y were liquidated.
+Excess collateral in X is total deposits of X minus collateral needed to provide liquidated assets, in the case all borrowing positions in Y are liquidated.
 
 Let users:
 
@@ -60,13 +60,13 @@ Repaying a position borrowing from order increases excess collateral:
 
 ## Things which could be done
 
-### 7. Implement offsetting
+### 7. Offsetting
 
 Offsetting is the action for a lender at limit/liquidation price $p$ to borrow assets at the same limit price $p$, which is equivalent to removing assets from an order which is borrowed.
 
 Suppose Alice and Carol both place a buy order at the same limit price 2000 for 1 ETH. Bob borrows 1 ETH from Alice's order. Normally, Alice cannot remove her 1 ETH. However, if Carol's interest rate is not higher than Alice's one, she can borrow 1 ETH from Carol without additional collateral requirement. This has the same effect as removing 1 ETH. Bob is now borrowing from Carol.
 
-### 8. Implement self-replacing orders
+### 8. Self-replacing orders
 
 Self-replacing orders are orders which, once filled, are automatically reposted in the order book at a limit price specified by the maker.
 
@@ -77,7 +77,7 @@ When a user makes a new order, she specifies 2 limit prices.
 - add a new attribute uint256 _dualPrice to orders
 - when an order is taken, check if a dual price is specified and, if so, repost the assets accordingly.
 
-### 9. Implement lenders' soft exit
+### 9. Lenders' soft exit
 
 To avoid situations in which lenders' assets are indefinitely stuck, lenders could soft exit the lending position by calling a method which triggers a gradually increasing interest rate:
 $$
