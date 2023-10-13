@@ -13,8 +13,8 @@ import {console} from "forge-std/Test.sol";
 
 contract OrderBook is IOrderBook {
 
-    IERC20 private quoteToken;
-    IERC20 private baseToken;
+    IERC20 public quoteToken;
+    IERC20 public baseToken;
 
     /// @notice provide core public functions (place, increase deposit, remove, take, borrow, repay),
     /// internal functions (liquidate) and view functions
@@ -31,7 +31,7 @@ contract OrderBook is IOrderBook {
     }
 
     struct User {
-        uint256[] depositIds; // stores orders id in mapping orders in which borrower deposits
+        uint256[](MAX_ORDERS) depositIds; // stores orders id in mapping orders in which borrower deposits
         uint256[] borrowFromIds; // stores orders id in mapping orders from which borrower borrows
     }
 
@@ -41,6 +41,9 @@ contract OrderBook is IOrderBook {
         uint256 borrowedAssets; // quantity of assets borrowed (quoteToken for buy orders, baseToken for sell orders)
     }
 
+    uint256 constant MAX_ORDERS = 20; // How many orders can be placed by a user
+    uint256 constant MAX_POSITIONS = 20; // How many positions can be borrowed from an order
+    uint256 constant MAX_BORROWINGS = 20; // How many positions a borrower can open
     uint256 constant ABSENT = 2 ** 256 - 1; // id for non existing order or position
 
     mapping(uint256 orderId => Order) private orders;
@@ -56,29 +59,27 @@ contract OrderBook is IOrderBook {
     }
 
     modifier userExists(address _user) {
-        require(users[_user].depositIds.length > 0, "User does not exist");
+        _checkUserExists(_user);
         _;
     }
 
     modifier orderExists(uint256 _orderId) {
-        require(orders[_orderId].maker != address(0), "Order does not exist");
+        _checkOrderExists(_orderId);
         _;
     }
 
     modifier positionExists(uint256 _positionId) {
-        require(positions[_positionId].borrower != address(0),
-            "Borrowing position does not exist");
+        _checkPositionExists(_positionId);
         _;
     }
 
     modifier isPositive(uint256 _var) {
-        require(_var > 0, "Must be positive");
+        _checkPositive(_var);
         _;
     }
 
     modifier onlyMaker(address maker) {
-        require(maker == msg.sender,
-            "removeOrder: Only the maker can remove the order");
+        _onlyMaker(maker);
         _;
     }
 
@@ -88,7 +89,7 @@ contract OrderBook is IOrderBook {
     /// @param _price price of the buy or sell order
     /// @param _isBuyOrder true for buy orders, false for sell orders
 
-    function placeOrder(
+    function place(
         uint256 _quantity,
         uint256 _price,
         bool _isBuyOrder
@@ -114,14 +115,14 @@ contract OrderBook is IOrderBook {
 
         _transferTokenFrom(msg.sender, _quantity, _isBuyOrder);
 
-        emit PlaceOrder(msg.sender, _quantity, _price, _isBuyOrder);
+        emit Place(msg.sender, _quantity, _price, _isBuyOrder);
     }
 
     /// @notice lets users increase deposited assets in their order
     /// @param _orderId id of the order in which assets are deposited
     /// @param _increasedQuantity quantity of assets added
 
-    function increaseDeposit(
+    function deposit(
         uint256 _orderId,
         uint256 _increasedQuantity
     )
@@ -139,7 +140,7 @@ contract OrderBook is IOrderBook {
 
         _transferTokenFrom(msg.sender, _increasedQuantity, isBid);
 
-        emit increaseOrder(msg.sender, _orderId, _increasedQuantity);
+        emit Deposit(msg.sender, _orderId, _increasedQuantity);
     }
 
     /// @notice lets user partially or fully remove her order from the book
@@ -148,7 +149,7 @@ contract OrderBook is IOrderBook {
     /// @param _removedOrderId id of the order to be removed
     /// @param _quantityToRemove desired quantity of assets removed
 
-    function removeOrder(
+    function withdraw(
         uint256 _removedOrderId,
         uint256 _quantityToRemove
     )
@@ -181,7 +182,7 @@ contract OrderBook is IOrderBook {
 
         _transferTokenTo(msg.sender, transferredQuantity, removedOrder.isBuyOrder);
 
-        emit RemoveOrder(
+        emit Withdraw(
             removedOrder.maker,
             transferredQuantity,
             removedOrder.price,
@@ -198,7 +199,7 @@ contract OrderBook is IOrderBook {
     /// @param _takenOrderId id of the order to be taken
     /// @param _takenQuantity quantity of assets taken from the order
 
-    function takeOrder(
+    function take(
         uint256 _takenOrderId,
         uint256 _takenQuantity
     )
@@ -237,7 +238,7 @@ contract OrderBook is IOrderBook {
         _transferTokenTo(takenOrder.maker, exchangedQuantity, takenOrder.isBuyOrder);
         _transferTokenTo(msg.sender, _takenQuantity, takenOrder.isBuyOrder);
 
-        emit TakeOrder(
+        emit Take(
             msg.sender,
             takenOrder.maker,
             _takenQuantity,
@@ -255,7 +256,7 @@ contract OrderBook is IOrderBook {
     /// @param _borrowedOrderId id of the order which assets are borrowed
     /// @param _borrowedQuantity quantity of assets borrowed from the order
 
-    function borrowOrder(
+    function borrow(
         uint256 _borrowedOrderId,
         uint256 _borrowedQuantity
     )
@@ -303,7 +304,7 @@ contract OrderBook is IOrderBook {
 
         _transferTokenTo(msg.sender, _borrowedQuantity, borrowedOrder.isBuyOrder);
 
-        emit BorrowOrder(
+        emit Borrow(
             msg.sender,
             _borrowedOrderId,
             _borrowedQuantity,
@@ -315,7 +316,7 @@ contract OrderBook is IOrderBook {
     /// @param _repaidOrderId id of the order which assets are paid back
     /// @param _repaidQuantity quantity of assets paid back
 
-    function repayBorrowing(
+    function repay(
         uint256 _repaidOrderId,
         uint256 _repaidQuantity
     )
@@ -345,7 +346,7 @@ contract OrderBook is IOrderBook {
 
         _transferTokenFrom(msg.sender, _repaidQuantity, repaidOrder.isBuyOrder);
 
-        emit repayLoan(
+        emit Repay(
             msg.sender,
             _repaidOrderId,
             _repaidQuantity,
@@ -686,13 +687,22 @@ contract OrderBook is IOrderBook {
 
     //////////********* View functions *********/////////
 
-    function getQuoteTokenAddress() public view returns (address)
-    {
-        return (address(quoteToken));
+     function _checkUserExists(address _user) internal view {
+        require(users[_user].depositIds.length > 0, "User does not exist");
     }
 
-    function getBaseTokenAddress() public view returns (address) {
-        return (address(baseToken));
+    function _checkOrderExists(uint256 _orderId) internal view {
+        require(orders[_orderId].maker != address(0), "Order does not exist");
+    }
+
+    function _onlyMaker(address maker) internal view {
+        require(maker == msg.sender,
+            "removeOrder: Only the maker can remove the order");
+    }
+
+    function _checkPositionExists(uint256 _positionId) internal view {
+        require(positions[_positionId].borrower != address(0),
+            "Borrowing position does not exist");
     }
 
     // get address of maker based on order
@@ -953,6 +963,10 @@ contract OrderBook is IOrderBook {
 
     //////////********* Pure functions *********/////////
 
+    function _checkPositive(uint256 _var) internal pure {
+        require(_var > 0, "Must be positive");
+    }
+    
     function _converts(
         uint256 _quantity,
         uint256 _price,

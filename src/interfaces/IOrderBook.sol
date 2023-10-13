@@ -3,71 +3,71 @@ pragma solidity ^0.8.20;
 
 interface IOrderBook {
 
-    function placeOrder(
+    function place(
         uint256 _quantity,
         uint256 _price,
         bool _isBuyOrder
     ) external;
 
-    function increaseDeposit(
+    function deposit(
         uint256 _orderId,
         uint256 _increasedQuantity
     ) external;
 
-    function removeOrder(
+    function withdraw(
         uint256 _removedOrderId,
         uint256 _quantityToBeRemoved
     ) external;
 
-    function takeOrder(uint256 _takenOrderId, uint256 _takenQuantity) external;
+    function take(uint256 _takenOrderId, uint256 _takenQuantity) external;
 
-    function borrowOrder(
+    function borrow(
         uint256 _borrowedOrderId,
         uint256 _borrowedQuantity
     ) external;
 
-    function repayBorrowing(
+    function repay(
         uint256 _repaidOrderId,
         uint256 _repaidQuantity
     ) external;
 
     // Events
 
-    event PlaceOrder(
+    event Place(
         address maker,
         uint256 quantity,
         uint256 price,
         bool isBuyOrder
     );
 
-    event increaseOrder(
+    event Deposit(
         address maker,
         uint256 orderId,
         uint256 increasedQuantity
     );
 
-    event RemoveOrder(
+    event Withdraw(
         address maker,
         uint256 quantity,
         uint256 price,
         bool isBuyOrder
     );
 
-    event TakeOrder(
+    event Take(
         address taker,
         address maker,
         uint256 quantity,
         uint256 price,
         bool isBuyOrder
     );
-    event BorrowOrder(
+    event Borrow(
         address borrower,
         uint256 orderId,
         uint256 quantity,
         bool isBuyOrder
     );
 
-    event repayLoan(
+    event Repay(
         address borrower,
         uint256 orderId,
         uint256 quantity,
