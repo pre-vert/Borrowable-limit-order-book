@@ -1,26 +1,8 @@
 # :clipboard: TO DO list
 
-## 1. Things to do
+## 0. Things to do now
 
-### 1.1 Implement interest rate
-
-The interest rate is chosen by makers when the order is placed.
-
-- add a new attribute uint256 interest rate to orders
-- modify placeOrder()
-- compute accrued interest rate
-- add a methof for makers to change the interest rate of an order. If the order is borrowed, the change takes effect after the order is repaid.
-- allow maker to liquidate a loan after excess collateral has been exhausted by the interest load
-
-### 1.2 Implement price feed
-
-A price feed is pulled whenever a borrowed order is taken to check that the order is not taken at a loss.
-
-### 1.3 getBookSize
-
-Number of orders on both sides of the book.
-
-### 1.4 Borrow and lend based on excess collateral
+### 0.1 Borrow and lend based on excess collateral
 
 Users can currently be lenders in one side of the book and borrowers in the other side but cannot be both borrowers and lenders on the same side. A more capital efficient way is to condition on excess collateral.
 
@@ -45,6 +27,32 @@ Repaying a position borrowing from order increases excess collateral:
 
 - more assets can be borrowed from order
 - owner of order can borrow more assets
+
+## 1. Things to do
+
+### 1.1 Implement interest rate
+
+The interest rate is chosen by makers when the order is placed.
+
+- add a new attribute uint256 interest rate to orders
+- modify placeOrder()
+- compute accrued interest rate
+- add a methof for makers to change the interest rate of an order. If the order is borrowed, the change takes effect after the order is repaid.
+- allow maker to liquidate a loan after excess collateral has been exhausted by the interest load
+
+### 1.2 Implement price feed
+
+A price feed is pulled whenever a borrowed order is taken to check that the order is not taken at a loss.
+
+### 1.3 getBookSize
+
+Number of orders on both sides of the book.
+
+### 1.4 Implement a minimal deposit size and a minimal non-borrowable size for orders
+
+We want arbitragers to have minimal incentives to take an order when the limit price is crossed. This is not the case if 100\% of the order's assets are borrowed. A minimal part of the assets must be non-borrowable, and as a consequence, a minmal deposit size is necessary.
+
+Example: in the ETH USDC market, a buy order must have at least 100 USDC available for a taker. If the minimal deposit is 100 USDC, the borrowable part of the order is y - 100 with y >= 100 USDC the deposited assests.
 
 ## 2. Lower priority
 

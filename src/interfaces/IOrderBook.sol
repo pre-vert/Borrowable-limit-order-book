@@ -9,7 +9,7 @@ interface IOrderBook {
         bool _isBuyOrder
     ) external;
 
-    function deposit(
+    function increaseDeposit(
         uint256 _orderId,
         uint256 _increasedQuantity
     ) external;
