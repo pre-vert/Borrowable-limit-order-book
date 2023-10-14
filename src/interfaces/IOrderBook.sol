@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 interface IOrderBook {
 
-    function place(
+    function deposit(
         uint256 _quantity,
         uint256 _price,
         bool _isBuyOrder

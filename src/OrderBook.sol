@@ -91,7 +91,7 @@ contract OrderBook is IOrderBook {
     /// @param _price price of the buy or sell order
     /// @param _isBuyOrder true for buy orders, false for sell orders
 
-    function place(
+    function deposit(
         uint256 _quantity,
         uint256 _price,
         bool _isBuyOrder
