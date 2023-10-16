@@ -16,15 +16,14 @@ contract OrderBook is IOrderBook {
     IERC20 public quoteToken;
     IERC20 public baseToken;
 
-    /// @notice provide core public functions (place, increase deposit, remove, take, borrow, repay),
+    /// @notice provide core public functions (deposit, increase deposit, withdraw, take, borrow, repay),
     /// internal functions (liquidate) and view functions
-    /// @dev mapping orders stores orders in a struct Order
-    /// mapping users stores users (makers and borrowers) in a struct User
-    /// mapping positions links orders and borrowers ina P2P fashion and stores borrowing positions in a struct Position
 
-    uint256 constant MAX_POSITIONS = 20; // How many positions can be borrowed from an order
+    uint256 constant MAX_POSITIONS = 10; // How many positions can be borrowed from an order
     uint256 constant MAX_ORDERS = 20; // How many orders can be placed by a user
-    uint256 constant MAX_BORROWINGS = 20; // How many positions a borrower can open
+    uint256 constant MAX_BORROWINGS = 10; // How many positions a borrower can open
+    uint256 constant MIN_DEPOSIT_BASE = 1; // Minimum deposited base tokens to be received by takers
+    uint256 constant MIN_DEPOSIT_QUOTE = 100; // Minimum deposited base tokens to be received by takers
     uint256 constant ABSENT = 2 ** 256 - 1; // id for non existing order or position
     
     struct Order {
@@ -35,6 +34,7 @@ contract OrderBook is IOrderBook {
         uint256[MAX_POSITIONS] positionIds; // stores positions id in mapping positions who borrow from order
     }
 
+    // makers and borrowers
     struct User {
         uint256[MAX_ORDERS] depositIds; // stores orders id in mapping orders in which borrower deposits
         uint256[MAX_BORROWINGS] borrowFromIds; // stores orders id in mapping orders from which borrower borrows
@@ -100,22 +100,18 @@ contract OrderBook is IOrderBook {
         isPositive(_quantity)
         isPositive(_price)
     {
+        // minimum amount deposited
+        _revertIfSuperiorTo(minDeposit(_isBuyOrder), _quantity);
         _checkAllowanceAndBalance(msg.sender, _quantity, _isBuyOrder);
 
-        // check if an identical order exists already
+        // check if an identical order exists already, if so increase deposit, else create
         uint256 orderId = getOrderIdInDepositIdsInUsers(msg.sender, _price, _isBuyOrder);
         if (orderId != 0) {
             increaseDeposit(orderId, _quantity);
         } else {
             // update orders: add order to orders, output the id of the new order
             uint256[MAX_POSITIONS] memory positionIds;
-            uint256 newOrderId = _addOrderToOrders(
-                msg.sender,
-                _isBuyOrder,
-                _quantity,
-                _price,
-                positionIds
-            );
+            uint256 newOrderId = _addOrderToOrders(msg.sender, _isBuyOrder, _quantity, _price, positionIds);
             // Update users: add orderId in depositIds array
             _addOrderIdInDepositIdsInUsers(newOrderId, msg.sender);
         }
@@ -165,13 +161,17 @@ contract OrderBook is IOrderBook {
         onlyMaker(getMaker(_removedOrderId))
     {
         Order memory removedOrder = orders[_removedOrderId];
-        _checkInferiorTo(_quantityToRemove, removedOrder.quantity);
 
-        // Remaining total deposits must be enough to secure existing borrowing positions TO IMPROVE
-        _checkInferiorTo(_quantityToRemove, getUserExcessCollateral(removedOrder.maker, removedOrder.isBuyOrder));
+
+        // removal is limited to non-barrowed assets above minimum deposit
+        _revertIfSuperiorTo(_quantityToRemove, availableAssetsInOrder(_removedOrderId));
+
+        // Remaining total deposits must be enough to secure existing borrowing positions
+        bool inQuoteToken = removedOrder.isBuyOrder;
+        _revertIfSuperiorTo(_quantityToRemove, getUserExcessCollateral(removedOrder.maker, inQuoteToken));
 
         // removal is allowed for non-borrowed assets
-        uint256 transferredQuantity = min(getNonBorrowedAssets(_removedOrderId), _quantityToRemove);
+        uint256 transferredQuantity = min(_quantityToRemove, getNonBorrowedAssets(_removedOrderId));
 
         // reduce quantity in order, possibly to zero
         _reduceOrderByQuantity(_removedOrderId, transferredQuantity);
@@ -181,12 +181,7 @@ contract OrderBook is IOrderBook {
 
         _transferTokenTo(msg.sender, transferredQuantity, removedOrder.isBuyOrder);
 
-        emit Withdraw(
-            removedOrder.maker,
-            transferredQuantity,
-            removedOrder.price,
-            removedOrder.isBuyOrder
-        );
+        emit Withdraw(removedOrder.maker, transferredQuantity, removedOrder.price, removedOrder.isBuyOrder);
     }
 
     /// @notice Let users take limit orders, regardless the orders' assets are borrowed or not
@@ -204,7 +199,7 @@ contract OrderBook is IOrderBook {
         isPositive(_takenQuantity)
     {
         Order memory takenOrder = orders[_takenOrderId];
-        _checkInferiorTo(_takenQuantity, takenOrder.quantity);
+        _revertIfSuperiorTo(_takenQuantity, takenOrder.quantity);
         _liquidateAssets(_takenOrderId);
 
         // quantity given by taker in exchange of _takenQuantity
@@ -223,21 +218,12 @@ contract OrderBook is IOrderBook {
         _transferTokenTo(takenOrder.maker, exchangedQuantity, takenOrder.isBuyOrder);
         _transferTokenTo(msg.sender, _takenQuantity, takenOrder.isBuyOrder);
 
-        emit Take(
-            msg.sender,
-            takenOrder.maker,
-            _takenQuantity,
-            takenOrder.price,
-            takenOrder.isBuyOrder
-        );
+        emit Take(msg.sender, takenOrder.maker, _takenQuantity, takenOrder.price, takenOrder.isBuyOrder);
     }
 
-    /// @notice Lets users borrow assets from orders (create or increase a borrowing position)
+    /// @notice Lets users borrow assets from orders (create or increase TO DO a borrowing position)
     /// Borrowers need to place orders first on the other side of the book with enough assets
-    /// orders are borrowable if:
-    /// - maker is not a borrower (his assets are not used as collateral)
-    /// - borrower does not demand more assets than available
-    /// - borrower has enough excess collateral to borrow the assets
+    /// order is borrowable up to order's available assets or user's excess collateral
     /// @param _borrowedOrderId id of the order which assets are borrowed
     /// @param _borrowedQuantity quantity of assets borrowed from the order
 
@@ -250,19 +236,19 @@ contract OrderBook is IOrderBook {
         isPositive(_borrowedQuantity)
     {
         Order memory borrowedOrder = orders[_borrowedOrderId];
+        
+        _revertIfSuperiorTo(_borrowedQuantity, availableAssetsInOrder(_borrowedOrderId));
 
-        // only assets which do not serve as collateral are borrowable
+        // check available assets are not collateral for user's borrowing positions
         // For Bob to borrow USDC (quote token) from Alice's buy order, one must check that
-        // Alice doesn't borrow ETH (base token) collateralized with her buy order
+        // Alice's excess collateral in USDC is enough to cover Bob's borrowing
+        bool inQuoteToken = borrowedOrder.isBuyOrder;
+        _revertIfSuperiorTo(borrowedOrder.quantity, getUserExcessCollateral(borrowedOrder.maker, inQuoteToken));
 
-        bool inQuoteToken = !orders[_borrowedOrderId].isBuyOrder;
-        require(!isUserBorrower(getMaker(_borrowedOrderId), inQuoteToken),  // To IMPROVE
-            "Assets used as collateral are not available for borrowing"
-        );
-
-        uint256 availableAssets = borrowedOrder.quantity - getTotalAssetsLentByOrder(_borrowedOrderId);
-        _checkInferiorTo(_borrowedQuantity, availableAssets);
-        _checkInferiorTo(borrowedOrder.quantity, getUserExcessCollateral(msg.sender, borrowedOrder.isBuyOrder));
+        // check borrowed amount is enough collateralized by borrowers' orders
+        // For Bob to borrow USDC (quote token) from Alice's buy order, one must check that
+        // Bob's excess collateral in ETH is enough to cover Bob's borrowing
+        _revertIfSuperiorTo(borrowedOrder.quantity, getUserExcessCollateral(msg.sender, !inQuoteToken));   
 
         // update users: check if borrower already borrows from order,
         // if not, add orderId in borrowFromIds array, reverts if max positions reached
@@ -277,12 +263,8 @@ contract OrderBook is IOrderBook {
 
         _transferTokenTo(msg.sender, _borrowedQuantity, borrowedOrder.isBuyOrder);
 
-        emit Borrow(
-            msg.sender,
-            _borrowedOrderId,
-            _borrowedQuantity,
-            borrowedOrder.isBuyOrder
-        );
+        emit Borrow(msg.sender,_borrowedOrderId, _borrowedQuantity, borrowedOrder.isBuyOrder);
+
     }
 
     /// @notice lets users decrease or close a borrowing position
@@ -301,7 +283,7 @@ contract OrderBook is IOrderBook {
         uint256 positionId = getPositionIdInPositions(_repaidOrderId, msg.sender);
 
         _checkPositionExists(positionId);
-        _checkInferiorTo(_repaidQuantity, positions[positionId].borrowedAssets);
+        _revertIfSuperiorTo(_repaidQuantity, positions[positionId].borrowedAssets);
         _checkAllowanceAndBalance(msg.sender, _repaidQuantity, repaidOrder.isBuyOrder);
 
         // update positions: decrease borrowedAssets, possibly to zero
@@ -315,12 +297,7 @@ contract OrderBook is IOrderBook {
 
         _transferTokenFrom(msg.sender, _repaidQuantity, repaidOrder.isBuyOrder);
 
-        emit Repay(
-            msg.sender,
-            _repaidOrderId,
-            _repaidQuantity,
-            repaidOrder.isBuyOrder
-        );
+        emit Repay(msg.sender, _repaidOrderId, _repaidQuantity, repaidOrder.isBuyOrder);
     }
 
     ///////******* Internal functions *******///////
@@ -334,14 +311,11 @@ contract OrderBook is IOrderBook {
         uint256 _fromOrderId
     )
         internal
-        returns (uint256 liquidatedQuantity)
     {
         uint256[MAX_POSITIONS] memory positionIds = orders[_fromOrderId].positionIds;
 
-        // iterate on position ids which borrow from the order taken
+        // iterate on position ids which borrow from the order taken, liquidate position one by one
         for (uint256 i = 0; i < MAX_POSITIONS - 1; i++) {
-            Position memory fromPosition = positions[positionIds[i]];
-            // liquidate borrowing position one by one
             _liquidate(positionIds[i]);
         }
     }
@@ -696,9 +670,7 @@ contract OrderBook is IOrderBook {
         require(maker == msg.sender, "removeOrder: Only the maker can remove the order");
     }
 
-    function _checkPositionExists(
-        uint256 _positionId
-    )
+    function _checkPositionExists(uint256 _positionId)
         internal view
     {
         require(positions[_positionId].borrowedAssets > 0, "Borrowing position does not exist");
@@ -740,17 +712,6 @@ contract OrderBook is IOrderBook {
             }
         }
     }
-
-            function _checkInferiorTo(
-            uint256 _reducedQuantity,
-            uint256 _totalQuantity
-        )
-            internal view
-            isPositive(_reducedQuantity)
-            isPositive(_totalQuantity)
-        {
-            require(_reducedQuantity <= _totalQuantity, "reduced quantity exceeds total quantity");
-        }
 
     // check allowance and balance before ERC20 transfer
 
@@ -817,7 +778,28 @@ contract OrderBook is IOrderBook {
         }
     }
 
-    // get borrower's total collateral needed to secure his debt in the quote or base token
+    function getUserTotalBorrowedAssets(
+        address _user,
+        bool _inQuoteToken
+    )
+        internal view
+        userExists(_user)
+        returns (uint256 totalBorrowedAssets)
+    {
+        uint256[MAX_ORDERS] memory orderIds = users[_user].depositIds;
+        totalBorrowedAssets = 0;
+        for (uint256 i = 0; i < MAX_ORDERS - 1; i++) {
+            Order memory order = orders[orderIds[i]]; // order id of user
+            if (order.isBuyOrder == _inQuoteToken) {
+                uint256 positionIdRow = getPositionIdsRowInOrders(orderIds[i], _user);
+                if (positionIdRow != ABSENT) {
+                    totalBorrowedAssets += positions[positionIdRow].borrowedAssets;
+                }
+            }
+        }
+    }
+
+    // borrower's total collateral needed to secure his debt in the quote or base token
     // if needed collateral is in quote token, the borrowed order is a sell order
     // Ex: Alice deposits 3 ETH to sell at 2100; Bob borrows 2 ETH and needs 2*2100 = 4200 USDC as collateral
 
@@ -825,28 +807,32 @@ contract OrderBook is IOrderBook {
         address _borrower,
         bool _inQuoteToken
     )
-        internal
-        view
+        internal view
         userExists(_borrower)
         returns (uint256 totalNeededCollateral)
     {
         uint256[MAX_BORROWINGS] memory borrowedIds = users[_borrower].borrowFromIds;
         totalNeededCollateral = 0;
         for (uint256 i = 0; i < MAX_BORROWINGS - 1; i++) {
-            Position memory position = positions[borrowedIds[i]];
-            Order memory order = orders[position.orderId]; // order id which assets are borrowed
-            if (order.isBuyOrder != _inQuoteToken) { 
-                uint256 collateral = _converts(
-                    position.borrowedAssets,
-                    order.price,
-                    order.isBuyOrder
-                );
-                totalNeededCollateral += collateral;
+            Order memory order = orders[borrowedIds[i]]; // order id which assets are borrowed
+            if (order.isBuyOrder != _inQuoteToken) {
+                uint256 positionIdRow = getPositionIdsRowInOrders(borrowedIds[i], _borrower);
+                if (positionIdRow != ABSENT) {
+                    Position memory position = positions[positionIdRow];
+                    uint256 collateral = _converts(
+                        position.borrowedAssets,
+                        order.price,
+                        order.isBuyOrder
+                    );
+                    totalNeededCollateral += collateral;
+                }
             }
         }
     }
 
-    // get borrower's excess collateral in the quote or base token
+    // get user's excess collateral in the quote or base token
+    // excess collateral = total deposits - collateral assets - borrowed assets
+
     function getUserExcessCollateral(
         address _user,
         bool _inQuoteToken
@@ -856,7 +842,8 @@ contract OrderBook is IOrderBook {
         returns (uint256 excessCollateral) {
         excessCollateral =
             getUserTotalDeposit(_user, _inQuoteToken) -
-            getBorrowerNeededCollateral(_user, _inQuoteToken);
+            getBorrowerNeededCollateral(_user, _inQuoteToken) -
+            getUserTotalBorrowedAssets(_user, _inQuoteToken);
     }
 
     // get quantity of assets lent by order
@@ -872,6 +859,16 @@ contract OrderBook is IOrderBook {
         for (uint256 i = 0; i < MAX_POSITIONS - 1; i++) {
             totalLentAssets += positions[positionIds[i]].borrowedAssets;
         }
+    }
+
+    function availableAssetsInOrder(
+        uint256 _orderId
+    )
+    internal view
+    returns (uint256 availableAssets) {
+        availableAssets = orders[_orderId].quantity
+            - getTotalAssetsLentByOrder(_orderId)
+            - minDeposit(orders[_orderId].isBuyOrder);
     }
 
     // get quantity of assets lent by order
@@ -966,7 +963,8 @@ contract OrderBook is IOrderBook {
         positionIdRow = ABSENT;
         uint256[MAX_POSITIONS] memory positionIds = orders[_orderId].positionIds;
         for (uint256 i = 0; i < MAX_POSITIONS - 1; i++) {
-            if (positions[positionIds[i]].borrower == _borrower) {
+            if (positions[positionIds[i]].borrower == _borrower &&
+                positions[positionIds[i]].borrowedAssets > 0) {
                 positionIdRow = i;
                 break;
             }
@@ -999,14 +997,32 @@ contract OrderBook is IOrderBook {
     function _converts(
         uint256 _quantity,
         uint256 _price,
-        bool _isBuyOrder
+        bool _inQuoteToken // type of the asset to convert to (quote or base token)
     )
         internal pure
         returns (uint256 convertedQuantity)
     {
-        convertedQuantity = _isBuyOrder
-            ? _quantity / _price
-            : _quantity * _price;
+        convertedQuantity = _inQuoteToken ?
+            _quantity / _price :
+            _quantity * _price;
+    }
+
+    function minDeposit(bool _isBuyOrder)
+    internal pure
+    returns (uint256 minAssets)
+    {
+        minAssets = _isBuyOrder ? MIN_DEPOSIT_QUOTE : MIN_DEPOSIT_BASE;
+    }
+    
+    function _revertIfSuperiorTo(
+        uint256 _reducedQuantity,
+        uint256 _totalQuantity
+    )
+        internal pure
+        isPositive(_reducedQuantity)
+        isPositive(_totalQuantity)
+    {
+        require(_reducedQuantity <= _totalQuantity, "reduced quantity exceeds total quantity");
     }
 
     function min(
