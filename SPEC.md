@@ -22,7 +22,7 @@
 - Borrowable order: order which assets can be borrowed
 - Unborrowable order: order which asset cannot be borowed, either because the maker made it unborrowable or because the maker is a borrower
 
-## Data Structure UML Overview
+## :twisted_rightwards_arrows: Data Structure UML Overview
 
 The UML diagram visually represents the relationships and structures of a Solidity contract's data model.
 
@@ -85,3 +85,41 @@ An order can be associated with multiple positions when different borrowers borr
 4. Users whose assets are borrowed cannot use the same assets as collateral to borrow
 5. Taking a collateral order has the effect of closing the maker's borrowing positions
 6. Orders cannot be taken at a loss. A price oracle is pulled before any taking to check the condition
+
+## Minimal deposit size and a minimal non-borrowable assets for orders
+
+We want arbitragers to have minimal incentives to take an order when the limit price is crossed. This is not the case if 100\% of the order's assets are borrowed. A minimal part of the assets must be non-borrowable, and as a consequence, a minmal deposit size is necessary.
+
+Example: in the ETH USDC market, a buy order must have at least 100 USDC available for a taker. If the minimal deposit is 100 USDC, the borrowable part of the order is y - 100 with y >= 100 USDC the deposited assests.
+
+## :cookie: Excess collateral
+
+Users can be lenders in one side of the book and borrowers in the other side as long as their excess collateral is positive.
+
+**Excess collateral** for a user and an asset $X$ is the sum of:
+
+- her assets $X$ deposited in active orders 
+- minus assets which collateralize her borrowing positions in $Y$
+- minus assets that other users borrow from her orders
+
+Excess collateral must be positive for all users at any time. It can be used to:
+
+- borrow more assets $Y$
+- let other users borrow more assets $X$ from the user
+
+as long as it remains positive.
+
+Removal is limited to excess collateral. To be fully removed, an order must satisfy:
+
+- all positions borrowing from the order being repaid
+- all positions collateralized by the order being repaid
+
+Taking an order triggers the following actions:
+
+- all positions borrowing from the order are liquidated (even if taking is partial)
+- enough positions collateralized by the order are liquidated, so that excess collateral cannot become negative
+
+Deposit more assets $X$ in the order book or repaying a position, or other borrowers repaying a position borrowing from the user's order increases excess collateral:
+
+- more assets can be borrowed from order
+- owner of order can borrow more assets
