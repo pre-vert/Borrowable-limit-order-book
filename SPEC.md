@@ -114,6 +114,8 @@ Removal is limited to excess collateral. To be fully removed, an order must sati
 - all positions borrowing from the order being repaid
 - all positions collateralized by the order being repaid
 
+Excess collateral increases when the user deposits more assets, repays a position, or other users repay their borrowing from the user's order. Conversely, a positive excess collateral can be used to remove assets, borrow more assets, or let other users borrow more assets from user's limit orders
+
 Taking an order triggers the following actions:
 
 - all positions borrowing from the order are liquidated (even if taking is partial)

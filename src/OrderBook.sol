@@ -19,9 +19,9 @@ contract OrderBook is IOrderBook {
     /// @notice provide core public functions (deposit, increase deposit, withdraw, take, borrow, repay),
     /// internal functions (liquidate) and view functions
 
-    uint256 constant MAX_POSITIONS = 10; // How many positions can be borrowed from an order
-    uint256 constant MAX_ORDERS = 20; // How many orders can be placed by a user
-    uint256 constant MAX_BORROWINGS = 10; // How many positions a borrower can open
+    uint256 constant MAX_POSITIONS = 5; // How many positions can be borrowed from a single order
+    uint256 constant MAX_ORDERS = 10; // How many buy and sell orders can be placed by a single address
+    uint256 constant MAX_BORROWINGS = 5; // How many positions a borrower can open both sides of the book
     uint256 constant MIN_DEPOSIT_BASE = 1; // Minimum deposited base tokens to be received by takers
     uint256 constant MIN_DEPOSIT_QUOTE = 100; // Minimum deposited base tokens to be received by takers
     uint256 constant ABSENT = 2 ** 256 - 1; // id for non existing order or position
@@ -40,6 +40,7 @@ contract OrderBook is IOrderBook {
         uint256[MAX_BORROWINGS] borrowFromIds; // stores orders id in mapping orders from which borrower borrows
     }
 
+    // borrowing positions
     struct Position {
         address borrower; // address of the borrower
         uint256 orderId; // stores orders id in mapping orders, from which assets are borrowed
@@ -56,8 +57,8 @@ contract OrderBook is IOrderBook {
     constructor(address _quoteToken, address _baseToken) {
         quoteToken = IERC20(_quoteToken);
         baseToken = IERC20(_baseToken);
-        lastOrderId = 1; // id of the last order in orders (0 is for non existing orders)
-        lastPositionId = 1; // id of the last position in positions (0 is for non existing orders)
+        lastOrderId = 1; // id of the last order in orders (0 is kept for non existing orders)
+        lastPositionId = 1; // id of the last position in positions (0 is kept for non existing positions)
     }
 
     modifier userExists(address _user) {
