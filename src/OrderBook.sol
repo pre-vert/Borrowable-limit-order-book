@@ -101,7 +101,7 @@ contract OrderBook is IOrderBook {
         isPositive(_quantity)
         isPositive(_price)
     {
-        // minimum amount deposited
+        // minimum amount deposited (avoid dust orders)
         _revertIfSuperiorTo(_minDeposit(_isBuyOrder), _quantity);
 
         // check if an identical order exists already, if so increase deposit, else create
@@ -140,7 +140,7 @@ contract OrderBook is IOrderBook {
         // update orders: add quantity to orders
         _increaseOrderByQuantity(_orderId, _increasedQuantity);
 
-        _checkAllowanceAndBalance(msg.sender, _increasedQuantity, isBid);
+        //_checkAllowanceAndBalance(msg.sender, _increasedQuantity, isBid);
         _transferTokenFrom(msg.sender, _increasedQuantity, isBid);
 
         emit Deposit(msg.sender, _orderId, _increasedQuantity);
@@ -162,29 +162,27 @@ contract OrderBook is IOrderBook {
     {
         Order memory removedOrder = orders[_removedOrderId];
 
-        // removal is limited to non-barrowed assets above minimum deposit
-        _revertIfSuperiorTo(_quantityToRemove, availableAssetsInOrder(_removedOrderId));
+        // removal is allowed for non-borrowed assets net of minimum deposit
+        uint256 removableQuantity = _min(_quantityToRemove, availableAssetsInOrder(_removedOrderId));
 
-        // Remaining total deposits must be enough to secure existing borrowing positions
+        // Remaining total deposits must be enough to secure maker's existing borrowing positions
+        // Maker's excess collateral must remain positive after removal
         bool inQuoteToken = removedOrder.isBuyOrder;
-        _revertIfSuperiorTo(_quantityToRemove, getUserExcessCollateral(removedOrder.maker, inQuoteToken));
-
-        // removal is allowed for non-borrowed assets
-        uint256 transferredQuantity = _min(_quantityToRemove, getNonBorrowedAssets(_removedOrderId));
+        _revertIfSuperiorTo(removableQuantity, getUserExcessCollateral(removedOrder.maker, inQuoteToken));
 
         // reduce quantity in order, possibly to zero
-        _reduceOrderByQuantity(_removedOrderId, transferredQuantity);
+        _reduceOrderByQuantity(_removedOrderId, removableQuantity);
 
         // remove orderId in depositIds array in users, if fully removed - deprecated
         // _removeOrderIdFromDepositIdsInUsers(removedOrder.maker, _removedOrderId);
 
-        _transferTokenTo(msg.sender, transferredQuantity, removedOrder.isBuyOrder);
+        _transferTokenTo(msg.sender, removableQuantity, removedOrder.isBuyOrder);
 
-        emit Withdraw(removedOrder.maker, transferredQuantity, removedOrder.price, removedOrder.isBuyOrder);
+        emit Withdraw(removedOrder.maker, removableQuantity, removedOrder.price, removedOrder.isBuyOrder);
     }
 
     /// @notice Let users take limit orders, regardless the orders' assets are borrowed or not
-    /// taking liquidates all borrowing positions even if taking is partial
+    /// taking liquidates **all** borrowing positions even if taking is partial
     /// taking of a collateral order triggers the borrower's liquidation for enough assets
     /// @param _takenOrderId id of the order to be taken
     /// @param _takenQuantity quantity of assets taken from the order
@@ -198,14 +196,22 @@ contract OrderBook is IOrderBook {
         isPositive(_takenQuantity)
     {
         Order memory takenOrder = orders[_takenOrderId];
-        _revertIfSuperiorTo(_takenQuantity, takenOrder.quantity);
+
+        // taking is allowed for non-borrowed assets, possibly net of minimum deposit if taking is partial
+        uint256 takenableQuantity = _takenQuantity;
+        if (_takenQuantity < nonBorrowedAssetsInOrder(_takenOrderId)) {
+            takenableQuantity = availableAssetsInOrder(_takenOrderId);
+        } else if (_takenQuantity > nonBorrowedAssetsInOrder(_takenOrderId)) { 
+            revert("Taking is not allowed for borrowed assets");
+        }
+
         _liquidateAssets(_takenOrderId);
 
         // quantity given by taker in exchange of _takenQuantity
-        uint256 exchangedQuantity = _converts(_takenQuantity, takenOrder.price, takenOrder.isBuyOrder);
+        uint256 exchangedQuantity = _converts(takenableQuantity, takenOrder.price, takenOrder.isBuyOrder);
 
-        // reduce quantity in order to zero
-        _reduceOrderByQuantity(_takenOrderId, _takenQuantity);
+        // reduce quantity in order, possibly to zero
+        _reduceOrderByQuantity(_takenOrderId, takenableQuantity);
 
         // remove orderId in depositIds array in users (check taking is full before) deprecated
         // _removeOrderIdFromDepositIdsInUsers(takenOrder.maker, _takenOrderId);
@@ -214,9 +220,9 @@ contract OrderBook is IOrderBook {
         // _checkAllowanceAndBalance(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder);
         _transferTokenFrom(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder);
         _transferTokenTo(takenOrder.maker, exchangedQuantity, takenOrder.isBuyOrder);
-        _transferTokenTo(msg.sender, _takenQuantity, takenOrder.isBuyOrder);
+        _transferTokenTo(msg.sender, takenableQuantity, takenOrder.isBuyOrder);
 
-        emit Take(msg.sender, takenOrder.maker, _takenQuantity, takenOrder.price, takenOrder.isBuyOrder);
+        emit Take(msg.sender, takenOrder.maker, takenableQuantity, takenOrder.price, takenOrder.isBuyOrder);
     }
 
     /// @notice Lets users borrow assets from orders (create or increase TO DO a borrowing position)
@@ -847,21 +853,21 @@ contract OrderBook is IOrderBook {
         }
     }
 
+    // get quantity of assets available in order: order quantity - assets lent - minimum deposit
     function availableAssetsInOrder(uint256 _orderId)
         public view
-    returns (uint256 availableAssets) {
-        availableAssets = orders[_orderId].quantity
-            - getTotalAssetsLentByOrder(_orderId)
-            - _minDeposit(orders[_orderId].isBuyOrder);
+    returns (uint256 availableAssets)
+    {
+        uint256 nonAvailableAssets = getTotalAssetsLentByOrder(_orderId) + _minDeposit(orders[_orderId].isBuyOrder);
+        availableAssets = _min(0, orders[_orderId].quantity - nonAvailableAssets);
     }
 
-    // get quantity of assets lent by order
-    function getNonBorrowedAssets(uint256 _orderId)
+    // get quantity of assets available in order: order quantity - assets lent
+    function nonBorrowedAssetsInOrder(uint256 _orderId)
         public view
-        orderExists(_orderId)
-        returns (uint256 nonBorrowedAssets)
+    returns (uint256 nonBorrowedAssets)
     {
-        nonBorrowedAssets = orders[_orderId].quantity - getTotalAssetsLentByOrder(_orderId);
+        nonBorrowedAssets = _min(0, orders[_orderId].quantity - getTotalAssetsLentByOrder(_orderId));
     }
 
     // find if user placed order id

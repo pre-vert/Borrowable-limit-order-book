@@ -11,9 +11,9 @@ A price feed is pulled whenever a borrowed order is taken to check that the orde
 The interest rate is chosen by makers when the order is placed.
 
 - add a new attribute uint256 interest rate to orders
-- modify placeOrder()
+- modify deposit()
 - compute accrued interest rate
-- add a methof for makers to change the interest rate of an order. If the order is borrowed, the change takes effect after the order is repaid.
+- add a method for makers to change the interest rate of an order. If the order is borrowed, the change takes effect after the order is repaid.
 - allow maker to liquidate a loan after excess collateral has been exhausted by the interest load
 
 ### 1.3 getBookSize

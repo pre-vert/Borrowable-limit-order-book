@@ -3,7 +3,7 @@
 ## Core functions
 
 ```solidity
-placeOrder(
+deposit(
     uint256 _quantity,
     uint256 _price,
     bool _isBuyOrder
@@ -14,22 +14,23 @@ Who: Maker
 
 Consequences:
 
-- increases collateral and borrowing capacity for the maker
-- more borrowable assets for other borrower
-- more orders to relocate positions from removed orders
+- increases excess collateral:
+  - more borrowing capacity for the maker
+  - more borrowable assets for other borrower
 
 Inputs :
 
-- type: bid or ask
-- quantity
-- price
-- interest rate
+- quantity deposited
+- limit price
+- type: buy order or sell order
+
 
 Tasks:
 
-- performs sanity checks
+- performs guard checks
+- calls increaseDeposit() is an order already exists, or stores a new one in orders
+- updates orders and users
 - transfers tokens to the pool
-- updates orders, users and borrowable list
 - emits event
 
 ```solidity
@@ -39,9 +40,29 @@ function increaseDeposit(
 ) external;
 ```
 
+Who: Maker
+
+Consequences:
+
+- increases excess collateral:
+  - more borrowing capacity for the maker
+  - more borrowable assets for other borrower
+
+Inputs :
+
+- order id
+- quantity added to the order
+
+
+Tasks:
+
+- performs guard checks
+- updates quantity in orders
+- transfers tokens to the pool
+- emits event
 
 ```solidity
-removeOrder(
+withdraw(
     uint256 _removedOrderId,
     uint256 _quantityToRemove
 ) external;
@@ -51,8 +72,10 @@ Who: Maker (remover)
 
 Consequences:
 
-- less collateral and borrowing capacity for the remover
-- less borrowable assets for other borrower
+- less excess collateral:
+  - less borrowing capacity for the remover
+  - less borrowable assets for other borrowers
+- if removal is full, the order is deleted in orders (quantity is set to zero)
 
 Inputs :
 
@@ -61,14 +84,14 @@ Inputs :
 
 Tasks:
 
-- performs sanity checks
-- calls \_displaceAssets(): scan available orders to reposition debt at least equal to quantity to be removed
-- transfers tokens to the remover (full or partial)
-- updates orders, users (borrowFromIds) and borrowable list (delete removed order)
+- performs guard checks
+- compute removable assets as total assets in order - asset lent - minimum deposit
+- updates orders (reduce quantity, possibly to zero)
+- transfers tokens to remover (full or partial)
 - emits event
 
 ```solidity
-function takeOrder(
+function take(
     uint256 _takenOrderId,
     uint256 _takenQuantity
 ) external;
@@ -78,9 +101,12 @@ Who: anyone (including the maker and borrowers of the order)
 
 Consequences:
 
-- borrowing positions are liquidated
+- all borrowing positions are liquidated, even if $1 is taken from order
+- maker's excess collateral is:
+  - reduced as maker has less deposits
+  - increased as lent assets are liquidated
+  - increased as sufficient maker's orders are closed out
 - less orders and assets in the book
-- less collateral and borrowing capacity for the maker which order is taken
 
 Inputs :
 
@@ -89,7 +115,7 @@ Inputs :
 
 Tasks:
 
-- performs sanity checks
+- performs guard checks
 - calls \_displaceAssets(): liquidates all borrowing positions
 - checks taker's balance and allowance
 - if all assets are taken, remove:
