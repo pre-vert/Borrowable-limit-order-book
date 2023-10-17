@@ -24,7 +24,7 @@ contract OrderBook is IOrderBook {
     uint256 constant MAX_BORROWINGS = 5; // How many positions a borrower can open both sides of the book
     uint256 constant MIN_DEPOSIT_BASE = 1; // Minimum deposited base tokens to be received by takers
     uint256 constant MIN_DEPOSIT_QUOTE = 100; // Minimum deposited base tokens to be received by takers
-    uint256 constant ABSENT = 2 ** 256 - 1; // id for non existing order or position
+    uint256 constant ABSENT = type(uint256).max; // id for non existing order or position in arrays
     
     struct Order {
         address maker; // address of the maker
@@ -116,7 +116,7 @@ contract OrderBook is IOrderBook {
             _addOrderIdInDepositIdsInUsers(newOrderId, msg.sender);
         }
 
-        _checkAllowanceAndBalance(msg.sender, _quantity, _isBuyOrder);
+        // _checkAllowanceAndBalance(msg.sender, _quantity, _isBuyOrder);
         _transferTokenFrom(msg.sender, _quantity, _isBuyOrder);
 
         emit Place(msg.sender, _quantity, _price, _isBuyOrder);
@@ -161,7 +161,6 @@ contract OrderBook is IOrderBook {
         onlyMaker(getMaker(_removedOrderId))
     {
         Order memory removedOrder = orders[_removedOrderId];
-
 
         // removal is limited to non-barrowed assets above minimum deposit
         _revertIfSuperiorTo(_quantityToRemove, availableAssetsInOrder(_removedOrderId));
@@ -212,7 +211,7 @@ contract OrderBook is IOrderBook {
         // _removeOrderIdFromDepositIdsInUsers(takenOrder.maker, _takenOrderId);
 
         // if a buy order is taken, the taker pays the quoteToken and receives the baseToken
-        _checkAllowanceAndBalance(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder);
+        // _checkAllowanceAndBalance(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder);
         _transferTokenFrom(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder);
         _transferTokenTo(takenOrder.maker, exchangedQuantity, takenOrder.isBuyOrder);
         _transferTokenTo(msg.sender, _takenQuantity, takenOrder.isBuyOrder);
@@ -293,7 +292,7 @@ contract OrderBook is IOrderBook {
         // remove repaid order id from borrowFromIds in users (check if removal is full before) = deprecated
         // _removeOrderIdFromBorrowFromIdsInUsers(msg.sender, _repaidOrderId);
 
-        _checkAllowanceAndBalance(msg.sender, _repaidQuantity, repaidOrder.isBuyOrder);
+        // _checkAllowanceAndBalance(msg.sender, _repaidQuantity, repaidOrder.isBuyOrder);
         _transferTokenFrom(msg.sender, _repaidQuantity, repaidOrder.isBuyOrder);
 
         emit Repay(msg.sender, _repaidOrderId, _repaidQuantity, repaidOrder.isBuyOrder);
@@ -389,14 +388,14 @@ contract OrderBook is IOrderBook {
         address _from,
         uint256 _quantity,
         bool _isBuyOrder
-    ) internal isPositive(_quantity) returns (bool success)
+    ) internal isPositive(_quantity) returns (bool)
     {
         if (_isBuyOrder) {
             quoteToken.transferFrom(_from, address(this), _quantity);
         } else {
             baseToken.transferFrom(_from, address(this), _quantity);
         }
-        success = true;
+        return true;
     }
 
     // returns id of the new order
