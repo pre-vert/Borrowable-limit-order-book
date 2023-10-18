@@ -7,7 +7,8 @@ pragma solidity ^0.8.20;
 /// @dev A money market for the pair base/quote is handled by a single contract
 /// which manages both order book operations lending/borrowing operations
 
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+//import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20} from "./interfaces/IERC20.sol";
 import {IOrderBook} from "./interfaces/IOrderBook.sol";
 import {console} from "forge-std/Test.sol";
 
@@ -117,7 +118,7 @@ contract OrderBook is IOrderBook {
         }
 
         // _checkAllowanceAndBalance(msg.sender, _quantity, _isBuyOrder);
-        _transferTokenFrom(msg.sender, _quantity, _isBuyOrder);
+        require(_transferTokenFrom(msg.sender, _quantity, _isBuyOrder), "Transfer failed");
 
         emit Place(msg.sender, _quantity, _price, _isBuyOrder);
     }
@@ -141,7 +142,7 @@ contract OrderBook is IOrderBook {
         _increaseOrderByQuantity(_orderId, _increasedQuantity);
 
         //_checkAllowanceAndBalance(msg.sender, _increasedQuantity, isBid);
-        _transferTokenFrom(msg.sender, _increasedQuantity, isBid);
+        require(_transferTokenFrom(msg.sender, _increasedQuantity, isBid), "Transfer failed");
 
         emit Deposit(msg.sender, _orderId, _increasedQuantity);
     }
@@ -176,7 +177,7 @@ contract OrderBook is IOrderBook {
         // remove orderId in depositIds array in users, if fully removed - deprecated
         // _removeOrderIdFromDepositIdsInUsers(removedOrder.maker, _removedOrderId);
 
-        _transferTokenTo(msg.sender, removableQuantity, removedOrder.isBuyOrder);
+        require(_transferTokenTo(msg.sender, removableQuantity, removedOrder.isBuyOrder), "Transfer failed");
 
         emit Withdraw(removedOrder.maker, removableQuantity, removedOrder.price, removedOrder.isBuyOrder);
     }
@@ -218,9 +219,9 @@ contract OrderBook is IOrderBook {
 
         // if a buy order is taken, the taker pays the quoteToken and receives the baseToken
         // _checkAllowanceAndBalance(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder);
-        _transferTokenFrom(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder);
-        _transferTokenTo(takenOrder.maker, exchangedQuantity, takenOrder.isBuyOrder);
-        _transferTokenTo(msg.sender, takenableQuantity, takenOrder.isBuyOrder);
+        require(_transferTokenFrom(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder), "Transfer failed");
+        require(_transferTokenTo(takenOrder.maker, exchangedQuantity, takenOrder.isBuyOrder), "Transfer failed");
+        require(_transferTokenTo(msg.sender, takenableQuantity, takenOrder.isBuyOrder), "Transfer failed");
 
         emit Take(msg.sender, takenOrder.maker, takenableQuantity, takenOrder.price, takenOrder.isBuyOrder);
     }
@@ -240,34 +241,40 @@ contract OrderBook is IOrderBook {
         isPositive(_borrowedQuantity)
     {
         Order memory borrowedOrder = orders[_borrowedOrderId];
-        
-        _revertIfSuperiorTo(_borrowedQuantity, availableAssetsInOrder(_borrowedOrderId));
+
+        // borrow up to desired quantity or available assets
+        uint256 borrowableQuantity = _min(
+            _borrowedQuantity,
+            availableAssetsInOrder(_borrowedOrderId)
+        );
 
         // check available assets are not collateral for user's borrowing positions
         // For Bob to borrow USDC (quote token) from Alice's buy order, one must check that
         // Alice's excess collateral in USDC is enough to cover Bob's borrowing
         bool inQuoteToken = borrowedOrder.isBuyOrder;
-        _revertIfSuperiorTo(borrowedOrder.quantity, getUserExcessCollateral(borrowedOrder.maker, inQuoteToken));
+        _revertIfSuperiorTo(borrowableQuantity, getUserExcessCollateral(borrowedOrder.maker, inQuoteToken));
 
         // check borrowed amount is enough collateralized by borrowers' orders
         // For Bob to borrow USDC (quote token) from Alice's buy order, one must check that
         // Bob's excess collateral in ETH is enough to cover Bob's borrowing
-        _revertIfSuperiorTo(borrowedOrder.quantity, getUserExcessCollateral(msg.sender, !inQuoteToken));   
+        _revertIfSuperiorTo(borrowableQuantity, getUserExcessCollateral(msg.sender, !inQuoteToken));   
 
         // update users: check if borrower already borrows from order,
-        // if not, add orderId in borrowFromIds array, reverts if max positions reached
+        // if not, add orderId in borrowFromIds array, reverts if max position reached
         _addOrderIdInBorrowFromIdsInUsers(msg.sender, _borrowedOrderId);
 
         // update positions: create new or update existing borrowing position in positions
         // output the id of the new or updated borrowing position
-        uint256 positionId = _addPositionToPositions(msg.sender, _borrowedOrderId, _borrowedQuantity);
+        uint256 positionId = _addPositionToPositions(msg.sender, _borrowedOrderId, borrowableQuantity);
 
         // update orders: add new positionId in positionIds array
+        // check first that position doesn't already exist
+        // reverts if max number of positions is reached
         _AddPositionIdToPoisitionIdsInOrders(positionId, _borrowedOrderId);
 
-        _transferTokenTo(msg.sender, _borrowedQuantity, borrowedOrder.isBuyOrder);
+        require(_transferTokenTo(msg.sender, borrowableQuantity, borrowedOrder.isBuyOrder), "Transfer failed");
 
-        emit Borrow(msg.sender,_borrowedOrderId, _borrowedQuantity, borrowedOrder.isBuyOrder);
+        emit Borrow(msg.sender,_borrowedOrderId, borrowableQuantity, borrowedOrder.isBuyOrder);
 
     }
 
@@ -299,7 +306,7 @@ contract OrderBook is IOrderBook {
         // _removeOrderIdFromBorrowFromIdsInUsers(msg.sender, _repaidOrderId);
 
         // _checkAllowanceAndBalance(msg.sender, _repaidQuantity, repaidOrder.isBuyOrder);
-        _transferTokenFrom(msg.sender, _repaidQuantity, repaidOrder.isBuyOrder);
+        require(_transferTokenFrom(msg.sender, _repaidQuantity, repaidOrder.isBuyOrder), "Transfer failed");
 
         emit Repay(msg.sender, _repaidOrderId, _repaidQuantity, repaidOrder.isBuyOrder);
     }
@@ -379,14 +386,13 @@ contract OrderBook is IOrderBook {
         address _to,
         uint256 _quantity,
         bool _isBuyOrder
-    ) internal isPositive(_quantity) returns (bool success)
+    ) internal isPositive(_quantity) returns (bool)
     {
         if (_isBuyOrder) {
-            quoteToken.transfer(_to, _quantity);
+            return quoteToken.transfer(_to, _quantity);
         } else {
-            baseToken.transfer(_to, _quantity);
+            return baseToken.transfer(_to, _quantity);
         }
-        success = true;
     }
 
     // transfer ERC20 from user/taker/repayBorrower to contract
@@ -397,11 +403,10 @@ contract OrderBook is IOrderBook {
     ) internal isPositive(_quantity) returns (bool)
     {
         if (_isBuyOrder) {
-            quoteToken.transferFrom(_from, address(this), _quantity);
+            return quoteToken.transferFrom(_from, address(this), _quantity);
         } else {
-            baseToken.transferFrom(_from, address(this), _quantity);
+            return baseToken.transferFrom(_from, address(this), _quantity);
         }
-        return true;
     }
 
     // returns id of the new order

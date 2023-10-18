@@ -116,24 +116,22 @@ Inputs :
 Tasks:
 
 - performs guard checks
-- calls \_displaceAssets(): liquidates all borrowing positions
-- checks taker's balance and allowance
-- if all assets are taken, remove:
-  - order in orders
-  - orderId in depositIds array in users
-  - orderId from the list of borrowable orders
-- otherwise adjust internal balances
-- transfers ERC20 tokens between the taker and the maker
+- taking can be
+  - full (total assets - borrowed assets)
+  - partial (< total assets - borrowed assets - minimum deposit)
+- liquidates all borrowing positions (calls \_liquidateAssets())
+- updates orders (reduce quantity, possibly to zero)
+- transfers ERC20 tokens between taker and maker
 - emits event
 
 ```solidity
-borrowOrder(
+borrow(
     uint256 _borrowedOrderId,
     uint256 _borrowedQuantity
 ) external;
 ```
 
-Who: makers with enough deposited assets
+Who: makers
 
 Consequences:
 
@@ -146,20 +144,20 @@ Inputs :
 
 Tasks:
 
-- performs sanity checks
-- checks if borrower has enough collateral
+- performs guard checks
+- checks if:
+  - borrowed assets don't exceed available assets
+  - maker has enough excess collateral
+  - borrower has enough excess collateral
 - if the borrower doesn't currently borrow from the order, a new borrowing position is created:
   - adds orderId to borrowFromIds array in users
   - adds position to positions array
   - adds positionId to positionIds array in orders
-- updates borrowable list:
-  - deletes order if its assets are now fully borrowed
-  - removes all orders placed by the borrower from the borrowable list
 - transfers ERC20 tokens to borrower
 - emits event
 
 ```solidity
-repayBorrowing(
+repay(
     uint256 _repaidOrderId,
     uint256 _repaidQuantity
 ) external;
@@ -180,7 +178,7 @@ Inputs :
 
 Tasks:
 
-- sanity checks
+- guard checks
 - update positions: decrease borrowed assets
 - if borrowing is fully repaid, delete:
   - position in positions
