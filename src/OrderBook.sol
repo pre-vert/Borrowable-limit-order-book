@@ -62,18 +62,13 @@ contract OrderBook is IOrderBook {
         lastPositionId = 1; // id of the last position in positions (0 is kept for non existing positions)
     }
 
-    modifier userExists(address _user) {
-        _checkUserExists(_user);
-        _;
-    }
-
     modifier orderExists(uint256 _orderId) {
-        _checkOrderExists(_orderId);
+        _revertIfOrderDoesntExist(_orderId);
         _;
     }
 
     modifier positionExists(uint256 _positionId) {
-        _checkPositionExists(_positionId);
+        _RevertIfPositionDoesntExist(_positionId);
         _;
     }
 
@@ -290,10 +285,7 @@ contract OrderBook is IOrderBook {
         orderExists(_repaidOrderId)
         isPositive(_repaidQuantity)
     {
-        Order memory repaidOrder = orders[_repaidOrderId];
         uint256 positionId = _getPositionIdInPositions(_repaidOrderId, msg.sender);
-
-        _checkPositionExists(positionId);
         _revertIfSuperiorTo(_repaidQuantity, positions[positionId].borrowedAssets);
 
         // update positions: decrease borrowedAssets, possibly to zero
@@ -305,10 +297,12 @@ contract OrderBook is IOrderBook {
         // remove repaid order id from borrowFromIds in users (check if removal is full before) = deprecated
         // _removeOrderIdFromBorrowFromIdsInUsers(msg.sender, _repaidOrderId);
 
-        // _checkAllowanceAndBalance(msg.sender, _repaidQuantity, repaidOrder.isBuyOrder);
-        require(_transferTokenFrom(msg.sender, _repaidQuantity, repaidOrder.isBuyOrder), "Transfer failed");
+        bool isBid = orders[_repaidOrderId].isBuyOrder;
 
-        emit Repay(msg.sender, _repaidOrderId, _repaidQuantity, repaidOrder.isBuyOrder);
+        // _checkAllowanceAndBalance(msg.sender, _repaidQuantity, repaidOrder.isBuyOrder);
+        require(_transferTokenFrom(msg.sender, _repaidQuantity, isBid), "Transfer failed");
+
+        emit Repay(msg.sender, _repaidOrderId, _repaidQuantity, isBid);
     }
 
     ///////******* Internal functions *******///////
@@ -318,21 +312,20 @@ contract OrderBook is IOrderBook {
     /// doesn't perform external transfers
     /// @param _fromOrderId order from which borrowing positions must be cleared
 
-    function _liquidateAssets(
-        uint256 _fromOrderId
-    )
+    function _liquidateAssets(uint256 _fromOrderId)
         internal
     {
         uint256[MAX_POSITIONS] memory positionIds = orders[_fromOrderId].positionIds;
-
         // iterate on position ids which borrow from the order taken, liquidate position one by one
-        for (uint256 i = 0; i < MAX_POSITIONS - 1; i++) {
-            require(_liquidatePosition(positionIds[i]), "Some collateral couldn't be seized");
+        for (uint256 i = 0; i < MAX_POSITIONS; i++) {
+            if(_borrowingInPositionIsPositive(positionIds[i]))
+                require(_liquidatePosition(positionIds[i]), "Some collateral couldn't be seized");
         }
     }
 
-    /// @notice liquidate a borrowing position: seize collateral and write off debt for the same amount
+    /// @notice liquidate one borrowing position: seize collateral and write off debt for the same amount
     /// liquidation of a position is always full, i.e. borrower's debt is fully written off
+    /// collateral is seized for the exact amount liquidated, i.e. no excess collateral is seized
     /// as multiple orders by the same borrower may collateralize the liquidated position:
     ///  - iterate on collateral orders made by borrower in the opposite currency
     ///  - seize collateral orders as they come, stops when borrower's debt is fully written off
@@ -340,44 +333,41 @@ contract OrderBook is IOrderBook {
     /// doesn't execute final external transfer of assets
     /// @param _positionId id of the position to be liquidated
 
-    function _liquidatePosition(
-        uint256 _positionId
-    )
+    function _liquidatePosition(uint256 _positionId)
         internal
         positionExists(_positionId)
-        returns (bool success)
+        returns (bool)
     {
         Position memory position = positions[_positionId]; // position to be liquidated
-        uint256 takenOrderId = position.orderId; // id of the order from which assets are taken
+        Order memory takenOrder = orders[position.orderId]; // order from which assets are taken
         // collateral to seize given borrowed quantity:
-        uint256 collateralToSeize = _converts(
-            position.borrowedAssets,
-            orders[takenOrderId].price,
-            orders[takenOrderId].isBuyOrder
-        );
+        uint256 collateralToSeize = _converts(position.borrowedAssets, takenOrder.price, takenOrder.isBuyOrder);
         // order id list of collateral orders to seize:
         uint256[MAX_ORDERS] memory depositIds = users[position.borrower].depositIds;
-        for (uint256 i = 0; i < MAX_ORDERS - 1; i++) {
+        for (uint256 i = 0; i < MAX_ORDERS; i++) {
             uint256 orderId = depositIds[i]; // order id from which assets are seized
-            if (collateralToSeize > orders[orderId].quantity) {
-                // borrower's order is fully seized
-                _reduceOrderByQuantity(orderId, orders[orderId].quantity);
-                // update orders: remove position id from positionIds array deprectaed
-                // _removeOrderIdFromPositionIdsInOrders(position.borrower, orderId); 
-                // update orders: delete emptied order
-                _reduceOrderByQuantity(orderId, orders[orderId].quantity);
-                // update users: remove seized order id from depositIds array deprectaed
-                // _removeOrderIdFromDepositIdsInUsers(position.borrower, orderId); 
-            } else {
-                // enough collateral assets are seized before borrower's order is fully seized
-                collateralToSeize = 0;
-                _reduceOrderByQuantity(orderId, collateralToSeize);
-                break;
+            if (_orderQuantityIsPositive(orderId)) {
+                if (collateralToSeize > orders[orderId].quantity) {
+                    // borrower's order is fully seized, reduce order quantity to zero
+                    _reduceOrderByQuantity(orderId, orders[orderId].quantity);
+                    // update orders: remove position id from positionIds array = deprecated
+                    // _removeOrderIdFromPositionIdsInOrders(position.borrower, orderId); 
+                    // update users: remove seized order id from depositIds array = deprecated
+                    // _removeOrderIdFromDepositIdsInUsers(position.borrower, orderId); 
+                    collateralToSeize -= orders[orderId].quantity;
+                } else {
+                    // enough collateral assets are seized before borrower's order is fully seized
+                    collateralToSeize = 0;
+                    _reduceOrderByQuantity(orderId, collateralToSeize);
+                    break;
+                }
             }
         }
-        success = (collateralToSeize == 0);
+        // write off debt for the same amount as collateral seized
+        positions[_positionId].borrowedAssets = 0;
+        return (collateralToSeize == 0);
 
-        // update users: remove taken order id in borrowFromIds array deprecated
+        // update users: remove taken order id in borrowFromIds array = deprecated
         // _removeOrderIdFromBorrowFromIdsInUsers(position.borrower, takenOrderId);
     }
 
@@ -388,11 +378,8 @@ contract OrderBook is IOrderBook {
         bool _isBuyOrder
     ) internal isPositive(_quantity) returns (bool)
     {
-        if (_isBuyOrder) {
-            return quoteToken.transfer(_to, _quantity);
-        } else {
-            return baseToken.transfer(_to, _quantity);
-        }
+        if (_isBuyOrder) return quoteToken.transfer(_to, _quantity);
+        else return baseToken.transfer(_to, _quantity);
     }
 
     // transfer ERC20 from user/taker/repayBorrower to contract
@@ -402,11 +389,8 @@ contract OrderBook is IOrderBook {
         bool _isBuyOrder
     ) internal isPositive(_quantity) returns (bool)
     {
-        if (_isBuyOrder) {
-            return quoteToken.transferFrom(_from, address(this), _quantity);
-        } else {
-            return baseToken.transferFrom(_from, address(this), _quantity);
-        }
+        if (_isBuyOrder) return quoteToken.transferFrom(_from, address(this), _quantity);
+        else return baseToken.transferFrom(_from, address(this), _quantity);
     }
 
     // returns id of the new order
@@ -432,25 +416,24 @@ contract OrderBook is IOrderBook {
         lastOrderId++;
     }
 
-    // if order id is not in depositIds array, push it, otherwise do nothing
+    // if order id is not in depositIds array, include it, otherwise do nothing
     function _addOrderIdInDepositIdsInUsers(
         uint256 _orderId,
         address _maker
     )
         internal
-        orderExists(_orderId) 
-        userExists(_maker) // checks that _maker has at least one active order
+        orderExists(_orderId)
     {
         uint256 row = _getDepositIdsRowInUsers(_maker, _orderId);
         if (row == ABSENT) {
             bool fillRow = false;
-            for (uint256 i = 0; i < MAX_ORDERS - 1; i++) {
-                if (users[_maker].depositIds[i] == 0) {
+            for (uint256 i = 0; i < MAX_ORDERS; i++) {
+                if (!_orderQuantityIsPositive(users[_maker].depositIds[i])) {
                     users[_maker].depositIds[i] = _orderId;
                     fillRow = true;
                     break;
                 }
-                if (!fillRow) {revert("Max number of orders reached for user");}
+                if (!fillRow) revert("Max number of orders reached for user");
             }
         }
     }
@@ -460,13 +443,10 @@ contract OrderBook is IOrderBook {
         uint256 _orderId
     )
         internal
-        userExists(_user)
         orderExists(_orderId)
     {
         uint256 row = _getBorrowFromIdsRowInUsers(_user, _orderId);
-        if (row != ABSENT) {
-            users[_user].borrowFromIds[row] = 0;
-        }
+        if (row != ABSENT) users[_user].borrowFromIds[row] = 0;
     }
 
     function _removeOrderIdFromPositionIdsInOrders(
@@ -474,13 +454,11 @@ contract OrderBook is IOrderBook {
         uint256 _orderId
     )
         internal 
-        userExists(_borrower)
         orderExists(_orderId)
     {
+        // check borrower exists with a positive borrowed amount (otherwise ABSENT)
         uint256 row = _getPositionIdsRowInOrders(_orderId, _borrower);
-        if (row != ABSENT) {
-            orders[_orderId].positionIds[row] = 0;
-        }
+        if (row != ABSENT) orders[_orderId].positionIds[row] = 0;
     }
 
     // update users: check if borrower already borrows from order,
@@ -491,19 +469,20 @@ contract OrderBook is IOrderBook {
         uint256 _orderId
     )
         internal
-        userExists(_borrower)
         orderExists(_orderId)
     {
         uint256 row = _getBorrowFromIdsRowInUsers(_borrower, _orderId);
         if (row == ABSENT) {
             bool fillRow = false;
-            for (uint256 i = 0; i < MAX_BORROWINGS - 1; i++) {
-                if (users[_borrower].borrowFromIds[i] == 0) {
+            for (uint256 i = 0; i < MAX_BORROWINGS; i++) {
+                uint256 positionId = _getPositionIdsRowInOrders(_orderId, _borrower);
+                if (!_borrowingInPositionIsPositive(positionId))
+                {
                     users[_borrower].borrowFromIds[i] = _orderId;
                     fillRow = true;
                     break;
                 }
-                if (!fillRow) {revert("Max number of positions reached for borrower");}
+                if (!fillRow) revert("Max number of positions reached for borrower");
             }
         }
     }
@@ -513,14 +492,11 @@ contract OrderBook is IOrderBook {
         uint256 _orderId
     )
         internal
-        userExists(_user)
         orderExists(_orderId)
     {
         if (orders[_orderId].quantity == 0) {
             uint256 row = _getDepositIdsRowInUsers(_user, _orderId);
-            if (row != ABSENT) {
-                users[_user].depositIds[row] = 0;
-            }
+            if (row != ABSENT) users[_user].depositIds[row] = 0;
         }
     }
 
@@ -537,7 +513,6 @@ contract OrderBook is IOrderBook {
         uint256 _borrowedQuantity
     )
         internal
-        userExists(_borrower)
         orderExists(_orderId)
         isPositive(_borrowedQuantity)
         returns (uint256 positionId)
@@ -587,15 +562,14 @@ contract OrderBook is IOrderBook {
         if (row == ABSENT) {
             bool fillRow = false;
             uint256[MAX_POSITIONS] memory positionIds = orders[_orderId].positionIds;
-            for (uint256 i = 0; i < MAX_POSITIONS - 1; i++) {
-                if (positionIds[i] == 0
-                || positions[positionIds[i]].borrowedAssets == 0
+            for (uint256 i = 0; i < MAX_POSITIONS; i++) {
+                if (!_borrowingInPositionIsPositive(positionIds[i])
                 ) {
                     orders[_orderId].positionIds[i] = _positionId;
                     fillRow = true;
                     break;
                 }
-                if (!fillRow) {revert("Max number of positions reached for order");}
+                if (!fillRow) revert("Max number of positions reached for order");
             }
         }
     }
@@ -613,9 +587,7 @@ contract OrderBook is IOrderBook {
         Position memory position = positions[_positionId];
         if (position.borrowedAssets == 0) {
             uint256 row = _getPositionIdsRowInOrders(_orderId, position.borrower);
-            if (row != ABSENT) {
-                orders[_orderId].positionIds[row] = 0;
-            }
+            if (row != ABSENT) orders[_orderId].positionIds[row] = 0;
         }
     }
 
@@ -648,24 +620,32 @@ contract OrderBook is IOrderBook {
 
     // user exists if she has at least one order with positive quantity
 
-     function _checkUserExists(address _user)
+    //  function _userHasDeposit(address _user)
+    //     internal view
+    //     returns (bool hasDeposit)
+    // {
+    //     hasDeposit = false;
+    //     uint256[MAX_ORDERS] memory depositIds = users[_user].depositIds;
+    //     for (uint256 i = 0; i < MAX_ORDERS; i++) {
+    //         if (_orderQuantityIsPositive(depositIds[i])) {
+    //             hasDeposit = true;
+    //             break;
+    //         }
+    //     }
+    //     return hasDeposit;
+    // }
+    
+    function _revertIfOrderDoesntExist(uint256 _orderId)
         internal view
     {
-        bool userHasDeposit = false;
-        uint256[MAX_ORDERS] memory depositIds = users[_user].depositIds;
-        for (uint256 i = 0; i < MAX_ORDERS - 1; i++) {
-            if (orders[depositIds[i]].quantity > 0) {
-                userHasDeposit = true;
-                break;
-            }
-        }
-        require(userHasDeposit, "User does not exist");
+        require(_orderQuantityIsPositive(_orderId), "Order does not exist");
     }
 
-    function _checkOrderExists(uint256 _orderId)
+    function _orderQuantityIsPositive(uint256 _orderId)
         internal view
+        returns (bool)
     {
-        require(orders[_orderId].quantity > 0, "Order does not exist");
+        return (orders[_orderId].quantity > 0);
     }
 
     function _onlyMaker(address maker)
@@ -674,10 +654,17 @@ contract OrderBook is IOrderBook {
         require(maker == msg.sender, "removeOrder: Only the maker can remove the order");
     }
 
-    function _checkPositionExists(uint256 _positionId)
+    function _RevertIfPositionDoesntExist(uint256 _positionId)
         internal view
     {
-        require(positions[_positionId].borrowedAssets > 0, "Borrowing position does not exist");
+        require(_borrowingInPositionIsPositive(_positionId), "Borrowing position does not exist");
+    }
+
+    function _borrowingInPositionIsPositive(uint256 _positionId)
+        internal view
+        returns (bool)
+    {
+        return (positions[_positionId].borrowedAssets > 0);
     }
 
     // get address of maker based on order id
@@ -692,52 +679,50 @@ contract OrderBook is IOrderBook {
     // check if user is a borrower of quote or base token
     // a user who borrows from buy oders borrows quote token
 
-    function isUserBorrower(
-        address _user,
-        bool _inQuoteToken
-    ) 
-        public view
-        userExists(_user)
-        returns (bool isBorrower)
-    {
-        isBorrower = false;
-        uint256[MAX_BORROWINGS] memory borrowFromIds = users[_user].borrowFromIds;
-        for (uint256 i = 0; i < MAX_BORROWINGS - 1; i++) {
-            Order memory borrowedOrder = orders[borrowFromIds[i]];
-            if (
-                borrowFromIds[i] != 0 &&
-                borrowedOrder.isBuyOrder == _inQuoteToken &&
-                borrowedOrder.quantity > 0
-            ) {
-                isBorrower = true;
-                break;
-            }
-        }
-    }
+    // function isUserBorrower(
+    //     address _user,
+    //     bool _inQuoteToken
+    // ) 
+    //     public view
+    //     returns (bool isBorrower)
+    // {
+    //     isBorrower = false;
+    //     uint256[MAX_BORROWINGS] memory borrowFromIds = users[_user].borrowFromIds;
+    //     for (uint256 i = 0; i < MAX_BORROWINGS; i++) {
+    //         Order memory borrowedOrder = orders[borrowFromIds[i]];
+    //         if (
+    //             borrowFromIds[i] != 0 &&
+    //             borrowedOrder.isBuyOrder == _inQuoteToken &&
+    //             borrowedOrder.quantity > 0
+    //         ) {
+    //             isBorrower = true;
+    //             break;
+    //         }
+    //     }
+    // }
 
-    // check allowance and balance before ERC20 transfer
+    // check allowance and balance before ERC20 transfer // deprecated
 
-    function _checkAllowanceAndBalance(
-        address _user,
-        uint256 _quantity,
-        bool _isBuyOrder
-    )
-        internal view
-        userExists(_user)
-        isPositive(_quantity)
-    {
-        if (_isBuyOrder) {
-            require(quoteToken.balanceOf(_user) >= _quantity,
-                "quote token: Insufficient balance");
-            require(quoteToken.allowance(_user, address(this)) >= _quantity,
-                "quote token: Insufficient allowance");
-        } else {
-            require(baseToken.balanceOf(_user) >= _quantity,
-                "base token: Insufficient balance");
-            require(baseToken.allowance(_user, address(this)) >= _quantity,
-                "base token: Insufficient allowance");
-        }
-    }
+    // function _checkAllowanceAndBalance(
+    //     address _user,
+    //     uint256 _quantity,
+    //     bool _isBuyOrder
+    // )
+    //     internal view
+    //     isPositive(_quantity)
+    // {
+    //     if (_isBuyOrder) {
+    //         require(quoteToken.balanceOf(_user) >= _quantity,
+    //             "quote token: Insufficient balance");
+    //         require(quoteToken.allowance(_user, address(this)) >= _quantity,
+    //             "quote token: Insufficient allowance");
+    //     } else {
+    //         require(baseToken.balanceOf(_user) >= _quantity,
+    //             "base token: Insufficient balance");
+    //         require(baseToken.allowance(_user, address(this)) >= _quantity,
+    //             "base token: Insufficient allowance");
+    //     }
+    // }
 
     // sum all assets deposited by user in the quote or base token
 
@@ -746,60 +731,69 @@ contract OrderBook is IOrderBook {
         bool _inQuoteToken
     )
         public view
-        userExists(_user)
         returns (uint256 totalDeposit)
     {
         uint256[MAX_ORDERS] memory depositIds = users[_user].depositIds;
         totalDeposit = 0;
-        for (uint256 i = 0; i < MAX_ORDERS - 1; i++) {
-            if (depositIds[i] != 0 && orders[depositIds[i]].isBuyOrder == _inQuoteToken) {
+        for (uint256 i = 0; i < MAX_ORDERS; i++) {
+            if (orders[depositIds[i]].isBuyOrder == _inQuoteToken)
                 totalDeposit += orders[depositIds[i]].quantity;
-            }
         }
     }
     
-    // get borrower's total Debt in the quote or base token
-    function getBorrowerTotalDebt(
-        address _borrower,
-        bool _inQuoteToken
-    )
-        public view
-        userExists(_borrower)
-        returns (uint256 totalDebt)
-    {
-        uint256[MAX_BORROWINGS] memory borrowFromIds = users[_borrower].borrowFromIds;
-        totalDebt = 0;
-        for (uint256 i = 0; i < MAX_BORROWINGS - 1; i++) {
-            uint256 row = _getPositionIdsRowInOrders(borrowFromIds[i], _borrower);
-            if (orders[borrowFromIds[i]].isBuyOrder == _inQuoteToken) {
-                totalDebt += positions[row].borrowedAssets;
-            }
-        }
-    }
+    // // get borrower's total Debt in the quote or base token
+    // function getBorrowerTotalDebt(
+    //     address _borrower,
+    //     bool _inQuoteToken
+    // )
+    //     public view
+    //     returns (uint256 totalDebt)
+    // {
+    //     uint256[MAX_BORROWINGS] memory borrowFromIds = users[_borrower].borrowFromIds;
+    //     totalDebt = 0;
+    //     for (uint256 i = 0; i < MAX_BORROWINGS; i++) {
+    //         uint256 row = _getPositionIdsRowInOrders(borrowFromIds[i], _borrower);
+    //         if (orders[borrowFromIds[i]].isBuyOrder == _inQuoteToken)
+    //             totalDebt += positions[row].borrowedAssets;
+    //     }
+    // }
 
+    // total assets borrowed by other users from _user in base or quote token
     function getUserTotalBorrowedAssets(
         address _user,
         bool _inQuoteToken
     )
         public view
-        userExists(_user)
         returns (uint256 totalBorrowedAssets)
     {
         uint256[MAX_ORDERS] memory orderIds = users[_user].depositIds;
         totalBorrowedAssets = 0;
-        for (uint256 i = 0; i < MAX_ORDERS - 1; i++) {
-            Order memory order = orders[orderIds[i]]; // order id of user
-            if (order.isBuyOrder == _inQuoteToken) {
-                uint256 positionIdRow = _getPositionIdsRowInOrders(orderIds[i], _user);
-                if (positionIdRow != ABSENT) {
-                    totalBorrowedAssets += positions[positionIdRow].borrowedAssets;
+        for (uint256 i = 0; i < MAX_ORDERS; i++) {
+            totalBorrowedAssets += _getOrderBorrowedAssets(orderIds[i], _inQuoteToken);
+        }
+    }
+
+    // total assets borrowed from order in base or quote tokens
+    function _getOrderBorrowedAssets(
+        uint256 _orderId,
+        bool _inQuoteToken
+        )
+        public view
+        returns (uint256 borrowedAssets)
+    {
+        borrowedAssets = 0;
+        if (_orderQuantityIsPositive(_orderId)) {
+            if (orders[_orderId].isBuyOrder == _inQuoteToken) {
+                uint256[MAX_POSITIONS] memory positionIds = orders[_orderId].positionIds;
+                for (uint256 i = 0; i < MAX_POSITIONS; i++) {
+                    borrowedAssets += positions[positionIds[i]].borrowedAssets;
                 }
             }
         }
     }
 
     // borrower's total collateral needed to secure his debt in the quote or base token
-    // if needed collateral is in quote token, the borrowed order is a sell order
+    // if needed collateral is in quote token, borrowed order is a sell order
     // Ex: Alice deposits 3 ETH to sell at 2100; Bob borrows 2 ETH and needs 2*2100 = 4200 USDC as collateral
 
     function getBorrowerNeededCollateral(
@@ -807,12 +801,11 @@ contract OrderBook is IOrderBook {
         bool _inQuoteToken
     )
         public view
-        userExists(_borrower)
         returns (uint256 totalNeededCollateral)
     {
-        uint256[MAX_BORROWINGS] memory borrowedIds = users[_borrower].borrowFromIds;
         totalNeededCollateral = 0;
-        for (uint256 i = 0; i < MAX_BORROWINGS - 1; i++) {
+        uint256[MAX_BORROWINGS] memory borrowedIds = users[_borrower].borrowFromIds;
+        for (uint256 i = 0; i < MAX_BORROWINGS; i++) {
             Order memory order = orders[borrowedIds[i]]; // order id which assets are borrowed
             if (order.isBuyOrder != _inQuoteToken) {
                 uint256 positionIdRow = _getPositionIdsRowInOrders(borrowedIds[i], _borrower);
@@ -837,7 +830,6 @@ contract OrderBook is IOrderBook {
         bool _inQuoteToken
     )
         public view
-        userExists(_user)
         returns (uint256 excessCollateral) {
         excessCollateral =
             getUserTotalDeposit(_user, _inQuoteToken) -
@@ -853,7 +845,7 @@ contract OrderBook is IOrderBook {
     {
         uint256[MAX_POSITIONS] memory positionIds = orders[_orderId].positionIds;
         totalLentAssets = 0;
-        for (uint256 i = 0; i < MAX_POSITIONS - 1; i++) {
+        for (uint256 i = 0; i < MAX_POSITIONS; i++) {
             totalLentAssets += positions[positionIds[i]].borrowedAssets;
         }
     }
@@ -883,13 +875,12 @@ contract OrderBook is IOrderBook {
         uint256 _orderId // in the depositIds array of users
     )
         internal view
-        userExists(_user) // check if user has at least one active order
         orderExists(_orderId)
         returns (uint256 depositIdsRow)
     {
         depositIdsRow = ABSENT;
         uint256[MAX_ORDERS] memory depositIds = users[_user].depositIds;
-        for (uint256 i = 0; i < MAX_ORDERS - 1; i++) {
+        for (uint256 i = 0; i < MAX_ORDERS; i++) {
             if (depositIds[i] == _orderId) {
                 depositIdsRow = i;
                 break;
@@ -905,13 +896,12 @@ contract OrderBook is IOrderBook {
         uint256 _orderId // in the borrowFromIds array of users
     )
         internal view
-        userExists(_borrower)
         orderExists(_orderId)
         returns (uint256 borrowFromIdsRow)
     {
         borrowFromIdsRow = ABSENT;
         uint256[MAX_BORROWINGS] memory borrowFromIds = users[_borrower].borrowFromIds;
-        for (uint256 i = 0; i < MAX_BORROWINGS - 1; i++) {
+        for (uint256 i = 0; i < MAX_BORROWINGS; i++) {
             if (borrowFromIds[i] == _orderId) {
                 borrowFromIdsRow = i;
                 break;
@@ -919,6 +909,9 @@ contract OrderBook is IOrderBook {
         }
     }
 
+    // check if an order already exists with the same user and limit price
+    // if so, returns order id
+    
     function _getOrderIdInDepositIdsInUsers(
         address _user,
         uint256 _price,
@@ -930,7 +923,7 @@ contract OrderBook is IOrderBook {
     {
         orderId = 0;
         uint256[MAX_ORDERS] memory depositIds = users[_user].depositIds;
-        for (uint256 i = 0; i < MAX_ORDERS - 1; i++) {
+        for (uint256 i = 0; i < MAX_ORDERS; i++) {
             if (
                 orders[depositIds[i]].price == _price &&
                 orders[depositIds[i]].isBuyOrder == _isBuyOrder
@@ -949,13 +942,12 @@ contract OrderBook is IOrderBook {
         address _borrower
     )
         internal view
-        userExists(_borrower)
         orderExists(_orderId)
         returns (uint256 positionIdRow)
     {
         positionIdRow = ABSENT;
         uint256[MAX_POSITIONS] memory positionIds = orders[_orderId].positionIds;
-        for (uint256 i = 0; i < MAX_POSITIONS - 1; i++) {
+        for (uint256 i = 0; i < MAX_POSITIONS; i++) {
             if (positions[positionIds[i]].borrower == _borrower &&
                 positions[positionIds[i]].borrowedAssets > 0) {
                 positionIdRow = i;
@@ -964,21 +956,18 @@ contract OrderBook is IOrderBook {
         }
     }
 
+    // retrive position id from order id and borrower address
     function _getPositionIdInPositions(
         uint256 _orderId,
         address _borrower
     )
         internal view
-        userExists(_borrower)
         orderExists(_orderId)
         returns (uint256 positionId)
     {
         uint256 row = _getPositionIdsRowInOrders(_orderId, _borrower);
-        if (row != ABSENT) {
-            positionId = orders[_orderId].positionIds[row];
-        } else {
-            positionId = 0;
-        }
+        if (row != ABSENT) positionId = orders[_orderId].positionIds[row];
+        else positionId = 0;
     }
 
     //////////********* Pure functions *********/////////
