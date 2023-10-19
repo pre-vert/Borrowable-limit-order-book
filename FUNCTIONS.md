@@ -20,9 +20,9 @@ Consequences:
 
 Inputs :
 
-- quantity deposited
-- limit price
-- type: buy order or sell order
+- `_quantity`: quantity deposited
+- `_price`: order's limit price
+- `_isBuyOrder`: buy order or sell order
 
 
 Tasks:
@@ -50,8 +50,8 @@ Consequences:
 
 Inputs :
 
-- order id
-- quantity added to the order
+- `_orderId`: order id
+- `_increasedQuantity`: quantity added to the order
 
 
 Tasks:
@@ -79,8 +79,8 @@ Consequences:
 
 Inputs :
 
-- removed order id
-- quantity to be removed (can be partial)
+- `_removedOrderId`: removed order id
+- `_quantityToRemove`: quantity to be removed (can be partial)
 
 Tasks:
 
@@ -110,8 +110,8 @@ Consequences:
 
 Inputs :
 
-- \_takenOrderId id of the order to be taken
-- \_takenQuantity quantity of assets taken from the order
+- `_takenOrderId`: id of the order to be taken
+- `_takenQuantity`: quantity of assets taken from the order
 
 Tasks:
 
@@ -139,8 +139,8 @@ Consequences:
 
 Inputs :
 
-- \_borrowedOrderId id of the order which assets are borrowed
-- \_borrowedQuantity quantity of assets borrowed from the order
+- `_borrowedOrderId`: id of the order which assets are borrowed
+- `_borrowedQuantity`: quantity of assets borrowed from the order
 
 Tasks:
 
@@ -173,8 +173,8 @@ Consequences:
 
 Inputs :
 
-- \_borrowedOrderId : id of the order which assets are borrowed
-- \_borrowedQuantity : quantity of assets borrowed from the order
+- `_borrowedOrderId`: id of the order which assets are borrowed
+- `_borrowedQuantity`: quantity of assets borrowed from the order
 
 Tasks:
 
@@ -203,7 +203,7 @@ Consequences:
 
 Input :
 
-- _positionId position id to be liquidated
+- `_positionId`: position id to be liquidated
 
 Tasks:
 

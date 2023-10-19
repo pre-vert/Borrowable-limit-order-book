@@ -48,9 +48,9 @@ contract OrderBook is IOrderBook {
         uint256 borrowedAssets; // quantity of assets borrowed (quoteToken for buy orders, baseToken for sell orders)
     }
 
-    mapping(uint256 orderId => Order) private orders;
-    mapping(address user => User) private users;
-    mapping(uint256 positionId => Position) private positions;
+    mapping(uint256 orderId => Order) public orders;
+    mapping(address user => User) public users;
+    mapping(uint256 positionId => Position) public positions;
 
     uint256 lastOrderId; // id of the last order in orders
     uint256 lastPositionId; // id of the last position in positions

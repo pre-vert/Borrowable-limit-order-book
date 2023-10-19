@@ -7,7 +7,7 @@ import {OrderBook} from "../src/OrderBook.sol";
 import {DeployOrderBook} from "../script/DeployOrderBook.s.sol";
 import {StdCheats} from "forge-std/StdCheats.sol";
 
-contract TestPlaceOrder is StdCheats, Test {
+contract TestDeposit is StdCheats, Test {
     OrderBook public orderBook;
     Token public baseToken;
     Token public quoteToken;
@@ -48,123 +48,108 @@ contract TestPlaceOrder is StdCheats, Test {
     }
 
     function testDeployerBalances() public {
-        assertEq(
-            quoteToken.balanceOf(msg.sender),
-            quoteToken.getInitialSupply() - 2 * SEND_QUOTE_QUANTITY
-        );
-        assertEq(
-            baseToken.balanceOf(msg.sender),
-            baseToken.getInitialSupply() - 2 * SEND_BASE_QUANTITY
-        );
+        assertEq(quoteToken.balanceOf(msg.sender), quoteToken.getInitialSupply() - 2 * SEND_QUOTE_QUANTITY);
+        assertEq(baseToken.balanceOf(msg.sender), baseToken.getInitialSupply() - 2 * SEND_BASE_QUANTITY);
     }
 
     function testTransferTokenUSER() public {
         assertEq(SEND_QUOTE_QUANTITY, quoteToken.balanceOf(USER1));
+        assertEq(SEND_QUOTE_QUANTITY, quoteToken.balanceOf(USER2));
     }
 
-    function testPlaceBuyOrderFailsIfZeroDeposit() public {
+    function testDepositFailsIfZeroDeposit() public {
         vm.prank(USER1);
-        vm.expectRevert("placeOrder: Zero quantity is not allowed");
-        orderBook.placeOrder(0, BUY_ORDER_PRICE, true);
+        vm.expectRevert("Must be positive");
+        orderBook.deposit(0, BUY_ORDER_PRICE, true);
+        vm.expectRevert("Must be positive");
+        orderBook.deposit(0, BUY_SELL_PRICE, false);
     }
 
-    function testPlaceSellOrderFailsIfZeroDeposit() public {
+    function testDepositFailsIfZeroPrice() public {
         vm.prank(USER1);
-        vm.expectRevert("placeOrder: Zero quantity is not allowed");
-        orderBook.placeOrder(0, SELL_ORDER_PRICE, false);
+        vm.expectRevert("Must be positive");
+        orderBook.deposit(PLACE_QUOTE_QUANTITY, 0, true);
+        vm.expectRevert("Must be positive");
+        orderBook.deposit(PLACE_QUOTE_QUANTITY, 0, false);
     }
 
-    function testPlaceBuyOrderFailsIfZeroPrice() public {
+    modifier depositOneBuyOrder() {
         vm.prank(USER1);
-        vm.expectRevert("placeOrder: Zero price is not allowed");
-        orderBook.placeOrder(PLACE_QUOTE_QUANTITY, 0, true);
-    }
-
-    function testPlaceSellOrderFailsIfZeroPrice() public {
-        vm.prank(USER1);
-        vm.expectRevert("placeOrder: Zero price is not allowed");
-        orderBook.placeOrder(PLACE_BASE_QUANTITY, 0, true);
-    }
-
-    modifier placeOneBuyOrder() {
-        vm.prank(USER1);
-        orderBook.placeOrder(PLACE_QUOTE_QUANTITY, BUY_ORDER_PRICE, true);
+        orderBook.deposit(PLACE_QUOTE_QUANTITY, BUY_ORDER_PRICE, true);
         _;
     }
 
-    modifier placeOneSellOrder() {
+    modifier depositOneSellOrder() {
         vm.prank(USER1);
-        orderBook.placeOrder(PLACE_BASE_QUANTITY, SELL_ORDER_PRICE, false);
+        orderBook.deposit(PLACE_BASE_QUANTITY, SELL_ORDER_PRICE, false);
         _;
     }
 
-    function testPlaceOneBuyOrder() public placeOneBuyOrder {
-        OrderBook.Order memory order = orderBook.getOrder(0);
-        assertEq(order.maker, USER1);
-        assertEq(order.isBuyOrder, true);
+    function testDepositOneBuyOrder() public depositOneBuyOrder {
+        OrderBook.Order memory order = orderBook.orders[1];
         assertEq(order.quantity, PLACE_QUOTE_QUANTITY);
         assertEq(order.price, BUY_ORDER_PRICE);
-        assertEq(1, orderBook.getBookSize());
+        assertEq(order.isBuyOrder, true);
+        assertEq(order.maker, USER1);
     }
 
-    function testPlaceOneSellOrder() public placeOneSellOrder {
-        OrderBook.Order memory order = orderBook.getOrder(0);
-        assertEq(order.maker, USER1);
-        assertEq(order.isBuyOrder, false);
+    function testDepositOneSellOrder() public depositOneSellOrder {
+        OrderBook.Order memory order = orderBook.orders[1];
         assertEq(order.quantity, PLACE_BASE_QUANTITY);
         assertEq(order.price, SELL_ORDER_PRICE);
-        assertEq(1, orderBook.getBookSize());
+        assertEq(order.isBuyOrder, false);
+        assertEq(order.maker, USER1);
     }
 
-    function testPlaceOneBuyOrderCheckBalances() public {
+    function testDepositOneBuyOrderCheckBalances() public {
         uint256 OrderBookBalance = quoteToken.balanceOf(address(orderBook));
         uint256 userBalance = quoteToken.balanceOf(USER1);
         vm.prank(USER1);
-        orderBook.placeOrder(PLACE_QUOTE_QUANTITY, BUY_ORDER_PRICE, true);
-        uint256 OrderBookBalanceAfter = quoteToken.balanceOf(
-            address(orderBook)
-        );
+        orderBook.deposit(PLACE_QUOTE_QUANTITY, BUY_ORDER_PRICE, true);
+        uint256 OrderBookBalanceAfter = quoteToken.balanceOf(address(orderBook));
         uint256 userBalanceAfter = quoteToken.balanceOf(USER1);
-        assertEq(
-            OrderBookBalanceAfter,
-            OrderBookBalance + PLACE_QUOTE_QUANTITY
-        );
+        assertEq(OrderBookBalanceAfter, OrderBookBalance + PLACE_QUOTE_QUANTITY);
         assertEq(userBalanceAfter, userBalance - PLACE_QUOTE_QUANTITY);
     }
 
-    function testPlaceOneSellOrderCheckBalances() public {
+    function testDepositOneSellOrderCheckBalances() public {
         uint256 OrderBookBalance = baseToken.balanceOf(address(orderBook));
         uint256 userBalance = baseToken.balanceOf(USER1);
         vm.prank(USER1);
-        orderBook.placeOrder(PLACE_BASE_QUANTITY, SELL_ORDER_PRICE, false);
+        orderBook.deposit(PLACE_BASE_QUANTITY, SELL_ORDER_PRICE, false);
         uint256 OrderBookBalanceAfter = baseToken.balanceOf(address(orderBook));
         uint256 userBalanceAfter = baseToken.balanceOf(USER1);
         assertEq(OrderBookBalanceAfter, OrderBookBalance + PLACE_BASE_QUANTITY);
         assertEq(userBalanceAfter, userBalance - PLACE_BASE_QUANTITY);
     }
 
-    function testPlaceTwoBuyOrders() public placeOneBuyOrder {
+    function testDepositTwoBuyOrders()
+        public
+        depositOneBuyOrder
+    {
         vm.prank(USER2);
-        orderBook.placeOrder(PLACE_QUOTE_QUANTITY, BUY_ORDER_PRICE, true);
-        OrderBook.Order memory order = orderBook.getOrder(1);
-        assertEq(order.maker, USER2);
-        assertEq(order.isBuyOrder, true);
+        orderBook.deposit(PLACE_QUOTE_QUANTITY, BUY_ORDER_PRICE, true);
+        OrderBook.Order memory order = orderBook.orders[2];
         assertEq(order.quantity, PLACE_QUOTE_QUANTITY);
         assertEq(order.price, BUY_ORDER_PRICE);
-        assertEq(2, orderBook.getBookSize());
+        assertEq(order.isBuyOrder, true);
+        assertEq(order.maker, USER2);
     }
 
-    function testPlaceTwoOrders() public placeOneBuyOrder placeOneSellOrder {
-        OrderBook.Order memory buyOrder = orderBook.getOrder(0);
-        OrderBook.Order memory sellOrder = orderBook.getOrder(1);
-        assertEq(buyOrder.maker, USER1);
-        assertEq(buyOrder.isBuyOrder, true);
+    function testDepositTwoOrders() 
+        public
+        depositOneBuyOrder
+        depositOneSellOrder
+    {
+        OrderBook.Order memory buyOrder = orderBook.orders[1];
+        OrderBook.Order memory sellOrder = orderBook.orders[2];
         assertEq(buyOrder.quantity, PLACE_QUOTE_QUANTITY);
         assertEq(buyOrder.price, BUY_ORDER_PRICE);
-        assertEq(sellOrder.maker, USER1);
-        assertEq(sellOrder.isBuyOrder, false);
+        assertEq(buyOrder.isBuyOrder, true);
+        assertEq(buyOrder.maker, USER1);
         assertEq(sellOrder.quantity, PLACE_BASE_QUANTITY);
         assertEq(sellOrder.price, SELL_ORDER_PRICE);
-        assertEq(2, orderBook.getBookSize());
+        assertEq(sellOrder.isBuyOrder, false);
+        assertEq(sellOrder.maker, USER1);
     }
 }

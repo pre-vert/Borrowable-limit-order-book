@@ -92,7 +92,7 @@ We want arbitragers to have minimal incentives to take an order when the limit p
 
 Example: in the ETH USDC market, a buy order must have at least 100 USDC available for a taker. If the minimal deposit is 100 USDC, the borrowable part of the order is y - 100 with y >= 100 USDC the deposited assests.
 
-## :cookie: Excess collateral
+## Excess collateral
 
 Users can be lenders in one side of the book and borrowers in the other side as long as their excess collateral is positive.
 
