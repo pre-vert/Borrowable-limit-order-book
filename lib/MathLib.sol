@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.20;
 
-uint256 constant WAD = 1e18;
+uint256 constant WAD = 1; // 1e18;
 
 /// @title MathLib
-/// @notice Library to manage fixed-point arithmetic.
+/// @notice Library to manage fixed-point arithmetic
 
 library MathLib {
     /// @dev (x * y) / WAD rounded down.
@@ -38,7 +38,14 @@ library MathLib {
         uint256 firstTerm = x * n;
         uint256 secondTerm = mulDivDown(firstTerm, firstTerm, 2 * WAD);
         uint256 thirdTerm = mulDivDown(secondTerm, firstTerm, 3 * WAD);
-
         return firstTerm + secondTerm + thirdTerm;
+    }
+
+    function mini(uint256 _a, uint256 _b) internal pure returns (uint256) {
+        return _a < _b ? _a : _b;
+    }
+
+    function maxi(uint256 _a, uint256 _b) internal pure returns (uint256) {
+        return _a < _b ? _b : _a;
     }
 }

@@ -3,19 +3,16 @@ pragma solidity ^0.8.20;
 
 import {Script} from "forge-std/Script.sol";
 import {Token} from "../src/Token.sol";
-import {OrderBook} from "../src/OrderBook.sol";
+import {Book} from "../src/Book.sol";
 import {console} from "forge-std/console.sol";
 
-contract DeployOrderBook is Script {
-    function run() external returns (OrderBook, Token, Token) {
+contract DeployBook is Script {
+    function run() external returns (Book, Token, Token) {
         vm.startBroadcast();
         Token baseToken = new Token("BaseToken", "BTK");
         Token quoteToken = new Token("QuoteToken", "QTK");
-        OrderBook orderBook = new OrderBook(
-            address(quoteToken),
-            address(baseToken)
-        );
+        Book book = new Book(address(quoteToken), address(baseToken));
         vm.stopBroadcast();
-        return (orderBook, quoteToken, baseToken);
+        return (book, quoteToken, baseToken);
     }
 }

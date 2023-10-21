@@ -5,27 +5,29 @@ pragma solidity ^0.8.20;
 /// @author Pré-vert
 /// @notice Allows users to place limit orders on the book, take orders, and borrow assets
 /// @dev A money market for the pair base/quote is handled by a single contract
-/// which manages both order book operations lending/borrowing operations
+/// which manages both order book and lending/borrowing operations
 
-//import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20} from "./interfaces/IERC20.sol";
-import {IOrderBook} from "./interfaces/IOrderBook.sol";
+import {IBook} from "./interfaces/IBook.sol";
+import {MathLib, WAD} from "../lib/MathLib.sol";
 import {console} from "forge-std/Test.sol";
 
-contract OrderBook is IOrderBook {
-
+contract Book is IBook {
+    using MathLib for uint256;
+    
     IERC20 public quoteToken;
     IERC20 public baseToken;
 
     /// @notice provide core public functions (deposit, increase deposit, withdraw, take, borrow, repay),
     /// internal functions (liquidate) and view functions
 
-    uint256 constant MAX_POSITIONS = 5; // How many positions can be borrowed from a single order
-    uint256 constant MAX_ORDERS = 10; // How many buy and sell orders can be placed by a single address
-    uint256 constant MAX_BORROWINGS = 5; // How many positions a borrower can open both sides of the book
-    uint256 constant MIN_DEPOSIT_BASE = 1; // Minimum deposited base tokens to be received by takers
-    uint256 constant MIN_DEPOSIT_QUOTE = 100; // Minimum deposited base tokens to be received by takers
+    uint256 constant public MAX_POSITIONS = 5; // How many positions can be borrowed from a single order
+    uint256 constant public MAX_ORDERS = 10; // How many buy and sell orders can be placed by a single address
+    uint256 constant public MAX_BORROWINGS = 5; // How many positions a borrower can open both sides of the book
+    uint256 constant public MIN_DEPOSIT_BASE = 1; // Minimum deposited base tokens to be received by takers
+    uint256 constant public MIN_DEPOSIT_QUOTE = 100; // Minimum deposited base tokens to be received by takers
     uint256 constant ABSENT = type(uint256).max; // id for non existing order or position in arrays
+    // uint256 constant XX = 1000;
     
     struct Order {
         address maker; // address of the maker
@@ -49,11 +51,11 @@ contract OrderBook is IOrderBook {
     }
 
     mapping(uint256 orderId => Order) public orders;
-    mapping(address user => User) public users;
+    mapping(address user => User) private users;
     mapping(uint256 positionId => Position) public positions;
 
-    uint256 lastOrderId; // id of the last order in orders
-    uint256 lastPositionId; // id of the last position in positions
+    uint256 public lastOrderId; // id of the last order in orders
+    uint256 public lastPositionId; // id of the last position in positions
 
     constructor(address _quoteToken, address _baseToken) {
         quoteToken = IERC20(_quoteToken);
@@ -94,52 +96,24 @@ contract OrderBook is IOrderBook {
         bool _isBuyOrder
     )
         external
-        isPositive(_quantity)
         isPositive(_price)
     {
-        // minimum amount deposited (avoid dust orders)
-        _revertIfSuperiorTo(_minDeposit(_isBuyOrder), _quantity);
-
         // check if an identical order exists already, if so increase deposit, else create
         uint256 orderId = _getOrderIdInDepositIdsInUsers(msg.sender, _price, _isBuyOrder);
         if (orderId != 0) {
-            increaseDeposit(orderId, _quantity);
+            _increaseDeposit(orderId, _quantity);
         } else {
+            // minimum amount deposited
+            _revertIfSuperiorTo(_minDeposit(_isBuyOrder), _quantity);
             // update orders: add order to orders, output the id of the new order
-            uint256[MAX_POSITIONS] memory positionIds;
-            uint256 newOrderId = _addOrderToOrders(msg.sender, _isBuyOrder, _quantity, _price, positionIds);
+            // uint256[MAX_POSITIONS] memory positionIds;
+            uint256 newOrderId = _addOrderToOrders(msg.sender, _isBuyOrder, _quantity, _price);
             // Update users: add orderId in depositIds array
             _addOrderIdInDepositIdsInUsers(newOrderId, msg.sender);
+            // _checkAllowanceAndBalance(msg.sender, _quantity, _isBuyOrder);
+            require(_transferTokenFrom(msg.sender, _quantity, _isBuyOrder), "Transfer failed");
+            emit Deposit(msg.sender, _quantity, _price, _isBuyOrder);
         }
-
-        // _checkAllowanceAndBalance(msg.sender, _quantity, _isBuyOrder);
-        require(_transferTokenFrom(msg.sender, _quantity, _isBuyOrder), "Transfer failed");
-
-        emit Place(msg.sender, _quantity, _price, _isBuyOrder);
-    }
-
-    /// @notice lets users increase deposited assets in their order
-    /// @param _orderId id of the order in which assets are deposited
-    /// @param _increasedQuantity quantity of assets added
-
-    function increaseDeposit(
-        uint256 _orderId,
-        uint256 _increasedQuantity
-    )
-        public
-        orderExists(_orderId)
-        isPositive(_increasedQuantity)
-        onlyMaker(getMaker(_orderId))
-    {
-        bool isBid = orders[_orderId].isBuyOrder;
-
-        // update orders: add quantity to orders
-        _increaseOrderByQuantity(_orderId, _increasedQuantity);
-
-        //_checkAllowanceAndBalance(msg.sender, _increasedQuantity, isBid);
-        require(_transferTokenFrom(msg.sender, _increasedQuantity, isBid), "Transfer failed");
-
-        emit Deposit(msg.sender, _orderId, _increasedQuantity);
     }
 
     /// @notice lets user partially or fully remove her order from the book
@@ -156,11 +130,13 @@ contract OrderBook is IOrderBook {
         isPositive(_quantityToRemove)
         onlyMaker(getMaker(_removedOrderId))
     {
+        uint256 removableQuantity = outableQuantity(_removedOrderId, _quantityToRemove);
+        require(removableQuantity > 0, "No available assets to remove");
+
+        // removal is allowed for non-borrowed assets net of minimum deposit (can be zero)
+        // uint256 removableQuantity = _quantityToRemove.mini(availableAssets);
+
         Order memory removedOrder = orders[_removedOrderId];
-
-        // removal is allowed for non-borrowed assets net of minimum deposit
-        uint256 removableQuantity = _min(_quantityToRemove, availableAssetsInOrder(_removedOrderId));
-
         // Remaining total deposits must be enough to secure maker's existing borrowing positions
         // Maker's excess collateral must remain positive after removal
         bool inQuoteToken = removedOrder.isBuyOrder;
@@ -194,12 +170,9 @@ contract OrderBook is IOrderBook {
         Order memory takenOrder = orders[_takenOrderId];
 
         // taking is allowed for non-borrowed assets, possibly net of minimum deposit if taking is partial
-        uint256 takenableQuantity = _takenQuantity;
-        if (_takenQuantity < nonBorrowedAssetsInOrder(_takenOrderId)) {
-            takenableQuantity = availableAssetsInOrder(_takenOrderId);
-        } else if (_takenQuantity > nonBorrowedAssetsInOrder(_takenOrderId)) { 
-            revert("Taking is not allowed for borrowed assets");
-        }
+        _revertIfSuperiorTo(_takenQuantity, nonBorrowedAssetsInOrder(_takenOrderId));
+        uint256 takenableQuantity = outableQuantity(_takenOrderId, _takenQuantity);
+        require(takenableQuantity > 0, "No available assets to take");
 
         _liquidateAssets(_takenOrderId);
 
@@ -214,8 +187,9 @@ contract OrderBook is IOrderBook {
 
         // if a buy order is taken, the taker pays the quoteToken and receives the baseToken
         // _checkAllowanceAndBalance(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder);
+
         require(_transferTokenFrom(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder), "Transfer failed");
-        require(_transferTokenTo(takenOrder.maker, exchangedQuantity, takenOrder.isBuyOrder), "Transfer failed");
+        require(_transferTokenTo(takenOrder.maker, exchangedQuantity, !takenOrder.isBuyOrder), "Transfer failed");
         require(_transferTokenTo(msg.sender, takenableQuantity, takenOrder.isBuyOrder), "Transfer failed");
 
         emit Take(msg.sender, takenOrder.maker, takenableQuantity, takenOrder.price, takenOrder.isBuyOrder);
@@ -237,11 +211,9 @@ contract OrderBook is IOrderBook {
     {
         Order memory borrowedOrder = orders[_borrowedOrderId];
 
-        // borrow up to desired quantity or available assets
-        uint256 borrowableQuantity = _min(
-            _borrowedQuantity,
-            availableAssetsInOrder(_borrowedOrderId)
-        );
+        // borrow up to desired quantity or available assets net of minimum deposit
+        uint256 borrowableQuantity = outableQuantity(_borrowedOrderId, _borrowedQuantity);
+        require(borrowableQuantity > 0, "No available assets to take");
 
         // check available assets are not collateral for user's borrowing positions
         // For Bob to borrow USDC (quote token) from Alice's buy order, one must check that
@@ -265,12 +237,11 @@ contract OrderBook is IOrderBook {
         // update orders: add new positionId in positionIds array
         // check first that position doesn't already exist
         // reverts if max number of positions is reached
-        _AddPositionIdToPoisitionIdsInOrders(positionId, _borrowedOrderId);
+        _AddPositionIdToPositionIdsInOrders(positionId, _borrowedOrderId);
 
         require(_transferTokenTo(msg.sender, borrowableQuantity, borrowedOrder.isBuyOrder), "Transfer failed");
 
         emit Borrow(msg.sender,_borrowedOrderId, borrowableQuantity, borrowedOrder.isBuyOrder);
-
     }
 
     /// @notice lets users decrease or close a borrowing position
@@ -307,6 +278,29 @@ contract OrderBook is IOrderBook {
 
     ///////******* Internal functions *******///////
 
+    /// @notice lets users increase deposited assets in their order
+    /// @param _orderId id of the order in which assets are deposited
+    /// @param _increasedQuantity quantity of assets added
+
+    function _increaseDeposit(
+        uint256 _orderId,
+        uint256 _increasedQuantity
+    )
+        internal
+        isPositive(_increasedQuantity)
+        onlyMaker(getMaker(_orderId))
+    {
+        bool isBid = orders[_orderId].isBuyOrder;
+
+        // update orders: add quantity to orders
+        _increaseOrderByQuantity(_orderId, _increasedQuantity);
+
+        //_checkAllowanceAndBalance(msg.sender, _increasedQuantity, isBid);
+        require(_transferTokenFrom(msg.sender, _increasedQuantity, isBid), "Transfer failed");
+
+        emit IncreaseDeposit(msg.sender, _orderId, _increasedQuantity);
+    }
+    
     /// @notice Liquidate **all** borrowing positions after taking an order, even if partial
     /// outputs the quantity liquidated
     /// doesn't perform external transfers
@@ -357,8 +351,8 @@ contract OrderBook is IOrderBook {
                     collateralToSeize -= orders[orderId].quantity;
                 } else {
                     // enough collateral assets are seized before borrower's order is fully seized
-                    collateralToSeize = 0;
                     _reduceOrderByQuantity(orderId, collateralToSeize);
+                    collateralToSeize = 0;
                     break;
                 }
             }
@@ -398,18 +392,18 @@ contract OrderBook is IOrderBook {
         address _maker,
         bool _isBuyOrder,
         uint256 _quantity,
-        uint256 _price,
-        uint256[MAX_POSITIONS] memory _positionIds
+        uint256 _price
     )
         internal 
         returns (uint256 orderId)
     {
+        uint256[MAX_POSITIONS] memory positionIds;
         Order memory newOrder = Order({
             maker: _maker,
             isBuyOrder: _isBuyOrder,
             quantity: _quantity,
             price: _price,
-            positionIds: _positionIds
+            positionIds: positionIds
         });
         orders[lastOrderId] = newOrder;
         orderId = lastOrderId;
@@ -433,8 +427,8 @@ contract OrderBook is IOrderBook {
                     fillRow = true;
                     break;
                 }
-                if (!fillRow) revert("Max number of orders reached for user");
             }
+        if (!fillRow) revert("Max number of orders reached for user");
         }
     }
 
@@ -550,7 +544,7 @@ contract OrderBook is IOrderBook {
     // check first that borrower does not borrow from order already
     // reverts if max number of positions is reached
 
-    function _AddPositionIdToPoisitionIdsInOrders(
+    function _AddPositionIdToPositionIdsInOrders(
         uint256 _positionId,
         uint256 _orderId
     )
@@ -613,7 +607,8 @@ contract OrderBook is IOrderBook {
         internal
         orderExists(_orderId)
     {
-        orders[_orderId].quantity -= _quantity;
+        uint256 newQuantity = orders[_orderId].quantity - _quantity;
+        orders[_orderId].quantity = newQuantity.maxi(0);
     }
 
     //////////********* View functions HERE *********/////////
@@ -634,6 +629,17 @@ contract OrderBook is IOrderBook {
     //     }
     //     return hasDeposit;
     // }
+
+    function countOrdersOfUser(address _user)
+        public view
+        returns (uint256 count)
+    {
+        count = 0;
+        uint256[MAX_ORDERS] memory depositIds = users[_user].depositIds;
+        for (uint256 i = 0; i < MAX_ORDERS; i++) {
+            count = orders[depositIds[i]].quantity > 0 ? count + 1 : count;
+        }
+    }
     
     function _revertIfOrderDoesntExist(uint256 _orderId)
         internal view
@@ -651,7 +657,7 @@ contract OrderBook is IOrderBook {
     function _onlyMaker(address maker)
         internal view
     {
-        require(maker == msg.sender, "removeOrder: Only the maker can remove the order");
+        require(maker == msg.sender, "Only maker can remove order");
     }
 
     function _RevertIfPositionDoesntExist(uint256 _positionId)
@@ -670,7 +676,6 @@ contract OrderBook is IOrderBook {
     // get address of maker based on order id
     function getMaker(uint256 _orderId)
         public view
-        orderExists(_orderId)
         returns (address)
     {
         return orders[_orderId].maker;
@@ -811,11 +816,7 @@ contract OrderBook is IOrderBook {
                 uint256 positionIdRow = _getPositionIdsRowInOrders(borrowedIds[i], _borrower);
                 if (positionIdRow != ABSENT) {
                     Position memory position = positions[positionIdRow];
-                    uint256 collateral = _converts(
-                        position.borrowedAssets,
-                        order.price,
-                        order.isBuyOrder
-                    );
+                    uint256 collateral = _converts(position.borrowedAssets, order.price, order.isBuyOrder);
                     totalNeededCollateral += collateral;
                 }
             }
@@ -840,7 +841,6 @@ contract OrderBook is IOrderBook {
     // get quantity of assets lent by order
     function getTotalAssetsLentByOrder(uint256 _orderId)
         public view
-        orderExists(_orderId)
         returns (uint256 totalLentAssets)
     {
         uint256[MAX_POSITIONS] memory positionIds = orders[_orderId].positionIds;
@@ -851,20 +851,37 @@ contract OrderBook is IOrderBook {
     }
 
     // get quantity of assets available in order: order quantity - assets lent - minimum deposit
-    function availableAssetsInOrder(uint256 _orderId)
+    // available assets are non-borrowed assets if what is left is higher than minimal deposit
+
+    function outableQuantity(
+        uint256 _orderId,
+        uint256 _outQuantity // quantity to be removed, borrowed or taken
+    )
         public view
-    returns (uint256 availableAssets)
+        orderExists(_orderId)
+        returns (uint256 outableAssets)
     {
-        uint256 nonAvailableAssets = getTotalAssetsLentByOrder(_orderId) + _minDeposit(orders[_orderId].isBuyOrder);
-        availableAssets = _min(0, orders[_orderId].quantity - nonAvailableAssets);
+        uint256 lentAssets = getTotalAssetsLentByOrder(_orderId);
+        uint256 minDeposit = _minDeposit(orders[_orderId].isBuyOrder);
+        uint256 availableAssets = orders[_orderId].quantity - lentAssets > 0 ? 
+            orders[_orderId].quantity - lentAssets : 0;
+        // if removal/borrowing/taking is not full (less than available assets), min deposit applies
+        if (_outQuantity < availableAssets) {
+            outableAssets = (_outQuantity < availableAssets - minDeposit) ? 
+                _outQuantity :
+                availableAssets - minDeposit;
+        } else {
+            outableAssets = _outQuantity;}
     }
 
     // get quantity of assets available in order: order quantity - assets lent
     function nonBorrowedAssetsInOrder(uint256 _orderId)
         public view
-    returns (uint256 nonBorrowedAssets)
+        orderExists(_orderId)
+        returns (uint256 nonBorrowedAssets)
     {
-        nonBorrowedAssets = _min(0, orders[_orderId].quantity - getTotalAssetsLentByOrder(_orderId));
+        nonBorrowedAssets = orders[_orderId].quantity - getTotalAssetsLentByOrder(_orderId) > 0 ?
+        orders[_orderId].quantity - getTotalAssetsLentByOrder(_orderId) : 0;
     }
 
     // find if user placed order id
@@ -875,7 +892,6 @@ contract OrderBook is IOrderBook {
         uint256 _orderId // in the depositIds array of users
     )
         internal view
-        orderExists(_orderId)
         returns (uint256 depositIdsRow)
     {
         depositIdsRow = ABSENT;
@@ -896,7 +912,6 @@ contract OrderBook is IOrderBook {
         uint256 _orderId // in the borrowFromIds array of users
     )
         internal view
-        orderExists(_orderId)
         returns (uint256 borrowFromIdsRow)
     {
         borrowFromIdsRow = ABSENT;
@@ -942,7 +957,6 @@ contract OrderBook is IOrderBook {
         address _borrower
     )
         internal view
-        orderExists(_orderId)
         returns (uint256 positionIdRow)
     {
         positionIdRow = ABSENT;
@@ -962,7 +976,6 @@ contract OrderBook is IOrderBook {
         address _borrower
     )
         internal view
-        orderExists(_orderId)
         returns (uint256 positionId)
     {
         uint256 row = _getPositionIdsRowInOrders(_orderId, _borrower);
@@ -972,11 +985,8 @@ contract OrderBook is IOrderBook {
 
     //////////********* Pure functions *********/////////
 
-    function _checkPositive(uint256 _var)
-        internal pure
-    {
-        require(_var > 0, "Must be positive");
-    }
+    function _checkPositive(uint256 _var) internal pure {
+        require(_var > 0, "Must be positive");}
     
     function _converts(
         uint256 _quantity,
@@ -984,11 +994,10 @@ contract OrderBook is IOrderBook {
         bool _inQuoteToken // type of the asset to convert to (quote or base token)
     )
         internal pure
+        isPositive(_price)
         returns (uint256 convertedQuantity)
     {
-        convertedQuantity = _inQuoteToken ?
-            _quantity / _price :
-            _quantity * _price;
+        convertedQuantity = _inQuoteToken ? _quantity / _price : _quantity * _price;
     }
 
     function _minDeposit(bool _isBuyOrder)
@@ -999,23 +1008,14 @@ contract OrderBook is IOrderBook {
     }
     
     function _revertIfSuperiorTo(
-        uint256 _reducedQuantity,
-        uint256 _totalQuantity
+        uint256 _quantity,
+        uint256 _limit
     )
         internal pure
-        isPositive(_reducedQuantity)
-        isPositive(_totalQuantity)
+        isPositive(_quantity)
+        isPositive(_limit)
     {
-        require(_reducedQuantity <= _totalQuantity, "reduced quantity exceeds total quantity");
+        require(_quantity <= _limit, "Quantity exceeds limit");
     }
 
-    function _min(
-        uint256 _a,
-        uint256 _b
-    )
-        internal pure
-    returns (uint256 __min)
-    {
-        __min = _a < _b ? _a : _b;
-    }
 }

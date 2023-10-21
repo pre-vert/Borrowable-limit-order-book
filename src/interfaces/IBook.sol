@@ -1,17 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.20;
 
-interface IOrderBook {
+interface IBook {
 
     function deposit(
         uint256 _quantity,
         uint256 _price,
         bool _isBuyOrder
-    ) external;
-
-    function increaseDeposit(
-        uint256 _orderId,
-        uint256 _increasedQuantity
     ) external;
 
     function withdraw(
@@ -33,14 +28,14 @@ interface IOrderBook {
 
     // Events
 
-    event Place(
+    event Deposit(
         address maker,
         uint256 quantity,
         uint256 price,
         bool isBuyOrder
     );
 
-    event Deposit(
+    event IncreaseDeposit(
         address maker,
         uint256 orderId,
         uint256 increasedQuantity
