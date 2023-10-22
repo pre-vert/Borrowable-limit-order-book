@@ -5,15 +5,10 @@ import {Test, console} from "forge-std/Test.sol";
 import {Setup} from "./Setup.sol";
 import {StdCheats} from "forge-std/StdCheats.sol";
 
-//   - 
-//   - 
-// - Transfer token to contract
-// - Emit
-
 contract TestDeposit is Setup {
 
     // if new limit order, create order in orders
-    function testDepositOneBuyOrder() public {
+    function testDepositBuyOrder() public {
         depositBuyOrder(USER1, 2000, 90);
         (address maker, bool isBuyOrder, uint256 quantity, uint256 price) = book.orders(1);
         assertEq(quantity, 2000);
@@ -22,7 +17,7 @@ contract TestDeposit is Setup {
         assertEq(maker, USER1);
     }
 
-    function testDepositOneSellOrder() public {
+    function testDepositSellOrder() public {
         depositSellOrder(USER2, 20, 110);
         (address maker, bool isBuyOrder, uint256 quantity, uint256 price) = book.orders(1);
         assertEq(quantity, 20);
@@ -33,7 +28,8 @@ contract TestDeposit is Setup {
         assertEq(book.countOrdersOfUser(USER2), 1);
     }
 
-    function testDepositOneBuyOrderCheckBalances() public {
+    // Transfer tokens to contract
+    function testDepositBuyOrderCheckBalances() public {
         uint256 orderBookBalance = quoteToken.balanceOf(address(book));
         uint256 userBalance = quoteToken.balanceOf(USER1);
         depositBuyOrder(USER1, 2000, 90);
@@ -41,7 +37,7 @@ contract TestDeposit is Setup {
         assertEq(quoteToken.balanceOf(USER1), userBalance - 2000);
     }
 
-    function testDepositOneSellOrderCheckBalances() public {
+    function testDepositSellOrderCheckBalances() public {
         uint256 orderBookBalance = baseToken.balanceOf(address(book));
         uint256 userBalance = baseToken.balanceOf(USER1);
         depositSellOrder(USER1, 20, 110);
@@ -51,9 +47,11 @@ contract TestDeposit is Setup {
 
     function testDepositTwoBuyOrders() public {
         uint256 orderBookBalance = quoteToken.balanceOf(address(book));
+        uint256 userBalance = quoteToken.balanceOf(USER1);
         depositBuyOrder(USER1, 2000, 90);
         depositBuyOrder(USER1, 3000, 95);
         assertEq(quoteToken.balanceOf(address(book)), orderBookBalance + 5000);
+        assertEq(quoteToken.balanceOf(USER1), userBalance - 5000);
     }
 
     function testDepositThreeOrders() public {
@@ -90,9 +88,40 @@ contract TestDeposit is Setup {
         assertEq(book.countOrdersOfUser(USER1), 1);
     }
 
+    // call increaseDeposit() with 0 quantity
+    function testincreaseDepositZeroQuantity() public {
+        depositBuyOrder(USER1, 3000, 110);
+        vm.expectRevert("Must be positive");
+        depositBuyOrder(USER1, 0, 110);
+    }
+
+    // call increaseDeposit() check balances
+    function testincreaseDepositCheckBalances() public {
+        uint256 userBalance = quoteToken.balanceOf(USER1);
+        depositBuyOrder(USER1, 2000, 90);
+        depositBuyOrder(USER1, 3000, 90);
+        assertEq(quoteToken.balanceOf(USER1), userBalance - 5000);
+    }
+
+    // add new order if same order but different maker
+    function addSameOrderDifferentMaker() public {
+        depositBuyOrder(USER1, 3000, 110);
+        depositBuyOrder(USER2, 2000, 110);
+        (,, uint256 quantity1,) = book.orders(1);
+        (,, uint256 quantity2,) = book.orders(2);
+        assertEq(quantity1, 3000);
+        assertEq(quantity2, 2000);
+        assertEq(book.countOrdersOfUser(USER1), 1);
+        assertEq(book.countOrdersOfUser(USER2), 1);
+    }
+
     // add order id in depositIds in users
     function testAddDepositIdInUsers() public {
+        assertEq(book.getUserDepositIds(USER1)[0], 0);
         depositBuyOrder(USER1, 3000, 110);
+        assertEq(book.getUserDepositIds(USER1)[0], 1);
         depositBuyOrder(USER1, 2000, 120);
+        assertEq(book.getUserDepositIds(USER1)[0], 1);
+        assertEq(book.getUserDepositIds(USER1)[1], 2);
     }
 }
