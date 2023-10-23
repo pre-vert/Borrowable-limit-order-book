@@ -203,7 +203,8 @@ contract Book is IBook {
         // check borrowed amount is enough collateralized by borrowers' orders
         // For Bob to borrow USDC (quote token) from Alice's buy order, one must check that
         // Bob's excess collateral in ETH is enough to cover Bob's borrowing
-        _revertIfSuperiorTo(borrowableQuantity, getUserExcessCollateral(msg.sender, !inQuoteToken));   
+        uint256 convertedBorrowableQuantity = _converts(borrowableQuantity, borrowedOrder.price, inQuoteToken);
+        _revertIfSuperiorTo(convertedBorrowableQuantity, getUserExcessCollateral(msg.sender, !inQuoteToken));   
 
         // update users: check if borrower already borrows from order,
         // if not, add orderId in borrowFromIds array, reverts if max position reached

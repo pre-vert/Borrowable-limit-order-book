@@ -95,18 +95,18 @@ contract TestWithdraw is Setup {
     // Depositor excess collateral is correct
     function testDepositorBuyOrderExcessCollateral() public {
         depositBuyOrder(USER1, 2000, 90);
-        assertEq(book.getUserExcessCollateral(USER1, true), 2000);
+        assertEq(book.getUserExcessCollateral(USER1, buyOrder), 2000);
         vm.prank(USER1);
         book.withdraw(1, 1000);
-        assertEq(book.getUserExcessCollateral(USER1, true), 1000);
+        assertEq(book.getUserExcessCollateral(USER1, buyOrder), 1000);
     }
 
     function testDepositorSellOrderExcessCollateral() public {
         depositSellOrder(USER1, 20, 110);
-        assertEq(book.getUserExcessCollateral(USER1, false), 20);
+        assertEq(book.getUserExcessCollateral(USER1, sellOrder), 20);
         vm.prank(USER1);
         book.withdraw(1, 10);
-        assertEq(book.getUserExcessCollateral(USER1, false), 10);
+        assertEq(book.getUserExcessCollateral(USER1, sellOrder), 10);
     }
 
     // add new order if same order but different maker

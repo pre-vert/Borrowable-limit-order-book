@@ -14,6 +14,9 @@ contract Setup is StdCheats, Test {
     Token public quoteToken;
     DeployBook public deployBook;
 
+    bool constant public buyOrder = true;
+    bool constant public sellOrder = false;
+
     address public USER1 = makeAddr("user1");
     address public USER2 = makeAddr("user2");
     address public USER3 = makeAddr("user3");
@@ -45,7 +48,7 @@ contract Setup is StdCheats, Test {
         uint256 _price
     ) public {
         vm.prank(_user);
-        book.deposit(_quantity, _price, true);
+        book.deposit(_quantity, _price, buyOrder);
     }
 
     function depositSellOrder(
@@ -54,7 +57,7 @@ contract Setup is StdCheats, Test {
         uint256 _price
     ) public {
         vm.prank(_user);
-        book.deposit(_quantity, _price, false);
+        book.deposit(_quantity, _price, sellOrder);
     }
 
     function testDeployerBalances() public {

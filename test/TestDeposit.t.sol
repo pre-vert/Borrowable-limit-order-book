@@ -13,7 +13,7 @@ contract TestDeposit is Setup {
         (address maker, bool isBuyOrder, uint256 quantity, uint256 price) = book.orders(1);
         assertEq(quantity, 2000);
         assertEq(price, 90);
-        assertEq(isBuyOrder, true);
+        assertEq(isBuyOrder, buyOrder);
         assertEq(maker, USER1);
     }
 
@@ -22,7 +22,7 @@ contract TestDeposit is Setup {
         (address maker, bool isBuyOrder, uint256 quantity, uint256 price) = book.orders(1);
         assertEq(quantity, 20);
         assertEq(price, 110);
-        assertEq(isBuyOrder, false);
+        assertEq(isBuyOrder, sellOrder);
         assertEq(maker, USER2);
         assertEq(book.countOrdersOfUser(USER2), 1);
         assertEq(book.countOrdersOfUser(USER2), 1);
