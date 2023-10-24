@@ -16,6 +16,8 @@ contract Setup is StdCheats, Test {
 
     bool constant public buyOrder = true;
     bool constant public sellOrder = false;
+    bool constant public inQuoteToken = true;
+    bool constant public inBaseToken = false;
 
     address public USER1 = makeAddr("user1");
     address public USER2 = makeAddr("user2");

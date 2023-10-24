@@ -22,7 +22,7 @@ contract Book is IBook {
     uint256 constant public MAX_BORROWINGS = 5; // How many positions a borrower can open both sides of the book
     uint256 constant public MIN_DEPOSIT_BASE = 1; // Minimum deposited base tokens to be received by takers
     uint256 constant public MIN_DEPOSIT_QUOTE = 100; // Minimum deposited base tokens to be received by takers
-    uint256 constant ABSENT = type(uint256).max; // id for non existing order or position in arrays
+    uint256 constant private ABSENT = type(uint256).max; // id for non existing order or position in arrays
     
     struct Order {
         address maker; // address of the maker
@@ -73,12 +73,12 @@ contract Book is IBook {
     }
 
     modifier isPositive(uint256 _var) {
-        _checkPositive(_var);
+        _revertIfNonPositive(_var);
         _;
     }
 
-    modifier onlyMaker(address maker) {
-        _onlyMaker(maker);
+    modifier onlyMaker(uint256 _orderId) {
+        _onlyMaker(_orderId);
         _;
     }
 
@@ -117,7 +117,7 @@ contract Book is IBook {
         external
         orderHasAssets(_removedOrderId)
         isPositive(_quantityToRemove)
-        onlyMaker(getMaker(_removedOrderId))
+        onlyMaker(_removedOrderId)
     {
         uint256 removableQuantity = outableQuantity(_removedOrderId, _quantityToRemove);
         require(removableQuantity > 0, "No available assets to remove");
@@ -221,7 +221,7 @@ contract Book is IBook {
 
         require(_transferTokenTo(msg.sender, borrowableQuantity, borrowedOrder.isBuyOrder), "Transfer failed");
 
-        emit Borrow(msg.sender,_borrowedOrderId, borrowableQuantity, borrowedOrder.isBuyOrder);
+        emit Borrow(msg.sender, _borrowedOrderId, borrowableQuantity, borrowedOrder.isBuyOrder);
     }
 
     /// @inheritdoc IBook
@@ -233,7 +233,7 @@ contract Book is IBook {
         orderHasAssets(_repaidOrderId)
         isPositive(_repaidQuantity)
     {
-        uint256 positionId = _getPositionIdInPositions(_repaidOrderId, msg.sender);
+        uint256 positionId = _getPositionIdFromPositionIdsInUsers(_repaidOrderId, msg.sender);
         _revertIfSuperiorTo(_repaidQuantity, positions[positionId].borrowedAssets);
 
         // update positions: decrease borrowedAssets, possibly to zero
@@ -419,17 +419,17 @@ contract Book is IBook {
         if (row != ABSENT) users[_user].borrowFromIds[row] = 0;
     }
 
-    function _removeOrderIdFromPositionIdsInOrders(
-        address _borrower,
-        uint256 _orderId
-    )
-        internal 
-        orderHasAssets(_orderId)
-    {
-        // check borrower exists with a positive borrowed amount (otherwise ABSENT)
-        uint256 row = _getPositionIdsRowInOrders(_orderId, _borrower);
-        if (row != ABSENT) orders[_orderId].positionIds[row] = 0;
-    }
+    // function _removeOrderIdFromPositionIdsInOrders(
+    //     address _borrower,
+    //     uint256 _orderId
+    // )
+    //     internal 
+    //     orderHasAssets(_orderId)
+    // {
+    //     // check borrower exists with a positive borrowed amount (otherwise ABSENT)
+    //     uint256 row = _getPositionIdsRowInOrders(_orderId, _borrower);
+    //     if (row != ABSENT) orders[_orderId].positionIds[row] = 0;
+    // }
 
     // update users: check if borrower already borrows from order,
     // if not, add order id in borrowFromIds array
@@ -487,7 +487,7 @@ contract Book is IBook {
         isPositive(_borrowedQuantity)
         returns (uint256 positionId)
     {
-        positionId = _getPositionIdInPositions(_orderId, _borrower);
+        positionId = _getPositionIdFromPositionIdsInUsers(_orderId, _borrower);
         if (positionId != 0) {
             positions[positionId].borrowedAssets += _borrowedQuantity;
         } else {
@@ -544,30 +544,29 @@ contract Book is IBook {
         }
     }
 
-    // remove positionId from positionIds in orders (check if removal is full before) (should be deprecated)
+    // remove positionId from positionIds in orders (check if removal is full before) - deprecated
 
-    function _removePositionIdFromPositionIdsInOrders(
-        uint256 _positionId,
-        uint256 _orderId
-    )
-        internal
-        positionExists(_positionId)
-        orderHasAssets(_orderId)
-    {
-        Position memory position = positions[_positionId];
-        if (position.borrowedAssets == 0) {
-            uint256 row = _getPositionIdsRowInOrders(_orderId, position.borrower);
-            if (row != ABSENT) orders[_orderId].positionIds[row] = 0;
-        }
-    }
+    // function _removePositionIdFromPositionIdsInOrders(
+    //     uint256 _positionId,
+    //     uint256 _orderId
+    // )
+    //     internal
+    //     positionExists(_positionId)
+    //     orderHasAssets(_orderId)
+    // {
+    //     Position memory position = positions[_positionId];
+    //     if (position.borrowedAssets == 0) {
+    //         uint256 row = _getPositionIdsRowInOrders(_orderId, position.borrower);
+    //         if (row != ABSENT) orders[_orderId].positionIds[row] = 0;
+    //     }
+    // }
 
-    // increase quantity offered in order, delete order if emptied
+    // increase quantity offered in order, possibly from zero, delete order if emptied
     function _increaseOrderByQuantity(
         uint256 _orderId,
         uint256 _quantity
     )
         internal
-        orderHasAssets(_orderId)
         isPositive(_quantity)
     {
         orders[_orderId].quantity += _quantity;
@@ -643,10 +642,10 @@ contract Book is IBook {
         return (orders[_orderId].quantity > 0);
     }
 
-    function _onlyMaker(address maker)
+    function _onlyMaker(uint256 orderId)
         internal view
     {
-        require(maker == msg.sender, "Only maker can remove order");
+        require(getMaker(orderId) == msg.sender, "Only maker can remove order");
     }
 
     function _RevertIfPositionDoesntExist(uint256 _positionId)
@@ -802,10 +801,9 @@ contract Book is IBook {
         for (uint256 i = 0; i < MAX_BORROWINGS; i++) {
             Order memory order = orders[borrowedIds[i]]; // order id which assets are borrowed
             if (order.isBuyOrder != _inQuoteToken) {
-                uint256 positionIdRow = _getPositionIdsRowInOrders(borrowedIds[i], _borrower);
-                if (positionIdRow != ABSENT) {
-                    Position memory position = positions[positionIdRow];
-                    uint256 collateral = _converts(position.borrowedAssets, order.price, order.isBuyOrder);
+                uint256 positionId = _getPositionIdFromPositionIdsInUsers(borrowedIds[i], _borrower);
+                if (positionId != 0) {
+                    uint256 collateral = _converts(positions[positionId].borrowedAssets, order.price, order.isBuyOrder);
                     totalNeededCollateral += collateral;
                 }
             }
@@ -857,8 +855,7 @@ contract Book is IBook {
         // if removal/borrowing/taking is not full (less than available assets), min deposit applies
         if (_outQuantity < availableAssets) {
             outableAssets = (_outQuantity < availableAssets - minDeposit) ? 
-                _outQuantity :
-                availableAssets - minDeposit;
+                _outQuantity : availableAssets - minDeposit;
         } else {outableAssets = _outQuantity;}
     }
 
@@ -958,8 +955,28 @@ contract Book is IBook {
         }
     }
 
-    // retrive position id from order id and borrower address
-    function _getPositionIdInPositions(
+    // function _getPositionIdInOrders(
+    //     uint256 _orderId,
+    //     address _borrower
+    // )
+    //     public view
+    //     returns (uint256 positionId)
+    // {
+    //     positionId = 0;
+    //     uint256[MAX_POSITIONS] memory positionIds = orders[_orderId].positionIds;
+    //     for (uint256 i = 0; i < MAX_POSITIONS; i++) {
+    //         if (positions[positionIds[i]].borrower == _borrower &&
+    //             positions[positionIds[i]].borrowedAssets > 0) {
+    //             positionId = positionIds[i];
+    //             break;
+    //         }
+    //     }
+    // }
+
+    // find in positionIds[] from orders if _borrower borrows from _orderId
+    // and, if so, what's the position id
+
+    function _getPositionIdFromPositionIdsInUsers(
         uint256 _orderId,
         address _borrower
     )
@@ -973,8 +990,9 @@ contract Book is IBook {
 
     //////////********* Pure functions *********/////////
 
-    function _checkPositive(uint256 _var) internal pure {
-        require(_var > 0, "Must be positive");}
+    function _revertIfNonPositive(uint256 _var) internal pure {
+        require(_var > 0, "Must be positive");
+    }
     
     function _converts(
         uint256 _quantity,

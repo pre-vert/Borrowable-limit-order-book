@@ -110,28 +110,28 @@ contract TestBorrow is Setup {
     }
 
     // Lender and borrower excess collateral in quote and base token is correct
-    function testLenderBuyOrderExcessCollateral() public {
+    function testBorrowBuyOrderExcessCollateral() public {
         depositBuyOrder(USER1, 2000, 90);
         depositSellOrder(USER2, 30, 110);
-        uint256 lenderExcessCollateral = book.getUserExcessCollateral(USER1, buyOrder);
-        // uint256 borrowerExcessCollateral = book.getUserExcessCollateral(USER2, sellOrder);
-        // assertEq(lenderExcessCollateral, 2000);
-        // assertEq(borrowerExcessCollateral, 30);
+        uint256 lenderExcessCollateral = book.getUserExcessCollateral(USER1, inQuoteToken);
+        uint256 borrowerExcessCollateral = book.getUserExcessCollateral(USER2, inBaseToken);
+        assertEq(lenderExcessCollateral, 2000);
+        assertEq(borrowerExcessCollateral, 30);
         vm.prank(USER2);
         book.borrow(1, 900);
-        // assertEq(book.getUserExcessCollateral(USER1, buyOrder), lenderExcessCollateral - 900);
-        assertEq(book.getUserExcessCollateral(USER2, sellOrder), borrowerExcessCollateral - 900/90);
+        assertEq(book.getUserExcessCollateral(USER1, inQuoteToken), lenderExcessCollateral - 900);
+        assertEq(book.getUserExcessCollateral(USER2, inBaseToken), borrowerExcessCollateral - 900/90);
     }
 
-    // // Lender and borrower excess collateral in base and quote token is correct
-    // function testLenderSellOrderExcessCollateral() public {
-    //     depositSellOrder(USER1, 20, 110);
-    //     depositBuyOrder(USER2, 3000, 90);
-    //     assertEq(book.getUserExcessCollateral(USER1, sellOrder), 20);
-    //     assertEq(book.getUserExcessCollateral(USER2, buyOrder), 3000);
-    //     vm.prank(USER2);
-    //     book.borrow(1, 10);
-    //     assertEq(book.getUserExcessCollateral(USER1, sellOrder), 10);
-    //     assertEq(book.getUserExcessCollateral(USER2, buyOrder), 3000 - 10*110);
-    // }
+    // Lender and borrower excess collateral in base and quote token is correct
+    function testBorrowSellOrderExcessCollateral() public {
+        depositSellOrder(USER1, 20, 110);
+        depositBuyOrder(USER2, 3000, 90);
+        assertEq(book.getUserExcessCollateral(USER1, inBaseToken), 20);
+        assertEq(book.getUserExcessCollateral(USER2, inQuoteToken), 3000);
+        vm.prank(USER2);
+        book.borrow(1, 10);
+        assertEq(book.getUserExcessCollateral(USER1, inBaseToken), 10);
+        assertEq(book.getUserExcessCollateral(USER2, inQuoteToken), 3000 - 10*110);
+    }
 }
