@@ -68,7 +68,7 @@ contract Book is IBook {
     }
 
     modifier positionExists(uint256 _positionId) {
-        _RevertIfPositionDoesntExist(_positionId);
+        _revertIfPositionDoesntExist(_positionId);
         _;
     }
 
@@ -233,6 +233,7 @@ contract Book is IBook {
         orderHasAssets(_repaidOrderId)
         isPositive(_repaidQuantity)
     {
+        // output the id of the position to be repaid, or 0 if no position exists
         uint256 positionId = _getPositionIdFromPositionIdsInUsers(_repaidOrderId, msg.sender);
         _revertIfSuperiorTo(_repaidQuantity, positions[positionId].borrowedAssets);
 
@@ -346,7 +347,10 @@ contract Book is IBook {
         address _to,
         uint256 _quantity,
         bool _isBuyOrder
-    ) internal isPositive(_quantity) returns (bool)
+    )
+        internal
+        isPositive(_quantity)
+        returns (bool)
     {
         if (_isBuyOrder) return quoteToken.transfer(_to, _quantity);
         else return baseToken.transfer(_to, _quantity);
@@ -648,7 +652,7 @@ contract Book is IBook {
         require(getMaker(orderId) == msg.sender, "Only maker can remove order");
     }
 
-    function _RevertIfPositionDoesntExist(uint256 _positionId)
+    function _revertIfPositionDoesntExist(uint256 _positionId)
         internal view
     {
         require(_borrowingInPositionIsPositive(_positionId), "Borrowing position does not exist");
@@ -989,10 +993,6 @@ contract Book is IBook {
     }
 
     //////////********* Pure functions *********/////////
-
-    function _revertIfNonPositive(uint256 _var) internal pure {
-        require(_var > 0, "Must be positive");
-    }
     
     function _converts(
         uint256 _quantity,
@@ -1018,10 +1018,15 @@ contract Book is IBook {
         uint256 _limit
     )
         internal pure
-        isPositive(_quantity)
         isPositive(_limit)
     {
         require(_quantity <= _limit, "Quantity exceeds limit");
+    }
+
+    function _revertIfNonPositive(uint256 _var)
+        internal pure
+    {
+        require(_var > 0, "Must be positive");
     }
 
 }

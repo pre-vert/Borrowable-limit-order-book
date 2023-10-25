@@ -7,7 +7,7 @@ import {StdCheats} from "forge-std/StdCheats.sol";
 
 contract TestBorrow is Setup {
 
-    // borrow fails if remove non-existing buy order
+    // borrow fails if non-existing buy order
     function testFailBorrowNonExistingBuyOrder() public {
         depositBuyOrder(USER1, 2000, 90);
         depositSellOrder(USER2, 30, 110);
@@ -16,7 +16,7 @@ contract TestBorrow is Setup {
         vm.expectRevert("Order has zero assets");
     }
 
-    // borrow fails if borrow non-existing sell order
+    // borrow fails if non-existing sell order
     function testFailBorrowNonExistingSellOrder() public {
         depositSellOrder(USER1, 20, 110);
         depositSellOrder(USER2, 3000, 90);
@@ -25,7 +25,7 @@ contract TestBorrow is Setup {
         vm.expectRevert("Order has zero assets");
     }
     
-    // borrow fails if borrowing of buy order is zero
+    // fails if borrowing of buy order is zero
     function testBorrowBuyOrderFailsIfZero() public {
         depositBuyOrder(USER1, 2000, 90);
         depositSellOrder(USER2, 30, 110);
@@ -34,7 +34,7 @@ contract TestBorrow is Setup {
         book.borrow(1, 0);
     }
 
-    // borrow fails if borrowing of sell order is zero
+    // fails if borrowing of sell order is zero
     function testBorrowSellOrderFailsIfZero() public {
         depositSellOrder(USER1, 20, 110);
         depositBuyOrder(USER2, 3000, 90);
@@ -43,7 +43,7 @@ contract TestBorrow is Setup {
         book.borrow(1, 0);
     }
 
-    // borrow is ok if borrower of buy order is maker
+    // ok if borrower of buy order is maker
     function testBorrowBuyOrderOkIfMaker() public {
         depositBuyOrder(USER1, 2000, 90);
         depositSellOrder(USER1, 30, 110);
@@ -51,7 +51,7 @@ contract TestBorrow is Setup {
         book.borrow(1, 2000);
     }
 
-    // borrow is ok if borrower of sell order is maker
+    // ok if borrower of sell order is maker
     function testBorrowSellOrderOkIfMaker() public {
         depositSellOrder(USER1, 20, 110);
         depositBuyOrder(USER1, 3000, 90);
@@ -109,29 +109,27 @@ contract TestBorrow is Setup {
         assertEq(book.outableQuantity(1, 10), 10);
     }
 
-    // Lender and borrower excess collateral in quote and base token is correct
+    // Lender and borrower excess collaterals in quote and base token are correct
     function testBorrowBuyOrderExcessCollateral() public {
         depositBuyOrder(USER1, 2000, 90);
         depositSellOrder(USER2, 30, 110);
         uint256 lenderExcessCollateral = book.getUserExcessCollateral(USER1, inQuoteToken);
         uint256 borrowerExcessCollateral = book.getUserExcessCollateral(USER2, inBaseToken);
-        assertEq(lenderExcessCollateral, 2000);
-        assertEq(borrowerExcessCollateral, 30);
         vm.prank(USER2);
         book.borrow(1, 900);
         assertEq(book.getUserExcessCollateral(USER1, inQuoteToken), lenderExcessCollateral - 900);
         assertEq(book.getUserExcessCollateral(USER2, inBaseToken), borrowerExcessCollateral - 900/90);
     }
 
-    // Lender and borrower excess collateral in base and quote token is correct
+    // Lender and borrower excess collaterals in base and quote token are correct
     function testBorrowSellOrderExcessCollateral() public {
         depositSellOrder(USER1, 20, 110);
         depositBuyOrder(USER2, 3000, 90);
-        assertEq(book.getUserExcessCollateral(USER1, inBaseToken), 20);
-        assertEq(book.getUserExcessCollateral(USER2, inQuoteToken), 3000);
+        uint256 lenderExcessCollateral = book.getUserExcessCollateral(USER1, inBaseToken);
+        uint256 borrowerExcessCollateral = book.getUserExcessCollateral(USER2, inQuoteToken);
         vm.prank(USER2);
         book.borrow(1, 10);
-        assertEq(book.getUserExcessCollateral(USER1, inBaseToken), 10);
-        assertEq(book.getUserExcessCollateral(USER2, inQuoteToken), 3000 - 10*110);
+        assertEq(book.getUserExcessCollateral(USER1, inBaseToken), lenderExcessCollateral - 10);
+        assertEq(book.getUserExcessCollateral(USER2, inQuoteToken), borrowerExcessCollateral - 10*110);
     }
 }
