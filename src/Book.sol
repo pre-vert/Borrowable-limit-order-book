@@ -41,7 +41,7 @@ contract Book is IBook {
     // borrowing positions
     struct Position {
         address borrower; // address of the borrower
-        uint256 orderId; // stores orders id in mapping orders, from which assets are borrowed
+        //uint256 orderId; // stores orders id in mapping orders, from which assets are borrowed
         uint256 borrowedAssets; // quantity of assets borrowed (quoteToken for buy orders, baseToken for sell orders)
     }
 
@@ -290,7 +290,7 @@ contract Book is IBook {
         // iterate on position ids which borrow from the order taken, liquidate position one by one
         for (uint256 i = 0; i < MAX_POSITIONS; i++) {
             if(_borrowingInPositionIsPositive(positionIds[i]))
-                require(_liquidatePosition(positionIds[i]), "Some collateral couldn't be seized");
+                require(_liquidatePosition(_fromOrderId, positionIds[i]), "Some collateral couldn't be seized");
         }
     }
 
@@ -304,13 +304,15 @@ contract Book is IBook {
     /// doesn't execute final external transfer of assets
     /// @param _positionId id of the position to be liquidated
 
-    function _liquidatePosition(uint256 _positionId)
+    function _liquidatePosition(
+        uint256 _takenOrderId,
+        uint256 _positionId)
         internal
         positionExists(_positionId)
         returns (bool)
     {
         Position memory position = positions[_positionId]; // position to be liquidated
-        Order memory takenOrder = orders[position.orderId]; // order from which assets are taken
+        Order memory takenOrder = orders[_takenOrderId]; // order from which assets are taken
         // collateral to seize given borrowed quantity:
         uint256 collateralToSeize = _converts(position.borrowedAssets, takenOrder.price, takenOrder.isBuyOrder);
         // order id list of collateral orders to seize:
@@ -497,7 +499,7 @@ contract Book is IBook {
         } else {
             Position memory newPosition = Position({
                 borrower: _borrower,
-                orderId: _orderId,
+                //orderId: _orderId,
                 borrowedAssets: _borrowedQuantity
             });
             positions[lastPositionId] = newPosition;
