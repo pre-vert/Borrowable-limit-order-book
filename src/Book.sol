@@ -158,23 +158,19 @@ contract Book is IBook {
         uint256 takenableQuantity = outableQuantity(_takenOrderId, _takenQuantity);
         require(takenableQuantity > 0, "No available assets to take");
 
-        _liquidateAssets(_takenOrderId);
+        uint256 totalSeizedCollateral = _liquidateAssets(_takenOrderId);
 
         // quantity given by taker in exchange of _takenQuantity
         uint256 exchangedQuantity = _converts(takenableQuantity, takenOrder.price, takenOrder.isBuyOrder);
 
         // reduce quantity in order, possibly to zero
-        _reduceOrderByQuantity(_takenOrderId, takenableQuantity);
-
-        // remove orderId in depositIds array in users (check taking is full before) deprecated
-        // _removeOrderIdFromDepositIdsInUsers(takenOrder.maker, _takenOrderId);
-
-        // if a buy order is taken, the taker pays the quoteToken and receives the baseToken
-        // _checkAllowanceAndBalance(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder);
+        uint256 liquidatedQuantity = _converts(totalSeizedCollateral, takenOrder.price, !takenOrder.isBuyOrder);
+        _reduceOrderByQuantity(_takenOrderId, takenableQuantity + liquidatedQuantity);
 
         require(_transferTokenFrom(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder), "Transfer failed");
-        require(_transferTokenTo(takenOrder.maker, exchangedQuantity, !takenOrder.isBuyOrder), "Transfer failed");
         require(_transferTokenTo(msg.sender, takenableQuantity, takenOrder.isBuyOrder), "Transfer failed");
+        require(_transferTokenTo(takenOrder.maker, exchangedQuantity + totalSeizedCollateral, !takenOrder.isBuyOrder), "Transfer failed");
+        
 
         emit Take(msg.sender, takenOrder.maker, takenableQuantity, takenOrder.price, takenOrder.isBuyOrder);
     }
@@ -240,12 +236,6 @@ contract Book is IBook {
         // update positions: decrease borrowedAssets, possibly to zero
         _reduceBorrowingByQuantity(positionId, _repaidQuantity);
 
-        // remove positionId from positionIds in orders (check if removal is full before) = deprecated
-        // _removePositionIdFromPositionIdsInOrders(positionId, _repaidOrderId);
-
-        // remove repaid order id from borrowFromIds in users (check if removal is full before) = deprecated
-        // _removeOrderIdFromBorrowFromIdsInUsers(msg.sender, _repaidOrderId);
-
         bool isBid = orders[_repaidOrderId].isBuyOrder;
 
         // _checkAllowanceAndBalance(msg.sender, _repaidQuantity, repaidOrder.isBuyOrder);
@@ -285,12 +275,18 @@ contract Book is IBook {
 
     function _liquidateAssets(uint256 _fromOrderId)
         internal
+        returns (uint256 totalSeizedCollateral)
     {
         uint256[MAX_POSITIONS] memory positionIds = orders[_fromOrderId].positionIds;
+        totalSeizedCollateral = 0;
+
         // iterate on position ids which borrow from the order taken, liquidate position one by one
         for (uint256 i = 0; i < MAX_POSITIONS; i++) {
-            if(_borrowingInPositionIsPositive(positionIds[i]))
-                require(_liquidatePosition(_fromOrderId, positionIds[i]), "Some collateral couldn't be seized");
+            if(_borrowingInPositionIsPositive(positionIds[i])) {
+                (bool success, uint256 seizedCollateral) = _liquidatePosition(_fromOrderId, positionIds[i]);
+                require(success, "Some collateral couldn't be seized");
+                totalSeizedCollateral += seizedCollateral;
+            }
         }
     }
 
@@ -309,39 +305,35 @@ contract Book is IBook {
         uint256 _positionId)
         internal
         positionExists(_positionId)
-        returns (bool)
+        returns (bool success, uint256 seizedCollateral)
     {
         Position memory position = positions[_positionId]; // position to be liquidated
         Order memory takenOrder = orders[_takenOrderId]; // order from which assets are taken
-        // collateral to seize given borrowed quantity:
-        uint256 collateralToSeize = _converts(position.borrowedAssets, takenOrder.price, takenOrder.isBuyOrder);
+
+        // collateral to seize the other side of the book given borrowed quantity:
+        seizedCollateral = _converts(position.borrowedAssets, takenOrder.price, takenOrder.isBuyOrder);
+        uint256 remainingCollateralToSeize = seizedCollateral;
+
         // order id list of collateral orders to seize:
         uint256[MAX_ORDERS] memory depositIds = users[position.borrower].depositIds;
         for (uint256 i = 0; i < MAX_ORDERS; i++) {
             uint256 orderId = depositIds[i]; // order id from which assets are seized
             if (_orderHasAssets(orderId)) {
-                if (collateralToSeize > orders[orderId].quantity) {
+                if (remainingCollateralToSeize > orders[orderId].quantity) {
                     // borrower's order is fully seized, reduce order quantity to zero
                     _reduceOrderByQuantity(orderId, orders[orderId].quantity);
-                    // update orders: remove position id from positionIds array = deprecated
-                    // _removeOrderIdFromPositionIdsInOrders(position.borrower, orderId); 
-                    // update users: remove seized order id from depositIds array = deprecated
-                    // _removeOrderIdFromDepositIdsInUsers(position.borrower, orderId); 
-                    collateralToSeize -= orders[orderId].quantity;
+                    remainingCollateralToSeize -= orders[orderId].quantity;
                 } else {
                     // enough collateral assets are seized before borrower's order is fully seized
-                    _reduceOrderByQuantity(orderId, collateralToSeize);
-                    collateralToSeize = 0;
+                    _reduceOrderByQuantity(orderId, remainingCollateralToSeize);
+                    remainingCollateralToSeize = 0;
                     break;
                 }
             }
         }
         // write off debt for the same amount as collateral seized
         positions[_positionId].borrowedAssets = 0;
-        return (collateralToSeize == 0);
-
-        // update users: remove taken order id in borrowFromIds array = deprecated
-        // _removeOrderIdFromBorrowFromIdsInUsers(position.borrower, takenOrderId);
+        success = (remainingCollateralToSeize == 0);
     }
 
     // tranfer ERC20 from contract to user/taker/borrower
@@ -424,18 +416,6 @@ contract Book is IBook {
         uint256 row = _getBorrowFromIdsRowInUsers(_user, _orderId);
         if (row != ABSENT) users[_user].borrowFromIds[row] = 0;
     }
-
-    // function _removeOrderIdFromPositionIdsInOrders(
-    //     address _borrower,
-    //     uint256 _orderId
-    // )
-    //     internal 
-    //     orderHasAssets(_orderId)
-    // {
-    //     // check borrower exists with a positive borrowed amount (otherwise ABSENT)
-    //     uint256 row = _getPositionIdsRowInOrders(_orderId, _borrower);
-    //     if (row != ABSENT) orders[_orderId].positionIds[row] = 0;
-    // }
 
     // update users: check if borrower already borrows from order,
     // if not, add order id in borrowFromIds array
@@ -540,32 +520,16 @@ contract Book is IBook {
             uint256[MAX_POSITIONS] memory positionIds = orders[_orderId].positionIds;
             for (uint256 i = 0; i < MAX_POSITIONS; i++) {
                 if (!_borrowingInPositionIsPositive(positionIds[i])
+                || positions[positionIds[i]].borrowedAssets == 0
                 ) {
                     orders[_orderId].positionIds[i] = _positionId;
                     fillRow = true;
                     break;
                 }
-                if (!fillRow) revert("Max number of positions reached for order");
             }
+            require(fillRow, "Max number of positions reached for order");
         }
     }
-
-    // remove positionId from positionIds in orders (check if removal is full before) - deprecated
-
-    // function _removePositionIdFromPositionIdsInOrders(
-    //     uint256 _positionId,
-    //     uint256 _orderId
-    // )
-    //     internal
-    //     positionExists(_positionId)
-    //     orderHasAssets(_orderId)
-    // {
-    //     Position memory position = positions[_positionId];
-    //     if (position.borrowedAssets == 0) {
-    //         uint256 row = _getPositionIdsRowInOrders(_orderId, position.borrower);
-    //         if (row != ABSENT) orders[_orderId].positionIds[row] = 0;
-    //     }
-    // }
 
     // increase quantity offered in order, possibly from zero, delete order if emptied
     function _increaseOrderByQuantity(

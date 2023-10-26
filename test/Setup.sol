@@ -19,9 +19,17 @@ contract Setup is StdCheats, Test {
     bool constant public inQuoteToken = true;
     bool constant public inBaseToken = false;
 
+    uint256 constant public receiveQuoteToken = 10000;
+    uint256 constant public receiveBaseToken = 100;
+
     address public USER1 = makeAddr("user1");
     address public USER2 = makeAddr("user2");
     address public USER3 = makeAddr("user3");
+    address public USER4 = makeAddr("user4");
+    address public USER5 = makeAddr("user5");
+    address public USER6 = makeAddr("user6");
+    address public USER7 = makeAddr("user7");
+    address public USER8 = makeAddr("user8");
 
     function setUp() public {
         deployBook = new DeployBook();
@@ -31,16 +39,46 @@ contract Setup is StdCheats, Test {
 
     function initialTransfers() public {
         vm.startPrank(address(msg.sender)); // contract deployer
-        quoteToken.transfer(USER1, 10000);
-        quoteToken.transfer(USER2, 10000);
-        baseToken.transfer(USER1, 100);
-        baseToken.transfer(USER2, 100);
+        quoteToken.transfer(USER1, receiveQuoteToken);
+        quoteToken.transfer(USER2, receiveQuoteToken);
+        quoteToken.transfer(USER3, receiveQuoteToken);
+        quoteToken.transfer(USER4, receiveQuoteToken);
+        quoteToken.transfer(USER5, receiveQuoteToken);
+        quoteToken.transfer(USER6, receiveQuoteToken);
+        quoteToken.transfer(USER7, receiveQuoteToken);
+        quoteToken.transfer(USER8, receiveQuoteToken);
+        baseToken.transfer(USER1, receiveBaseToken);
+        baseToken.transfer(USER2, receiveBaseToken);
+        baseToken.transfer(USER3, receiveBaseToken);
+        baseToken.transfer(USER4, receiveBaseToken);
+        baseToken.transfer(USER5, receiveBaseToken);
+        baseToken.transfer(USER6, receiveBaseToken);
+        baseToken.transfer(USER7, receiveBaseToken);
+        baseToken.transfer(USER8, receiveBaseToken);
         vm.startPrank(USER1);
-        quoteToken.approve(address(book), 10000);
-        baseToken.approve(address(book), 100);
+        quoteToken.approve(address(book), receiveQuoteToken);
+        baseToken.approve(address(book), receiveBaseToken);
         vm.startPrank(USER2);
-        quoteToken.approve(address(book), 10000);
-        baseToken.approve(address(book), 100);
+        quoteToken.approve(address(book), receiveQuoteToken);
+        baseToken.approve(address(book), receiveBaseToken);
+        vm.startPrank(USER3);
+        quoteToken.approve(address(book), receiveQuoteToken);
+        baseToken.approve(address(book), receiveBaseToken);
+        vm.startPrank(USER4);
+        quoteToken.approve(address(book), receiveQuoteToken);
+        baseToken.approve(address(book), receiveBaseToken);
+        vm.startPrank(USER5);
+        quoteToken.approve(address(book), receiveQuoteToken);
+        baseToken.approve(address(book), receiveBaseToken);
+        vm.startPrank(USER6);
+        quoteToken.approve(address(book), receiveQuoteToken);
+        baseToken.approve(address(book), receiveBaseToken);
+        vm.startPrank(USER7);
+        quoteToken.approve(address(book), receiveQuoteToken);
+        baseToken.approve(address(book), receiveBaseToken);
+        vm.startPrank(USER8);
+        quoteToken.approve(address(book), receiveQuoteToken);
+        baseToken.approve(address(book), receiveBaseToken);
         vm.stopPrank();
     }
 
@@ -62,14 +100,23 @@ contract Setup is StdCheats, Test {
         book.deposit(_quantity, _price, sellOrder);
     }
 
+    function borrowOrder(
+        address _user,
+        uint256 _orderId,
+        uint256 _quantity
+    ) public {
+        vm.prank(_user);
+        book.borrow(_orderId, _quantity);
+    }
+
     function testDeployerBalances() public {
-        assertEq(quoteToken.balanceOf(msg.sender), quoteToken.getInitialSupply() - 2 * 10000);
-        assertEq(baseToken.balanceOf(msg.sender), baseToken.getInitialSupply() - 2 * 100);
+        assertEq(quoteToken.balanceOf(msg.sender), quoteToken.getInitialSupply() - 8 * receiveQuoteToken);
+        assertEq(baseToken.balanceOf(msg.sender), baseToken.getInitialSupply() - 8 * receiveBaseToken);
     }
 
     function testTransferTokenUSER() public {
-        assertEq(10000, quoteToken.balanceOf(USER1));
-        assertEq(10000, quoteToken.balanceOf(USER2));
+        assertEq(receiveQuoteToken, quoteToken.balanceOf(USER1));
+        assertEq(receiveQuoteToken, quoteToken.balanceOf(USER2));
     }
 
     function displayBalances() public view {
