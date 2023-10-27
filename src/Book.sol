@@ -20,7 +20,7 @@ contract Book is IBook {
     uint256 constant public MAX_POSITIONS = 5; // How many positions can be borrowed from a single order
     uint256 constant public MAX_ORDERS = 10; // How many buy and sell orders can be placed by a single address
     uint256 constant public MAX_BORROWINGS = 5; // How many positions a borrower can open both sides of the book
-    uint256 constant public MIN_DEPOSIT_BASE = 1; // Minimum deposited base tokens to be received by takers
+    uint256 constant public MIN_DEPOSIT_BASE = 2; // Minimum deposited base tokens to be received by takers
     uint256 constant public MIN_DEPOSIT_QUOTE = 100; // Minimum deposited base tokens to be received by takers
     uint256 constant private ABSENT = type(uint256).max; // id for non existing order or position in arrays
     
@@ -571,23 +571,6 @@ contract Book is IBook {
         return users[user].borrowFromIds;
     }
 
-    // user exists if she has at least one order with positive quantity
-
-    //  function _userHasDeposit(address _user)
-    //     internal view
-    //     returns (bool hasDeposit)
-    // {
-    //     hasDeposit = false;
-    //     uint256[MAX_ORDERS] memory depositIds = users[_user].depositIds;
-    //     for (uint256 i = 0; i < MAX_ORDERS; i++) {
-    //         if (_orderHasAssets(depositIds[i])) {
-    //             hasDeposit = true;
-    //             break;
-    //         }
-    //     }
-    //     return hasDeposit;
-    // }
-
     function countOrdersOfUser(address _user)
         public view
         returns (uint256 count)
@@ -639,54 +622,6 @@ contract Book is IBook {
         return orders[_orderId].maker;
     }
 
-    // check if user is a borrower of quote or base token
-    // a user who borrows from buy oders borrows quote token
-
-    // function isUserBorrower(
-    //     address _user,
-    //     bool _inQuoteToken
-    // ) 
-    //     public view
-    //     returns (bool isBorrower)
-    // {
-    //     isBorrower = false;
-    //     uint256[MAX_BORROWINGS] memory borrowFromIds = users[_user].borrowFromIds;
-    //     for (uint256 i = 0; i < MAX_BORROWINGS; i++) {
-    //         Order memory borrowedOrder = orders[borrowFromIds[i]];
-    //         if (
-    //             borrowFromIds[i] != 0 &&
-    //             borrowedOrder.isBuyOrder == _inQuoteToken &&
-    //             borrowedOrder.quantity > 0
-    //         ) {
-    //             isBorrower = true;
-    //             break;
-    //         }
-    //     }
-    // }
-
-    // check allowance and balance before ERC20 transfer // deprecated
-
-    // function _checkAllowanceAndBalance(
-    //     address _user,
-    //     uint256 _quantity,
-    //     bool _isBuyOrder
-    // )
-    //     internal view
-    //     isPositive(_quantity)
-    // {
-    //     if (_isBuyOrder) {
-    //         require(quoteToken.balanceOf(_user) >= _quantity,
-    //             "quote token: Insufficient balance");
-    //         require(quoteToken.allowance(_user, address(this)) >= _quantity,
-    //             "quote token: Insufficient allowance");
-    //     } else {
-    //         require(baseToken.balanceOf(_user) >= _quantity,
-    //             "base token: Insufficient balance");
-    //         require(baseToken.allowance(_user, address(this)) >= _quantity,
-    //             "base token: Insufficient allowance");
-    //     }
-    // }
-
     // sum all assets deposited by user in the quote or base token
 
     function getUserTotalDeposit(
@@ -703,23 +638,6 @@ contract Book is IBook {
                 totalDeposit += orders[depositIds[i]].quantity;
         }
     }
-    
-    // // get borrower's total Debt in the quote or base token
-    // function getBorrowerTotalDebt(
-    //     address _borrower,
-    //     bool _inQuoteToken
-    // )
-    //     public view
-    //     returns (uint256 totalDebt)
-    // {
-    //     uint256[MAX_BORROWINGS] memory borrowFromIds = users[_borrower].borrowFromIds;
-    //     totalDebt = 0;
-    //     for (uint256 i = 0; i < MAX_BORROWINGS; i++) {
-    //         uint256 row = _getPositionIdsRowInOrders(borrowFromIds[i], _borrower);
-    //         if (orders[borrowFromIds[i]].isBuyOrder == _inQuoteToken)
-    //             totalDebt += positions[row].borrowedAssets;
-    //     }
-    // }
 
     // total assets borrowed by other users from _user in base or quote token
     function getUserTotalBorrowedAssets(
@@ -924,24 +842,6 @@ contract Book is IBook {
             }
         }
     }
-
-    // function _getPositionIdInOrders(
-    //     uint256 _orderId,
-    //     address _borrower
-    // )
-    //     public view
-    //     returns (uint256 positionId)
-    // {
-    //     positionId = 0;
-    //     uint256[MAX_POSITIONS] memory positionIds = orders[_orderId].positionIds;
-    //     for (uint256 i = 0; i < MAX_POSITIONS; i++) {
-    //         if (positions[positionIds[i]].borrower == _borrower &&
-    //             positions[positionIds[i]].borrowedAssets > 0) {
-    //             positionId = positionIds[i];
-    //             break;
-    //         }
-    //     }
-    // }
 
     // find in positionIds[] from orders if _borrower borrows from _orderId
     // and, if so, what's the position id
