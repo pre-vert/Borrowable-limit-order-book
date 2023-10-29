@@ -41,7 +41,7 @@ contract Book is IBook {
     // borrowing positions
     struct Position {
         address borrower; // address of the borrower
-        //uint256 orderId; // stores orders id in mapping orders, from which assets are borrowed
+        uint256 orderId; // stores orders id in mapping orders, from which assets are borrowed
         uint256 borrowedAssets; // quantity of assets borrowed (quoteToken for buy orders, baseToken for sell orders)
     }
 
@@ -120,7 +120,7 @@ contract Book is IBook {
         onlyMaker(_removedOrderId)
     {
         uint256 removableQuantity = outableQuantity(_removedOrderId, _quantityToRemove);
-        require(removableQuantity > 0, "No available assets to remove");
+        require(removableQuantity > 0, "Remove too much assets");
 
         // removal is allowed for non-borrowed assets net of minimum deposit (can be zero)
         // uint256 removableQuantity = _quantityToRemove.mini(availableAssets);
@@ -154,22 +154,39 @@ contract Book is IBook {
         Order memory takenOrder = orders[_takenOrderId];
 
         // taking is allowed for non-borrowed assets, possibly net of minimum deposit if taking is partial
-        _revertIfSuperiorTo(_takenQuantity, nonBorrowedAssetsInOrder(_takenOrderId));
         uint256 takenableQuantity = outableQuantity(_takenOrderId, _takenQuantity);
-        require(takenableQuantity > 0, "No available assets to take");
+        require(takenableQuantity > 0, "Too much assets taken");
 
-        uint256 totalSeizedCollateral = _liquidateAssets(_takenOrderId);
+        // reduce maker's borrowing positions to restore previous (positive) excess collateral
+        uint256 totalReducedBorrowing = 0;
+        uint256 makerExcessCollateral = getUserExcessCollateral(takenOrder.maker, takenOrder.isBuyOrder);
+        if (takenableQuantity > makerExcessCollateral) {
+            totalReducedBorrowing = _reduceUserBorrowing(takenOrder.maker, takenableQuantity, !takenOrder.isBuyOrder);
+        }
+        getUserExcessCollateral(takenOrder.maker, takenOrder.isBuyOrder);
+        
+        // reduce quantity in order, possibly to zero
+        uint256 seizedBorrowerCollateral = _liquidateAssets(_takenOrderId);
+        uint256 liquidatedQuantity;
+        if (seizedBorrowerCollateral > 0) {
+            liquidatedQuantity = _converts(seizedBorrowerCollateral, takenOrder.price, !takenOrder.isBuyOrder);
+        } else {
+            liquidatedQuantity = 0;
+        }
+        _reduceOrderByQuantity(_takenOrderId, takenableQuantity + liquidatedQuantity);
+
+        getUserExcessCollateral(takenOrder.maker, takenOrder.isBuyOrder);
 
         // quantity given by taker in exchange of _takenQuantity
         uint256 exchangedQuantity = _converts(takenableQuantity, takenOrder.price, takenOrder.isBuyOrder);
 
-        // reduce quantity in order, possibly to zero
-        uint256 liquidatedQuantity = _converts(totalSeizedCollateral, takenOrder.price, !takenOrder.isBuyOrder);
-        _reduceOrderByQuantity(_takenOrderId, takenableQuantity + liquidatedQuantity);
-
         require(_transferTokenFrom(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder), "Transfer failed");
         require(_transferTokenTo(msg.sender, takenableQuantity, takenOrder.isBuyOrder), "Transfer failed");
-        require(_transferTokenTo(takenOrder.maker, exchangedQuantity + totalSeizedCollateral, !takenOrder.isBuyOrder), "Transfer failed");
+        require(_transferTokenTo(
+            takenOrder.maker,
+            exchangedQuantity + seizedBorrowerCollateral - totalReducedBorrowing,
+            !takenOrder.isBuyOrder), "Transfer failed"
+        );
         
 
         emit Take(msg.sender, takenOrder.maker, takenableQuantity, takenOrder.price, takenOrder.isBuyOrder);
@@ -188,7 +205,7 @@ contract Book is IBook {
 
         // borrow up to desired quantity or available assets net of minimum deposit
         uint256 borrowableQuantity = outableQuantity(_borrowedOrderId, _borrowedQuantity);
-        require(borrowableQuantity > 0, "No available assets to take");
+        require(borrowableQuantity > 0, "Borrow too much assets");
 
         // check available assets are not collateral for user's borrowing positions
         // For Bob to borrow USDC (quote token) from Alice's buy order, one must check that
@@ -275,19 +292,57 @@ contract Book is IBook {
 
     function _liquidateAssets(uint256 _fromOrderId)
         internal
-        returns (uint256 totalSeizedCollateral)
+        returns (uint256 seizedBorrowerCollateral)
     {
         uint256[MAX_POSITIONS] memory positionIds = orders[_fromOrderId].positionIds;
-        totalSeizedCollateral = 0;
+        seizedBorrowerCollateral = 0;
 
         // iterate on position ids which borrow from the order taken, liquidate position one by one
         for (uint256 i = 0; i < MAX_POSITIONS; i++) {
             if(_borrowingInPositionIsPositive(positionIds[i])) {
-                (bool success, uint256 seizedCollateral) = _liquidatePosition(_fromOrderId, positionIds[i]);
+                (bool success, uint256 seizedCollateral) = _liquidatePosition(positionIds[i]);
                 require(success, "Some collateral couldn't be seized");
-                totalSeizedCollateral += seizedCollateral;
+                seizedBorrowerCollateral += seizedCollateral;
             }
         }
+    }
+
+    // reduce maker's borrowing positions to restore excess collateral after taking
+    function _reduceUserBorrowing(
+        address _maker,
+        uint256 _quantity,
+        bool _isBuyOrder
+    )
+        internal
+        returns (uint256 totalReducedBorrowing)
+    {
+        uint256[MAX_BORROWINGS] memory borrowFromIds = users[_maker].borrowFromIds;
+        uint256 collateralToSeize = _quantity; // ETH
+        totalReducedBorrowing = 0; // USDC
+
+        // iterate on position ids which borrow from the order taken, liquidate position one by one
+        for (uint256 i = 0; i < MAX_BORROWINGS; i++) {
+            if (orders[borrowFromIds[i]].isBuyOrder = _isBuyOrder) {
+                uint256 positionId = _getPositionIdFromPositionIdsInUsers(borrowFromIds[i], _maker);
+                if(positionId != 0) {
+                    uint256 borrowedAssets = positions[positionId].borrowedAssets; // USDC
+                    uint256 neededCollateral = _converts(borrowedAssets, orders[borrowFromIds[i]].price, _isBuyOrder); // ETH
+                    if (neededCollateral >= collateralToSeize) {
+                    uint256 reducedBorrowing = _converts(collateralToSeize, orders[borrowFromIds[i]].price, !_isBuyOrder); // USDC
+                        _reduceBorrowingByQuantity(positionId, reducedBorrowing);
+                        collateralToSeize = 0;
+                        totalReducedBorrowing += reducedBorrowing;
+                        break;
+                    } else {
+                        collateralToSeize -= borrowedAssets;
+                        _reduceBorrowingByQuantity(positionId, borrowedAssets);
+                        totalReducedBorrowing += borrowedAssets;
+                    }
+                }
+            }
+        }
+        //success = (collateralToSeize == 0);
+
     }
 
     /// @notice liquidate one borrowing position: seize collateral and write off debt for the same amount
@@ -301,14 +356,13 @@ contract Book is IBook {
     /// @param _positionId id of the position to be liquidated
 
     function _liquidatePosition(
-        uint256 _takenOrderId,
         uint256 _positionId)
         internal
         positionExists(_positionId)
         returns (bool success, uint256 seizedCollateral)
     {
         Position memory position = positions[_positionId]; // position to be liquidated
-        Order memory takenOrder = orders[_takenOrderId]; // order from which assets are taken
+        Order memory takenOrder = orders[position.orderId]; // order from which assets are taken
 
         // collateral to seize the other side of the book given borrowed quantity:
         seizedCollateral = _converts(position.borrowedAssets, takenOrder.price, takenOrder.isBuyOrder);
@@ -479,7 +533,7 @@ contract Book is IBook {
         } else {
             Position memory newPosition = Position({
                 borrower: _borrower,
-                //orderId: _orderId,
+                orderId: _orderId,
                 borrowedAssets: _borrowedQuantity
             });
             positions[lastPositionId] = newPosition;
@@ -489,7 +543,7 @@ contract Book is IBook {
     }
 
     // update positions: decrease borrowedAssets, borrowing = 0 is equivalent to delete position
-    // quantity =< borrowing checked before the call
+    // quantity =< borrowing is checked before the call
 
     function _reduceBorrowingByQuantity(
         uint256 _positionId,
@@ -499,7 +553,6 @@ contract Book is IBook {
         positionExists(_positionId)
     {
         positions[_positionId].borrowedAssets -= _quantity;
-        //if (positions[_positionId].borrowedAssets == 0) {delete positions[_positionId];} // already implictly deleted
     }
 
     // update orders: add new position id in positionIds array
@@ -552,8 +605,9 @@ contract Book is IBook {
         internal
         orderHasAssets(_orderId)
     {
-        uint256 newQuantity = orders[_orderId].quantity - _quantity;
-        orders[_orderId].quantity = newQuantity.maxi(0);
+        if (orders[_orderId].quantity >= _quantity)
+        orders[_orderId].quantity -= _quantity;
+        else orders[_orderId].quantity = 0;
     }
 
     //////////********* View functions HERE *********/////////
@@ -709,8 +763,8 @@ contract Book is IBook {
         returns (uint256 excessCollateral) {
         excessCollateral =
             getUserTotalDeposit(_user, _inQuoteToken) -
-            getBorrowerNeededCollateral(_user, _inQuoteToken) -
-            getUserTotalBorrowedAssets(_user, _inQuoteToken);
+            getUserTotalBorrowedAssets(_user, _inQuoteToken) -
+            getBorrowerNeededCollateral(_user, _inQuoteToken);
     }
 
     // get quantity of assets lent by order
@@ -727,6 +781,7 @@ contract Book is IBook {
 
     // get quantity of assets available in order: order quantity - assets lent - minimum deposit
     // available assets are non-borrowed assets if what is left is higher than minimal deposit
+    // return 0 assets available if desired quantity is not possible
 
     function outableQuantity(
         uint256 _orderId,
@@ -738,13 +793,16 @@ contract Book is IBook {
     {
         uint256 lentAssets = getTotalAssetsLentByOrder(_orderId);
         uint256 minDeposit = _minDeposit(orders[_orderId].isBuyOrder);
-        uint256 availableAssets = orders[_orderId].quantity - lentAssets > 0 ? 
-            orders[_orderId].quantity - lentAssets : 0;
+        uint256 availableAssets = orders[_orderId].quantity > lentAssets ? 
+            orders[_orderId].quantity - lentAssets : 0;     
         // if removal/borrowing/taking is not full (less than available assets), min deposit applies
-        if (_outQuantity < availableAssets) {
-            outableAssets = (_outQuantity < availableAssets - minDeposit) ? 
-                _outQuantity : availableAssets - minDeposit;
-        } else {outableAssets = _outQuantity;}
+        if (_outQuantity > availableAssets ||
+            _outQuantity < availableAssets && _outQuantity + minDeposit > availableAssets)
+        {
+            outableAssets = 0;
+        } else {
+            outableAssets = _outQuantity;
+        }
     }
 
     // get quantity of assets available in order: order quantity - assets lent
@@ -753,7 +811,7 @@ contract Book is IBook {
         orderHasAssets(_orderId)
         returns (uint256 nonBorrowedAssets)
     {
-        nonBorrowedAssets = orders[_orderId].quantity - getTotalAssetsLentByOrder(_orderId) > 0 ?
+        nonBorrowedAssets = orders[_orderId].quantity > getTotalAssetsLentByOrder(_orderId) ?
         orders[_orderId].quantity - getTotalAssetsLentByOrder(_orderId) : 0;
     }
 

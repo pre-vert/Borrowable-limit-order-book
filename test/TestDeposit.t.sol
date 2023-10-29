@@ -28,13 +28,14 @@ contract TestDeposit is Setup {
         assertEq(book.countOrdersOfUser(acc[2]), 1);
     }
 
-    // Transfer tokens to contract, check external balances
+    // Transfer tokens to contract, check balances
     function testDepositBuyOrderCheckBalances() public {
         uint256 orderBookBalance = quoteToken.balanceOf(address(book));
         uint256 userBalance = quoteToken.balanceOf(acc[1]);
         depositBuyOrder(acc[1], 2000, 90);
         assertEq(quoteToken.balanceOf(address(book)), orderBookBalance + 2000);
         assertEq(quoteToken.balanceOf(acc[1]), userBalance - 2000);
+        checkOrderQuantity(1, 2000);
     }
 
     function testDepositSellOrderCheckBalances() public {
@@ -43,6 +44,7 @@ contract TestDeposit is Setup {
         depositSellOrder(acc[1], 20, 110);
         assertEq(baseToken.balanceOf(address(book)), orderBookBalance + 20);
         assertEq(baseToken.balanceOf(acc[1]), userBalance - 20);
+        checkOrderQuantity(1, 20);
     }
 
     // Make two orders, check external balances
@@ -53,6 +55,8 @@ contract TestDeposit is Setup {
         depositBuyOrder(acc[1], 3000, 95);
         assertEq(quoteToken.balanceOf(address(book)), orderBookBalance + 5000);
         assertEq(quoteToken.balanceOf(acc[1]), userBalance - 5000);
+        checkOrderQuantity(1, 2000);
+        checkOrderQuantity(2, 3000);
     }
 
     // Make three orders, check external balances
@@ -71,22 +75,26 @@ contract TestDeposit is Setup {
     function testRevertBuyOrderIfZeroDeposit() public {
         vm.expectRevert("Quantity exceeds limit");
         depositBuyOrder(acc[1], 99, 90);
+        checkOrderQuantity(1, 0);
     }
 
     function testRevertSellOrderIfZeroDeposit() public {
         vm.expectRevert("Quantity exceeds limit");
         depositSellOrder(acc[1], 1, 110);
+        checkOrderQuantity(1, 0);
     }
 
     // When price is zero, revert
     function testRevertBuyOrderIfZeroPrice() public {
         vm.expectRevert("Must be positive");
         depositBuyOrder(acc[1], 1000, 0);
+        checkOrderQuantity(1, 0);
     }
 
     function testRevertSellOrderIfZeroPrice() public {
         vm.expectRevert("Must be positive");
         depositSellOrder(acc[1], 10, 0);
+        checkOrderQuantity(1, 0);
     }
 
     // When an identical order exists, call increaseDeposit()
@@ -98,6 +106,7 @@ contract TestDeposit is Setup {
         assertEq(quantity1, 5000);
         assertEq(quantity2, 0);
         assertEq(book.countOrdersOfUser(acc[1]), 1);
+        checkOrderQuantity(1, 5000);
     }
 
     function testAggregateIdenticalSellOrder() public {
@@ -108,6 +117,7 @@ contract TestDeposit is Setup {
         assertEq(quantity1, 50);
         assertEq(quantity2, 0);
         assertEq(book.countOrdersOfUser(acc[1]), 1);
+        checkOrderQuantity(1, 50);
     }
     
     // revert if 0 quantity via increaseDeposit() if same limit price
@@ -115,12 +125,14 @@ contract TestDeposit is Setup {
         depositBuyOrder(acc[1], 3000, 110);
         vm.expectRevert("Must be positive");
         depositBuyOrder(acc[1], 0, 110);
+        checkOrderQuantity(1, 3000);
     }
 
     function testincreaseSellOrderZeroQuantity() public {
         depositSellOrder(acc[1], 30, 90);
         vm.expectRevert("Must be positive");
         depositSellOrder(acc[1], 0, 90);
+        checkOrderQuantity(1, 30);
     }
 
     // call increaseDeposit() check balances
@@ -131,6 +143,7 @@ contract TestDeposit is Setup {
         depositBuyOrder(acc[1], 3000, 90);
         assertEq(quoteToken.balanceOf(address(book)), bookBalance + 5000);
         assertEq(quoteToken.balanceOf(acc[1]), userBalance - 5000);
+        checkOrderQuantity(1, 5000);
     }
 
     function testincreaseSellOrderCheckBalances() public {
@@ -140,18 +153,19 @@ contract TestDeposit is Setup {
         depositSellOrder(acc[1], 30, 110);
         assertEq(baseToken.balanceOf(address(book)), bookBalance + 50);
         assertEq(baseToken.balanceOf(acc[1]), userBalance - 50);
+        checkOrderQuantity(1, 50);
     }
 
     // add new order if same order but different maker
     function addSameBuyOrderDifferentMaker() public {
         depositBuyOrder(acc[1], 3000, 110);
         depositBuyOrder(acc[2], 2000, 110);
-        (,, uint256 quantity1,) = book.orders(1);
-        (,, uint256 quantity2,) = book.orders(2);
-        assertEq(quantity1, 3000);
-        assertEq(quantity2, 2000);
+        checkOrderQuantity(1, 3000);
+        checkOrderQuantity(2, 2000);
         assertEq(book.countOrdersOfUser(acc[1]), 1);
         assertEq(book.countOrdersOfUser(acc[2]), 1);
+        checkOrderQuantity(1, 3000);
+        checkOrderQuantity(2, 2000);
     }
 
     // add order id in depositIds in users

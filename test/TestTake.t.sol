@@ -42,17 +42,19 @@ contract TestTake is Setup {
     // taking fails if greater than buy order
     function testTakeBuyOrderFailsIfTooMuch() public {
         depositBuyOrder(acc[1], 2000, 90);
-        vm.expectRevert("Quantity exceeds limit");
+        assertEq(book.outableQuantity(1, 2001), 0);
+        vm.expectRevert("Too much assets taken");
         vm.prank(acc[2]);
-        book.take(1, 3000);
+        book.take(1, 2001);
     }
 
     // taking fails if greater than sell order
     function testTakeSellOrderFailsIfTooMuch() public {
         depositSellOrder(acc[1], 20, 110);
-        vm.expectRevert("Quantity exceeds limit");
+        assertEq(book.outableQuantity(1, 21), 0);
+        vm.expectRevert("Too much assets taken");
         vm.prank(acc[2]);
-        book.take(1, 22);
+        book.take(1, 21);
     }
 
     // taking of buy order correctly adjusts external balances

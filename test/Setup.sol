@@ -70,7 +70,34 @@ contract Setup is StdCheats, Test {
         book.deposit(_quantity, _price, sellOrder);
     }
 
-    function borrowOrder(
+    function withdraw(
+        address _user,
+        uint256 _orderId,
+        uint256 _quantity
+    ) public {
+        vm.prank(_user);
+        book.withdraw(_orderId, _quantity);
+    }
+
+    function take(
+        address _user,
+        uint256 _orderId,
+        uint256 _quantity
+    ) public {
+        vm.prank(_user);
+        book.take(_orderId, _quantity);
+    }
+
+    function repay(
+        address _user,
+        uint256 _orderId,
+        uint256 _quantity
+    ) public {
+        vm.prank(_user);
+        book.repay(_orderId, _quantity);
+    }
+
+    function borrow(
         address _user,
         uint256 _orderId,
         uint256 _quantity
@@ -91,6 +118,11 @@ contract Setup is StdCheats, Test {
             console.log("Account", i, "QT: ", quoteToken.balanceOf(acc[i]));
             console.log("Account", i, "BT: ", baseToken.balanceOf(acc[i]));
         }
+    }
+
+    function checkOrderQuantity(uint256 _orderId, uint256 _quantity) public {
+        (,, uint256 quantity,) = book.orders(_orderId);
+        assertEq(quantity, _quantity);
     }
 
 }
