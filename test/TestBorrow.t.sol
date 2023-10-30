@@ -6,25 +6,25 @@ import {Setup} from "./Setup.sol";
 import {StdCheats} from "forge-std/StdCheats.sol";
 
 contract TestBorrow is Setup {
-
+    
     // borrow fails if non-existing buy order
-    function testFailBorrowNonExistingBuyOrder() public {
+    function test_BorrowNonExistingBuyOrder() public {
         depositBuyOrder(acc[1], 2000, 90);
-        borrow(acc[1], 2, 10);
         vm.expectRevert("Order has zero assets");
+        borrow(acc[1], 2, 10);
         checkOrderQuantity(1, 2000);
     }
 
     // borrow fails if non-existing sell order
-    function testFailBorrowNonExistingSellOrder() public {
+    function test_BorrowNonExistingSellOrder() public {
         depositSellOrder(acc[1], 20, 110);
-        borrow(acc[1], 2, 1000);
         vm.expectRevert("Order has zero assets");
+        borrow(acc[1], 2, 1000);
         checkOrderQuantity(1, 20);
     }
     
     // fails if borrowing of buy order is zero
-    function testBorrowBuyOrderFailsIfZero() public {
+    function test_BorrowBuyOrderFailsIfZero() public {
         depositBuyOrder(acc[1], 2000, 90);
         depositSellOrder(acc[2], 30, 110);
         vm.expectRevert("Must be positive");
@@ -33,7 +33,7 @@ contract TestBorrow is Setup {
     }
 
     // fails if borrowing of sell order is zero
-    function testBorrowSellOrderFailsIfZero() public {
+    function test_BorrowSellOrderFailsIfZero() public {
         depositSellOrder(acc[1], 20, 110);
         depositBuyOrder(acc[2], 3000, 90);
         vm.expectRevert("Must be positive");
@@ -42,23 +42,25 @@ contract TestBorrow is Setup {
     }
 
     // ok if borrower of buy order is maker
-    function testBorrowBuyOrderOkIfMaker() public {
+    function test_BorrowBuyOrderOkIfMaker() public {
         depositBuyOrder(acc[1], 2000, 90);
         depositSellOrder(acc[1], 30, 110);
         borrow(acc[1], 1, 2000);
         checkOrderQuantity(1, 2000);
+        checkBorrowingQuantity(1, 2000); 
     }
 
     // ok if borrower of sell order is maker
-    function testBorrowSellOrderOkIfMaker() public {
+    function test_BorrowSellOrderOkIfMaker() public {
         depositSellOrder(acc[1], 20, 110);
         depositBuyOrder(acc[1], 3000, 90);
         borrow(acc[1], 1, 20);
         checkOrderQuantity(1, 20);
+        checkBorrowingQuantity(1, 20); 
     }
     
     // borrow of buy order correctly adjusts balances
-    function testBorrowBuyOrderCheckBalances() public {
+    function test_BorrowBuyOrderCheckBalances() public {
         depositBuyOrder(acc[1], 1800, 90);
         depositSellOrder(acc[2], 30, 110);
         uint256 bookBalance = quoteToken.balanceOf(address(book));
@@ -70,10 +72,11 @@ contract TestBorrow is Setup {
         assertEq(quoteToken.balanceOf(acc[2]), borrowerBalance + 1800);
         checkOrderQuantity(1, 1800);
         checkOrderQuantity(2, 30);
+        checkBorrowingQuantity(1, 1800); 
     }
 
     // borrow of sell order correctly adjusts external balances
-    function testBorowSellOrderCheckBalances() public {
+    function test_BorowSellOrderCheckBalances() public {
         depositSellOrder(acc[1], 20, 110);
         depositBuyOrder(acc[2], 3000, 90);
         uint256 bookBalance = baseToken.balanceOf(address(book));
@@ -85,10 +88,11 @@ contract TestBorrow is Setup {
         assertEq(baseToken.balanceOf(acc[2]), borrowerBalance + 20);
         checkOrderQuantity(1, 20);
         checkOrderQuantity(2, 3000);
+        checkBorrowingQuantity(1, 20); 
     }
 
     // borrowable quantity from buy order is correct
-    function testBorrowBuyOrderOutable() public {
+    function test_BorrowBuyOrderOutable() public {
         depositBuyOrder(acc[1], 2000, 90);
         depositSellOrder(acc[2], 30, 110);
         assertEq(book.outableQuantity(1, 2000), 2000);
@@ -99,7 +103,7 @@ contract TestBorrow is Setup {
     }
 
     // borrowable quantity from sell order is correct
-    function testBorrowSellOrderOutable() public {
+    function test_BorrowSellOrderOutable() public {
         depositSellOrder(acc[1], 20, 110);
         depositBuyOrder(acc[2], 3000, 90);
         assertEq(book.outableQuantity(1, 20), 20);
@@ -112,7 +116,7 @@ contract TestBorrow is Setup {
     }
 
     // Lender and borrower excess collaterals in quote and base token are correct
-    function testBorrowBuyOrderExcessCollateral() public {
+    function test_BorrowBuyOrderExcessCollateral() public {
         depositBuyOrder(acc[1], 2000, 90);
         depositSellOrder(acc[2], 30, 110);
         uint256 lenderExcessCollateral = book.getUserExcessCollateral(acc[1], inQuoteToken);
@@ -123,7 +127,7 @@ contract TestBorrow is Setup {
     }
 
     // Lender and borrower excess collaterals in base and quote token are correct
-    function testBorrowSellOrderExcessCollateral() public {
+    function test_BorrowSellOrderExcessCollateral() public {
         depositSellOrder(acc[1], 20, 110);
         depositBuyOrder(acc[2], 3000, 90);
         uint256 lenderExcessCollateral = book.getUserExcessCollateral(acc[1], inBaseToken);

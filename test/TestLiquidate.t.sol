@@ -8,7 +8,7 @@ import {StdCheats} from "forge-std/StdCheats.sol";
 contract TestLiquidate is Setup {
 
     // liquidate one position after taking a buy order, check balances
-    function testLiquidatePositionFromBuyOrder() public {
+    function test_LiquidatePositionFromBuyOrder() public {
         depositBuyOrder(acc[1], 2000, 100);
         depositSellOrder(acc[2], 30, 110);
         borrow(acc[2], 1, 1000);
@@ -34,7 +34,7 @@ contract TestLiquidate is Setup {
     }
 
     // liquidate one position after taking a sell order, check balances
-    function testLiquidatePositionFromSellOrder() public {
+    function test_LiquidatePositionFromSellOrder() public {
         depositSellOrder(acc[1], 30, 100);
         depositBuyOrder(acc[2], 5000, 90);
         borrow(acc[2], 1, 20);
@@ -60,7 +60,7 @@ contract TestLiquidate is Setup {
     }
 
     // liquidate two positions after taking a buy order, check balances
-    function testLiquidateTwoPositionsFromBuyOrder() public {
+    function test_LiquidateTwoPositionsFromBuyOrder() public {
         depositBuyOrder(acc[1], 2000, 100);
         depositSellOrder(acc[2], 30, 110);
         depositSellOrder(acc[3], 40, 120);
@@ -93,7 +93,7 @@ contract TestLiquidate is Setup {
     }
 
     // liquidate two positions after taking a sell order, balances
-    function testLiquidateTwoPositionsFromSellOrder() public {
+    function test_LiquidateTwoPositionsFromSellOrder() public {
         depositSellOrder(acc[1], 20, 100);
         depositBuyOrder(acc[2], 3000, 90);
         depositBuyOrder(acc[3], 4000, 80);
@@ -126,7 +126,7 @@ contract TestLiquidate is Setup {
     }
 
     // Close borrowing position after taking a collateral buy order, check balances
-    function testClosePositionFromBuyOrder() public {
+    function test_ClosePositionFromBuyOrder() public {
         depositBuyOrder(acc[1], 2000, 90);
         depositSellOrder(acc[2], 10, 100);
         borrow(acc[2], 1, 900);
@@ -152,7 +152,7 @@ contract TestLiquidate is Setup {
     }
 
     // Close borrowing and borrowed position after taking a collateral buy order, check balances
-    function testClosePositionsFromBTwoSides() public {
+    function test_ClosePositionsFromTwoSides() public {
         depositBuyOrder(acc[1], 2700, 90);
         depositSellOrder(acc[2], 20, 100);
         depositBuyOrder(acc[3], 3200, 80);

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.20;
 
-import {Test, console} from "forge-std/Test.sol";
+import {Test, console} from "../lib/forge-std/src/Test.sol";
 import {Token} from "../src/Token.sol";
 import {Book} from "../src/Book.sol";
 //import {MathLib, WAD} from "../lib/MathLib.sol";
 import {DeployBook} from "../script/DeployBook.s.sol";
-import {StdCheats} from "forge-std/StdCheats.sol";
+import {StdCheats} from "../lib/forge-std/src/StdCheats.sol";
 
 contract Setup is StdCheats, Test {
     Book public book;
@@ -19,28 +19,24 @@ contract Setup is StdCheats, Test {
     bool constant public inQuoteToken = true;
     bool constant public inBaseToken = false;
 
-    uint256 constant public accountNumber = 10;
+    uint256 constant public accountNumber = 5;
     uint256 constant public receiveQuoteToken = 10000;
     uint256 constant public receiveBaseToken = 100;
+
+    uint256 testNumber = 42;
 
     mapping(uint256 => address) public acc;
 
     function setUp() public {
         deployBook = new DeployBook();
         (book, quoteToken, baseToken) = deployBook.run();
-        createAccounts();
-        initialTransfers();
-    }
-
-    function createAccounts() public {
-        for (uint8 i = 0; i < accountNumber; i++) {
-            acc[i] = makeAddr(vm.toString(i));
-        }
+        fundingAccounts(accountNumber);
     }
     
     // funding an army of traders
-    function initialTransfers() public {
-        for (uint8 i = 0; i < accountNumber; i++) {
+    function fundingAccounts(uint256 _accountNumber) public {
+        for (uint8 i = 0; i < _accountNumber; i++) {
+            acc[i] = makeAddr(vm.toString(i));
             vm.startPrank(address(msg.sender)); // contract deployer
             quoteToken.transfer(acc[i], receiveQuoteToken);
             baseToken.transfer(acc[i], receiveBaseToken);
@@ -106,11 +102,6 @@ contract Setup is StdCheats, Test {
         book.borrow(_orderId, _quantity);
     }
 
-    function testTransferTokenUSER() public {
-        assertEq(receiveQuoteToken, quoteToken.balanceOf(acc[1]));
-        assertEq(receiveBaseToken, baseToken.balanceOf(acc[1]));
-    }
-
     function displayBalances(uint256 firstN) public view {
         console.log("Contract  QT: ", quoteToken.balanceOf(address(book)));
         console.log("Contract  BT: ", baseToken.balanceOf(address(book)));
@@ -122,6 +113,11 @@ contract Setup is StdCheats, Test {
 
     function checkOrderQuantity(uint256 _orderId, uint256 _quantity) public {
         (,, uint256 quantity,) = book.orders(_orderId);
+        assertEq(quantity, _quantity);
+    }
+
+    function checkBorrowingQuantity(uint256 _positionId, uint256 _quantity) public {
+        (,, uint256 quantity) = book.positions(_positionId);
         assertEq(quantity, _quantity);
     }
 

@@ -8,33 +8,35 @@ import {StdCheats} from "forge-std/StdCheats.sol";
 contract TestRepay is Setup {
 
     // repay fails if non-existing buy order
-    function testFailRepayNonExistingBuyOrder() public {
+    function test_RepayNonExistingBuyOrder() public {
         depositBuyOrder(acc[1], 2000, 90);
         depositSellOrder(acc[2], 30, 110);
-        borrow(acc[2], 1, 0);
+        borrow(acc[2], 1, 1000);
+        vm.expectRevert("Order has zero assets");
         repay(acc[2], 3, 10);
         vm.expectRevert("Order has zero assets");
         repay(acc[2], 3, 0);
-        vm.expectRevert("Order has zero assets");
         checkOrderQuantity(1, 2000);
         checkOrderQuantity(2, 30);
+        checkBorrowingQuantity(1, 1000); 
     }
 
     // repay fails if non-existing sell order
-    function testFailRepayNonExistingSellOrder() public {
+    function test_RepayNonExistingSellOrder() public {
         depositSellOrder(acc[1], 20, 110);
-        depositSellOrder(acc[2], 3000, 90);
+        depositBuyOrder(acc[2], 3000, 90);
         borrow(acc[2], 1, 10);
+        vm.expectRevert("Order has zero assets");
         repay(acc[2], 3, 10);
         vm.expectRevert("Order has zero assets");
         repay(acc[2], 3, 0);
-        vm.expectRevert("Order has zero assets");
         checkOrderQuantity(1, 20);
         checkOrderQuantity(2, 3000);
+        checkBorrowingQuantity(1, 10); 
     }
     
     // fails if repay buy order for zero
-    function testRepayBuyOrderFailsIfZero() public {
+    function test_RepayBuyOrderFailsIfZero() public {
         depositBuyOrder(acc[1], 2000, 90);
         depositSellOrder(acc[2], 30, 110);
         borrow(acc[2], 1, 1000);
@@ -45,7 +47,7 @@ contract TestRepay is Setup {
     }
 
     // fails if repay sell order for zero
-    function testRepaySellOrderFailsIfZero() public {
+    function test_RepaySellOrderFailsIfZero() public {
         depositSellOrder(acc[1], 20, 110);
         depositBuyOrder(acc[2], 3000, 90);
         borrow(acc[2], 1, 10);
@@ -56,7 +58,7 @@ contract TestRepay is Setup {
     }
 
     // fails if repay buy order > borrowed amount
-    function testRepayBuyOrderFailsIfTooMuch() public {
+    function test_RepayBuyOrderFailsIfTooMuch() public {
         depositBuyOrder(acc[1], 2000, 90);
         depositSellOrder(acc[2], 30, 110);
         borrow(acc[2], 1, 1000);
@@ -67,7 +69,7 @@ contract TestRepay is Setup {
     }
 
     // fails if repay sell order > borrowed amount
-    function testRepaySellOrderFailsIfTooMuch() public {
+    function test_RepaySellOrderFailsIfTooMuch() public {
         depositSellOrder(acc[1], 20, 110);
         depositBuyOrder(acc[2], 3000, 90);
         borrow(acc[2], 1, 10);
@@ -78,7 +80,7 @@ contract TestRepay is Setup {
     }
 
     // ok if borrower then repayer of buy order is maker
-    function testRepayBuyOrderOkIfMaker() public {
+    function test_RepayBuyOrderOkIfMaker() public {
         depositBuyOrder(acc[1], 2000, 100);
         depositSellOrder(acc[1], 30, 110);
         borrow(acc[1], 1, 1000);
@@ -88,7 +90,7 @@ contract TestRepay is Setup {
     }
 
     // ok if borrower then repayer of sell order is maker
-    function testRepaySellOrderOkIfMaker() public {
+    function test_RepaySellOrderOkIfMaker() public {
         depositSellOrder(acc[1], 20, 100);
         depositBuyOrder(acc[1], 3000, 90);
         borrow(acc[1], 1, 20);
@@ -98,33 +100,33 @@ contract TestRepay is Setup {
     }
 
     // fails if borrower repay non-borrowed buy order
-    function testFailsRepayNonBorrowedBuyOrder() public {
+    function test_RepayNonBorrowedBuyOrder() public {
         depositBuyOrder(acc[1], 2000, 90);
-        depositBuyOrder(acc[1], 3000, 80);
         depositSellOrder(acc[2], 50, 110);
         borrow(acc[2], 1, 1000);
-        repay(acc[2], 2, 500);
+        depositBuyOrder(acc[3], 3000, 80);
         vm.expectRevert("Must be positive");
-        checkOrderQuantity(1, 20);
-        checkOrderQuantity(2, 3000);
-        checkOrderQuantity(3, 50);
+        repay(acc[2], 3, 500);
+        checkOrderQuantity(1, 2000);
+        checkOrderQuantity(2, 50);
+        checkOrderQuantity(3, 3000);
     }
 
     // fails if borrower repay non-borrowed sell order
-    function testFailsRepayNonBorrowedSellOrder() public {
+    function test_RepayNonBorrowedSellOrder() public {
         depositSellOrder(acc[1], 20, 110);
-        depositSellOrder(acc[1], 30, 120);
         depositBuyOrder(acc[2], 5000, 100);
         borrow(acc[2], 1, 10);
-        repay(acc[2], 2, 5);
+        depositSellOrder(acc[3], 30, 120);
         vm.expectRevert("Must be positive");
+        repay(acc[2], 3, 5);
         checkOrderQuantity(1, 20);
-        checkOrderQuantity(2, 30);
-        checkOrderQuantity(3, 5000);
+        checkOrderQuantity(2, 5000);
+        checkOrderQuantity(3, 30);
     }
     
     // repay buy order correctly adjusts balances
-    function testRepayBuyOrderCheckBalances() public {
+    function test_RepayBuyOrderCheckBalances() public {
         depositBuyOrder(acc[1], 1800, 90);
         depositSellOrder(acc[2], 30, 110);
         borrow(acc[2], 1, 1600);
@@ -140,7 +142,7 @@ contract TestRepay is Setup {
     }
 
     // repay sell order correctly adjusts external balances
-    function testBorowSellOrderCheckBalances() public {
+    function test_BorowSellOrderCheckBalances() public {
         depositSellOrder(acc[1], 20, 110);
         depositBuyOrder(acc[2], 3000, 90);
         borrow(acc[2], 1, 10);
@@ -156,7 +158,7 @@ contract TestRepay is Setup {
     }
 
     // Lender and borrower excess collaterals in quote and base tokens are correct
-    function testRepayBuyOrderExcessCollateral() public {
+    function test_RepayBuyOrderExcessCollateral() public {
         depositBuyOrder(acc[1], 2000, 90);
         depositSellOrder(acc[2], 30, 110);
         borrow(acc[2], 1, 900);
@@ -170,7 +172,7 @@ contract TestRepay is Setup {
     }
 
     // Lender and borrower excess collaterals in base and quote tokens are correct
-    function testRepaySellOrderExcessCollateral() public {
+    function test_RepaySellOrderExcessCollateral() public {
         depositSellOrder(acc[1], 20, 110);
         depositBuyOrder(acc[2], 3000, 90);
         borrow(acc[2], 1, 10);
