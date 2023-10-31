@@ -13,7 +13,8 @@ The benefits of appending a lending protocol to an order book are multiple:
 - stop loss orders with guaranteed stop price
 - zero liquidation costs
 - high leverage
-- minimized loss ratio
-- no risk of bad debt and minimized governance
+- leverage programmability
+- no risk of bad debt
+- minimized governance
 
-Please read more about LendBook in the [white paper](wp_blob.pdf).
+Please read more about LendBook in the [white paper](wp_llob.pdf).
