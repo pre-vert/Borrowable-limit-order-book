@@ -19,9 +19,9 @@ contract Book is IBook {
 
     IERC20 public quoteToken;
     IERC20 public baseToken;
-    uint256 constant public MAX_POSITIONS = 5; // How many positions can be borrowed from a single order
-    uint256 constant public MAX_ORDERS = 10; // How many buy and sell orders can be placed by a single address
-    uint256 constant public MAX_BORROWINGS = 5; // How many positions a borrower can open both sides of the book
+    uint256 constant public MAX_POSITIONS = 2; // How many positions can be borrowed from a single order
+    uint256 constant public MAX_ORDERS = 2; // How many buy and sell orders can be placed by a single address
+    uint256 constant public MAX_BORROWINGS = 2; // How many positions a borrower can open both sides of the book
     uint256 constant public MIN_DEPOSIT_BASE = 2; // Minimum deposited base tokens to be received by takers
     uint256 constant public MIN_DEPOSIT_QUOTE = 100; // Minimum deposited base tokens to be received by takers
     uint256 constant private ABSENT = type(uint256).max; // id for non existing order or position in arrays
@@ -484,7 +484,9 @@ contract Book is IBook {
         if (row == ABSENT) {
             bool fillRow = false;
             for (uint256 i = 0; i < MAX_BORROWINGS; i++) {
-                uint256 positionId = _getPositionIdsRowInOrders(_orderId, _borrower);
+                // check if row in BorrowFromIds is empty
+                uint256 orderId = users[_borrower].borrowFromIds[i];
+                uint256 positionId = _getPositionIdsRowInOrders(orderId, _borrower);
                 if (!_borrowingInPositionIsPositive(positionId))
                 {
                     users[_borrower].borrowFromIds[i] = _orderId;

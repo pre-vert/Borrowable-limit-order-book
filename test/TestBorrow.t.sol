@@ -157,13 +157,16 @@ contract TestBorrow is Setup {
     }
 
     function test_BorrowTwiceFromTwoOrders() public {
-        depositBuyOrder(acc[2], 5000, 90);
         depositSellOrder(acc[1], 30, 110);
-        depositSellOrder(acc[3], 20, 100);
-        borrow(acc[2], 2, 10);
-        checkUserBorrowId(acc[2], 0, 2);
-        borrow(acc[2], 3, 5);
-        checkUserBorrowId(acc[2], 0, 2);
-        // checkUserBorrowId(acc[2], 1, 3);
+        depositSellOrder(acc[2], 20, 100);
+        depositBuyOrder(acc[3], 6000, 90);
+        // checkUserBorrowId(acc[2], 0, 0);
+        borrow(acc[3], 1, 15);
+        checkUserBorrowId(acc[3], 0, 1);
+        borrow(acc[3], 2, 10);
+        // checkBorrowingQuantity(1, 10);
+        // checkBorrowingQuantity(2, 5);
+        checkUserBorrowId(acc[3], 0, 2);
+        checkUserBorrowId(acc[3], 1, 0);
     }
 }

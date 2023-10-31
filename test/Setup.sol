@@ -120,7 +120,7 @@ contract Setup is StdCheats, Test {
         (,, uint256 quantity) = book.positions(_positionId);
         assertEq(quantity, _quantity);
     }
-
+    
     function checkUserDepositId(address _user, uint256 _row, uint256 _orderId) public {
         assertEq(book.getUserDepositIds(_user)[_row], _orderId);
     }
