@@ -14,9 +14,10 @@ import {MathLib, WAD} from "../lib/MathLib.sol";
 import {console} from "forge-std/Test.sol";
 
 contract Book is IBook {
+    
     using MathLib for uint256;
     using SafeERC20 for IERC20;
-
+    
     IERC20 public quoteToken;
     IERC20 public baseToken;
     uint256 constant public MAX_POSITIONS = 2; // How many positions can be borrowed from a single order

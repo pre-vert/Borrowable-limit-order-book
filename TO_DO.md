@@ -20,8 +20,6 @@ The interest rate is chosen by makers when the order is placed.
 
 Number of orders on both sides of the book.
 
-### 1.4 Implement safeTransfer
-
 ### 1.5 Implement custom errors
 
 https://soliditylang.org/blog/2021/04/21/custom-errors/
