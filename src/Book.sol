@@ -7,13 +7,15 @@ pragma solidity ^0.8.20;
 /// @dev A money market for the pair base/quote is handled by a single contract
 /// which manages both order book and lending/borrowing operations
 
-import {IERC20} from "./interfaces/IERC20.sol";
+import {IERC20} from "../lib/openZeppelin/IERC20.sol";
+import {SafeERC20} from "../lib/openZeppelin/SafeERC20.sol";
 import {IBook} from "./interfaces/IBook.sol";
 import {MathLib, WAD} from "../lib/MathLib.sol";
 import {console} from "forge-std/Test.sol";
 
 contract Book is IBook {
     using MathLib for uint256;
+    using SafeERC20 for IERC20;
 
     IERC20 public quoteToken;
     IERC20 public baseToken;
@@ -104,7 +106,7 @@ contract Book is IBook {
             // Update users: add orderId in depositIds array
             _addOrderIdInDepositIdsInUsers(newOrderId, msg.sender);
             // _checkAllowanceAndBalance(msg.sender, _quantity, _isBuyOrder);
-            require(_transferTokenFrom(msg.sender, _quantity, _isBuyOrder), "Transfer failed");
+            _transferFrom(msg.sender, _quantity, _isBuyOrder);
             emit Deposit(msg.sender, _quantity, _price, _isBuyOrder);
         }
     }
@@ -137,7 +139,7 @@ contract Book is IBook {
         // remove orderId in depositIds array in users, if fully removed - deprecated
         // _removeOrderIdFromDepositIdsInUsers(removedOrder.maker, _removedOrderId);
 
-        require(_transferTokenTo(msg.sender, removableQuantity, removedOrder.isBuyOrder), "Transfer failed");
+        _transferTo(msg.sender, removableQuantity, removedOrder.isBuyOrder);
 
         emit Withdraw(removedOrder.maker, removableQuantity, removedOrder.price, removedOrder.isBuyOrder);
     }
@@ -180,13 +182,12 @@ contract Book is IBook {
         // quantity given by taker in exchange of _takenQuantity
         uint256 exchangedQuantity = _converts(takenableQuantity, takenOrder.price, takenOrder.isBuyOrder);
 
-        require(_transferTokenFrom(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder), "Transfer failed");
-        require(_transferTokenTo(msg.sender, takenableQuantity, takenOrder.isBuyOrder), "Transfer failed");
-        require(_transferTokenTo(
+        _transferFrom(msg.sender, exchangedQuantity, !takenOrder.isBuyOrder);
+        _transferTo(msg.sender, takenableQuantity, takenOrder.isBuyOrder);
+        _transferTo(
             takenOrder.maker,
             exchangedQuantity + seizedBorrowerCollateral - totalReducedBorrowing,
-            !takenOrder.isBuyOrder), "Transfer failed"
-        );
+            !takenOrder.isBuyOrder);
         
 
         emit Take(msg.sender, takenOrder.maker, takenableQuantity, takenOrder.price, takenOrder.isBuyOrder);
@@ -203,20 +204,19 @@ contract Book is IBook {
     {
         Order memory borrowedOrder = orders[_borrowedOrderId];
 
-        // borrow up to desired quantity or available assets net of minimum deposit
-        uint256 borrowableQuantity = outableQuantity(_borrowedOrderId, _borrowedQuantity);
-        require(borrowableQuantity > 0, "Borrow too much assets");
+        // cannot borrow more than available assets net of minimum deposit
+        _revertIfSuperiorTo(_borrowedQuantity, outableQuantity(_borrowedOrderId, _borrowedQuantity));
 
         // check available assets are not collateral for user's borrowing positions
         // For Bob to borrow USDC (quote token) from Alice's buy order, one must check that
         // Alice's excess collateral in USDC is enough to cover Bob's borrowing
         bool inQuoteToken = borrowedOrder.isBuyOrder;
-        _revertIfSuperiorTo(borrowableQuantity, getUserExcessCollateral(borrowedOrder.maker, inQuoteToken));
+        _revertIfSuperiorTo(_borrowedQuantity, getUserExcessCollateral(borrowedOrder.maker, inQuoteToken));
 
         // check borrowed amount is enough collateralized by borrowers' orders
         // For Bob to borrow USDC (quote token) from Alice's buy order, one must check that
         // Bob's excess collateral in ETH is enough to cover Bob's borrowing
-        uint256 convertedBorrowableQuantity = _converts(borrowableQuantity, borrowedOrder.price, inQuoteToken);
+        uint256 convertedBorrowableQuantity = _converts(_borrowedQuantity, borrowedOrder.price, inQuoteToken);
         _revertIfSuperiorTo(convertedBorrowableQuantity, getUserExcessCollateral(msg.sender, !inQuoteToken));   
 
         // update users: check if borrower already borrows from order,
@@ -225,16 +225,16 @@ contract Book is IBook {
 
         // update positions: create new or update existing borrowing position in positions
         // output the id of the new or updated borrowing position
-        uint256 positionId = _addPositionToPositions(msg.sender, _borrowedOrderId, borrowableQuantity);
+        uint256 positionId = _addPositionToPositions(msg.sender, _borrowedOrderId, _borrowedQuantity);
 
         // update orders: add new positionId in positionIds array
         // check first that position doesn't already exist
         // reverts if max number of positions is reached
         _AddPositionIdToPositionIdsInOrders(positionId, _borrowedOrderId);
 
-        require(_transferTokenTo(msg.sender, borrowableQuantity, borrowedOrder.isBuyOrder), "Transfer failed");
+        _transferTo(msg.sender, _borrowedQuantity, borrowedOrder.isBuyOrder);
 
-        emit Borrow(msg.sender, _borrowedOrderId, borrowableQuantity, borrowedOrder.isBuyOrder);
+        emit Borrow(msg.sender, _borrowedOrderId, _borrowedQuantity, borrowedOrder.isBuyOrder);
     }
 
     /// @inheritdoc IBook
@@ -256,7 +256,7 @@ contract Book is IBook {
         bool isBid = orders[_repaidOrderId].isBuyOrder;
 
         // _checkAllowanceAndBalance(msg.sender, _repaidQuantity, repaidOrder.isBuyOrder);
-        require(_transferTokenFrom(msg.sender, _repaidQuantity, isBid), "Transfer failed");
+        _transferFrom(msg.sender, _repaidQuantity, isBid);
 
         emit Repay(msg.sender, _repaidOrderId, _repaidQuantity, isBid);
     }
@@ -280,7 +280,7 @@ contract Book is IBook {
         _increaseOrderByQuantity(_orderId, _increasedQuantity);
 
         //_checkAllowanceAndBalance(msg.sender, _increasedQuantity, isBid);
-        require(_transferTokenFrom(msg.sender, _increasedQuantity, isBid), "Transfer failed");
+        _transferFrom(msg.sender, _increasedQuantity, isBid);
 
         emit IncreaseDeposit(msg.sender, _orderId, _increasedQuantity);
     }
@@ -391,28 +391,27 @@ contract Book is IBook {
     }
 
     // tranfer ERC20 from contract to user/taker/borrower
-    function _transferTokenTo(
+    function _transferTo(
         address _to,
         uint256 _quantity,
         bool _isBuyOrder
     )
         internal
         isPositive(_quantity)
-        returns (bool)
     {
-        if (_isBuyOrder) return quoteToken.transfer(_to, _quantity);
-        else return baseToken.transfer(_to, _quantity);
+        if (_isBuyOrder) quoteToken.safeTransfer(_to, _quantity);
+        else baseToken.safeTransfer(_to, _quantity);
     }
 
     // transfer ERC20 from user/taker/repayBorrower to contract
-    function _transferTokenFrom(
+    function _transferFrom(
         address _from,
         uint256 _quantity,
         bool _isBuyOrder
-    ) internal isPositive(_quantity) returns (bool)
+    ) internal isPositive(_quantity)
     {
-        if (_isBuyOrder) return quoteToken.transferFrom(_from, address(this), _quantity);
-        else return baseToken.transferFrom(_from, address(this), _quantity);
+        if (_isBuyOrder) quoteToken.safeTransferFrom(_from, address(this), _quantity);
+        else baseToken.safeTransferFrom(_from, address(this), _quantity);
     }
 
     // returns id of the new order
@@ -612,7 +611,7 @@ contract Book is IBook {
 
     //////////********* View functions HERE *********/////////
 
-    // Add manual getters for the User struct fields
+    // Add manual getters for User struct fields
     function getUserDepositIds(address user)
         public view
         returns (uint256[MAX_ORDERS] memory)
@@ -621,7 +620,9 @@ contract Book is IBook {
     }
 
     function getUserBorrowFromIds(address user)
-        public view returns (uint256[MAX_BORROWINGS] memory) {
+        public view
+        returns (uint256[MAX_BORROWINGS] memory)
+    {
         return users[user].borrowFromIds;
     }
 

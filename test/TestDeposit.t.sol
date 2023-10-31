@@ -170,11 +170,13 @@ contract TestDeposit is Setup {
 
     // add order id in depositIds in users
     function test_AddDepositIdInUsers() public {
-        assertEq(book.getUserDepositIds(acc[1])[0], 0);
+        checkUserDepositId(acc[1], 0, 0);
         depositBuyOrder(acc[1], 3000, 110);
-        assertEq(book.getUserDepositIds(acc[1])[0], 1);
+        checkUserDepositId(acc[1], 0, 1);
+        checkUserDepositId(acc[1], 1, 0);
         depositBuyOrder(acc[1], 2000, 120);
-        assertEq(book.getUserDepositIds(acc[1])[0], 1);
-        assertEq(book.getUserDepositIds(acc[1])[1], 2);
+        checkUserDepositId(acc[1], 0, 1);
+        checkUserDepositId(acc[1], 1, 2);
+        checkUserDepositId(acc[1], 2, 0);
     }
 }

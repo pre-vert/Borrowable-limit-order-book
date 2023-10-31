@@ -121,4 +121,13 @@ contract Setup is StdCheats, Test {
         assertEq(quantity, _quantity);
     }
 
+    function checkUserDepositId(address _user, uint256 _row, uint256 _orderId) public {
+        assertEq(book.getUserDepositIds(_user)[_row], _orderId);
+    }
+
+    function checkUserBorrowId(address _user, uint256 _row, uint256 _orderId) public {
+        assertEq(book.getUserBorrowFromIds(_user)[_row], _orderId);
+    }
+    
+
 }

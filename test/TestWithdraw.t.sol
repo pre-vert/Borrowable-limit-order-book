@@ -109,7 +109,7 @@ contract TestWithdraw is Setup {
     }
 
     // add new order if same order but different maker
-    function test_NewQuantityAfterRemoveBuyOrder() public {
+    function test_RedepositAfterRemoveBuyOrder() public {
         depositBuyOrder(acc[1], 3000, 90);
         withdraw(acc[1], 1, 3000);
         checkOrderQuantity(1, 0);
@@ -118,6 +118,15 @@ contract TestWithdraw is Setup {
         checkOrderQuantity(2, 5000);
         depositBuyOrder(acc[1], 4000, 90);
         checkOrderQuantity(1, 4000);
+    }
+
+    function test_RedepositAfterRemoveDepositIdInUsers() public {
+        depositBuyOrder(acc[1], 3000, 110);
+        withdraw(acc[1], 1, 3000);
+        checkUserDepositId(acc[1], 0, 1);
+        depositBuyOrder(acc[1], 2000, 110);
+        checkUserDepositId(acc[1], 0, 1);
+        checkUserDepositId(acc[1], 1, 0);
     }
 
 }

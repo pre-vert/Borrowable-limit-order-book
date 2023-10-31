@@ -84,9 +84,11 @@ contract TestRepay is Setup {
         depositBuyOrder(acc[1], 2000, 100);
         depositSellOrder(acc[1], 30, 110);
         borrow(acc[1], 1, 1000);
+        checkBorrowingQuantity(1, 1000);
         repay(acc[1], 1, 500);
         checkOrderQuantity(1, 2000);
         checkOrderQuantity(2, 30);
+        checkBorrowingQuantity(1, 500);
     }
 
     // ok if borrower then repayer of sell order is maker
@@ -94,9 +96,11 @@ contract TestRepay is Setup {
         depositSellOrder(acc[1], 20, 100);
         depositBuyOrder(acc[1], 3000, 90);
         borrow(acc[1], 1, 20);
+        checkBorrowingQuantity(1, 20); 
         repay(acc[1], 1, 10);
         checkOrderQuantity(1, 20);
         checkOrderQuantity(2, 3000);
+        checkBorrowingQuantity(1, 10); 
     }
 
     // fails if borrower repay non-borrowed buy order
@@ -110,6 +114,7 @@ contract TestRepay is Setup {
         checkOrderQuantity(1, 2000);
         checkOrderQuantity(2, 50);
         checkOrderQuantity(3, 3000);
+        checkBorrowingQuantity(1, 1000); 
     }
 
     // fails if borrower repay non-borrowed sell order
@@ -123,6 +128,7 @@ contract TestRepay is Setup {
         checkOrderQuantity(1, 20);
         checkOrderQuantity(2, 5000);
         checkOrderQuantity(3, 30);
+        checkBorrowingQuantity(1, 10);
     }
     
     // repay buy order correctly adjusts balances
@@ -139,6 +145,7 @@ contract TestRepay is Setup {
         assertEq(quoteToken.balanceOf(acc[2]), borrowerBalance - 1200);
         checkOrderQuantity(1, 1800);
         checkOrderQuantity(2, 30);
+        checkBorrowingQuantity(1, 400);
     }
 
     // repay sell order correctly adjusts external balances
@@ -155,6 +162,7 @@ contract TestRepay is Setup {
         assertEq(baseToken.balanceOf(acc[2]), borrowerBalance - 8);
         checkOrderQuantity(1, 20);
         checkOrderQuantity(2, 3000);
+        checkBorrowingQuantity(1, 2);
     }
 
     // Lender and borrower excess collaterals in quote and base tokens are correct
@@ -184,4 +192,16 @@ contract TestRepay is Setup {
         checkOrderQuantity(1, 20);
         checkOrderQuantity(2, 3000);
     }
+
+    function test_BorrowRepayFromIdInUsers() public {
+        depositSellOrder(acc[1], 20, 110);
+        depositBuyOrder(acc[2], 3000, 90);
+        borrow(acc[2], 1, 10);
+        repay(acc[2], 1, 10);
+        checkUserBorrowId(acc[2], 0, 1);
+        borrow(acc[2], 1, 10);
+        checkUserBorrowId(acc[2], 0, 1);
+        checkUserBorrowId(acc[2], 1, 0);
+    }
+
 }

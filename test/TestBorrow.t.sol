@@ -136,4 +136,34 @@ contract TestBorrow is Setup {
         assertEq(book.getUserExcessCollateral(acc[1], inBaseToken), lenderExcessCollateral - 10);
         assertEq(book.getUserExcessCollateral(acc[2], inQuoteToken), borrowerExcessCollateral - 10*110);
     }
+
+    function test_BorrowFromIdInUsers() public {
+        depositSellOrder(acc[1], 20, 110);
+        depositBuyOrder(acc[2], 3000, 90);
+        checkUserBorrowId(acc[2], 0, 0);
+        borrow(acc[2], 1, 10);
+        checkUserBorrowId(acc[2], 0, 1);
+        checkUserBorrowId(acc[2], 1, 0);
+    }
+
+    function test_BorrowTwiceFromSameOrder() public {
+        depositSellOrder(acc[1], 30, 110);
+        depositBuyOrder(acc[2], 5000, 90);
+        borrow(acc[2], 1, 10);
+        borrow(acc[2], 1, 5);
+        checkBorrowingQuantity(1, 15);
+        checkUserBorrowId(acc[2], 0, 1);
+        checkUserBorrowId(acc[2], 1, 0);
+    }
+
+    function test_BorrowTwiceFromTwoOrders() public {
+        depositBuyOrder(acc[2], 5000, 90);
+        depositSellOrder(acc[1], 30, 110);
+        depositSellOrder(acc[3], 20, 100);
+        borrow(acc[2], 2, 10);
+        checkUserBorrowId(acc[2], 0, 2);
+        borrow(acc[2], 3, 5);
+        checkUserBorrowId(acc[2], 0, 2);
+        // checkUserBorrowId(acc[2], 1, 3);
+    }
 }
