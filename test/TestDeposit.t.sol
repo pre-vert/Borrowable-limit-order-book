@@ -177,6 +177,13 @@ contract TestDeposit is Setup {
         depositBuyOrder(acc[1], 2000, 120);
         checkUserDepositId(acc[1], 0, 1);
         checkUserDepositId(acc[1], 1, 2);
-        checkUserDepositId(acc[1], 2, 0);
+    }
+
+    // tests what happens if a user has more than the max number of orders
+    function test_OrdersForUserExceedLimit() public {
+        depositBuyOrder(acc[1], 3000, 110);
+        depositSellOrder(acc[1], 30, 90);
+        vm.expectRevert("Max number of orders reached for user");
+        depositBuyOrder(acc[1], 4000, 120);
     }
 }

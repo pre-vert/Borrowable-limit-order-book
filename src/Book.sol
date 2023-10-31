@@ -455,7 +455,7 @@ contract Book is IBook {
                     break;
                 }
             }
-        if (!fillRow) revert("Max number of orders reached for user");
+            if (!fillRow) revert("Max number of orders reached for user");
         }
     }
 
@@ -484,17 +484,15 @@ contract Book is IBook {
         if (row == ABSENT) {
             bool fillRow = false;
             for (uint256 i = 0; i < MAX_BORROWINGS; i++) {
-                // check if row in BorrowFromIds is empty
                 uint256 orderId = users[_borrower].borrowFromIds[i];
-                uint256 positionId = _getPositionIdsRowInOrders(orderId, _borrower);
-                if (!_borrowingInPositionIsPositive(positionId))
+                if (orderId == 0 || _borrowZero(orderId, _borrower))
                 {
                     users[_borrower].borrowFromIds[i] = _orderId;
                     fillRow = true;
                     break;
                 }
-                if (!fillRow) revert("Max number of positions reached for borrower");
             }
+            if (!fillRow) revert("Max number of positions reached for borrower");
         }
     }
 
@@ -569,13 +567,12 @@ contract Book is IBook {
         positionExists(_positionId)
     {
         uint256 row = _getPositionIdsRowInOrders(_orderId, positions[_positionId].borrower);
+        // if position doesn't exist in positionIds in order, add it
         if (row == ABSENT) {
             bool fillRow = false;
             uint256[MAX_POSITIONS] memory positionIds = orders[_orderId].positionIds;
             for (uint256 i = 0; i < MAX_POSITIONS; i++) {
-                if (!_borrowingInPositionIsPositive(positionIds[i])
-                || positions[positionIds[i]].borrowedAssets == 0
-                ) {
+               if (positionIds[i] == 0 || ! _borrowingInPositionIsPositive(positionIds[i])) {
                     orders[_orderId].positionIds[i] = _positionId;
                     fillRow = true;
                     break;
@@ -611,8 +608,16 @@ contract Book is IBook {
         else orders[_orderId].quantity = 0;
     }
 
-    //////////********* View functions HERE *********/////////
+    //////////********* View functions *********/////////
 
+    // Add manual getters for Order struct fields
+    function getOrderPositionIds(uint256 _orderId)
+        public view
+        returns (uint256[MAX_POSITIONS] memory)
+    {
+        return orders[_orderId].positionIds;
+    }
+    
     // Add manual getters for User struct fields
     function getUserDepositIds(address user)
         public view
@@ -671,6 +676,19 @@ contract Book is IBook {
         return (positions[_positionId].borrowedAssets > 0);
     }
 
+    // get position id from positionIds array in orders and check if borrowing is positive
+    function _borrowZero (
+        uint256 _orderId,
+        address _borrower
+    )
+        internal view
+        returns (bool)
+    {
+        uint256 row = _getPositionIdsRowInOrders(_orderId, _borrower);
+        uint256 positionId = orders[_orderId].positionIds[row];
+        return !_borrowingInPositionIsPositive(positionId);
+    }
+                    
     // get address of maker based on order id
     function getMaker(uint256 _orderId)
         public view
@@ -896,6 +914,7 @@ contract Book is IBook {
         positionIdRow = ABSENT;
         uint256[MAX_POSITIONS] memory positionIds = orders[_orderId].positionIds;
         for (uint256 i = 0; i < MAX_POSITIONS; i++) {
+            if (positionIds[i] == 0) break;
             if (positions[positionIds[i]].borrower == _borrower &&
                 positions[positionIds[i]].borrowedAssets > 0) {
                 positionIdRow = i;

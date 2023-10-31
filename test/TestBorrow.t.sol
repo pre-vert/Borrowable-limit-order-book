@@ -160,13 +160,44 @@ contract TestBorrow is Setup {
         depositSellOrder(acc[1], 30, 110);
         depositSellOrder(acc[2], 20, 100);
         depositBuyOrder(acc[3], 6000, 90);
-        // checkUserBorrowId(acc[2], 0, 0);
+        checkUserBorrowId(acc[3], 0, 0);
         borrow(acc[3], 1, 15);
         checkUserBorrowId(acc[3], 0, 1);
         borrow(acc[3], 2, 10);
-        // checkBorrowingQuantity(1, 10);
-        // checkBorrowingQuantity(2, 5);
-        checkUserBorrowId(acc[3], 0, 2);
-        checkUserBorrowId(acc[3], 1, 0);
+        checkBorrowingQuantity(1, 15);
+        checkBorrowingQuantity(2, 10);
+        checkUserBorrowId(acc[3], 0, 1);
+        checkUserBorrowId(acc[3], 1, 2);
     }
+
+    // tests what happens if a user has more than the max number of positions
+    function test_PositionsForUserExceedLimit() public {
+        depositSellOrder(acc[1], 30, 110);
+        depositSellOrder(acc[2], 20, 100);
+        depositSellOrder(acc[3], 40, 120);
+        depositBuyOrder(acc[3], 10000, 90);
+        borrow(acc[3], 1, 15);
+        borrow(acc[3], 2, 10);
+        checkUserBorrowId(acc[3], 0, 1);
+        checkUserBorrowId(acc[3], 1, 2);
+        vm.expectRevert("Max number of positions reached for borrower");
+        borrow(acc[3], 3, 5);
+        checkBorrowingQuantity(3, 0);
+    }
+
+    // tests what happens if an order has more than the max number of positions
+    function test_PositionsForOrderExceedLimit() public {
+        depositBuyOrder(acc[1], 6000, 90);
+        depositSellOrder(acc[2], 20, 100);
+        depositSellOrder(acc[3], 40, 120);
+        depositSellOrder(acc[4], 10, 110);
+        borrow(acc[2], 1, 5);
+        borrow(acc[3], 1, 10);
+        checkOrderPositionId(1, 0, 1);
+        checkOrderPositionId(1, 1, 2);
+        vm.expectRevert("Max number of positions reached for order");
+        borrow(acc[4], 1, 8);
+        checkBorrowingQuantity(3, 0);
+    }
+
 }
