@@ -24,9 +24,9 @@ contract Book is IBook {
     IERC20 public baseToken;
     uint256 constant public MAX_POSITIONS = 2; // How many positions can be borrowed from a single order
     uint256 constant public MAX_ORDERS = 2; // How many buy and sell orders can be placed by a single address
-    uint256 constant public MAX_BORROWINGS = 2; // How many positions a borrower can open both sides of the book
+    uint256 constant public MAX_BORROWINGS = 2; // How many positions a borrower can open on both sides of the book
     uint256 constant public MIN_DEPOSIT_BASE = 2; // Minimum deposited base tokens to be received by takers
-    uint256 constant public MIN_DEPOSIT_QUOTE = 100; // Minimum deposited base tokens to be received by takers
+    uint256 constant public MIN_DEPOSIT_QUOTE = 100; // Minimum deposited quote tokens to be received by takers
     uint256 constant private ABSENT = type(uint256).max; // id for non existing order or position in arrays
     
     struct Order {
