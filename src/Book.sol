@@ -14,9 +14,11 @@ import {MathLib, WAD} from "../lib/MathLib.sol";
 import {console} from "forge-std/Test.sol";
 
 contract Book is IBook {
-    
     using MathLib for uint256;
     using SafeERC20 for IERC20;
+
+    /// @notice provide core public functions (deposit, increase deposit, withdraw, take, borrow, repay),
+    /// internal functions (increaseDeposit, liquidateAssets, liquidateAssets, liquidatePositions) and view functions
     
     IERC20 public quoteToken;
     IERC20 public baseToken;
@@ -47,9 +49,6 @@ contract Book is IBook {
         uint256 orderId; // stores orders id in mapping orders, from which assets are borrowed
         uint256 borrowedAssets; // quantity of assets borrowed (quoteToken for buy orders, baseToken for sell orders)
     }
-
-    /// @notice provide core public functions (deposit, increase deposit, withdraw, take, borrow, repay),
-    /// internal functions (liquidate) and view functions
 
     mapping(uint256 orderId => Order) public orders;
     mapping(address user => User) internal users;
@@ -125,10 +124,8 @@ contract Book is IBook {
         uint256 removableQuantity = outableQuantity(_removedOrderId, _quantityToRemove);
         require(removableQuantity > 0, "Remove too much assets");
 
-        // removal is allowed for non-borrowed assets net of minimum deposit (can be zero)
-        // uint256 removableQuantity = _quantityToRemove.mini(availableAssets);
-
         Order memory removedOrder = orders[_removedOrderId];
+
         // Remaining total deposits must be enough to secure maker's existing borrowing positions
         // Maker's excess collateral must remain positive after removal
         bool inQuoteToken = removedOrder.isBuyOrder;
@@ -136,9 +133,6 @@ contract Book is IBook {
 
         // reduce quantity in order, possibly to zero
         _reduceOrderByQuantity(_removedOrderId, removableQuantity);
-
-        // remove orderId in depositIds array in users, if fully removed - deprecated
-        // _removeOrderIdFromDepositIdsInUsers(removedOrder.maker, _removedOrderId);
 
         _transferTo(msg.sender, removableQuantity, removedOrder.isBuyOrder);
 
@@ -264,9 +258,9 @@ contract Book is IBook {
 
     ///////******* Internal functions *******///////
 
-    /// @notice lets users increase deposited assets in their order
-    /// @param _orderId id of the order in which assets are deposited
-    /// @param _increasedQuantity quantity of assets added
+    // lets users increase deposited assets in their order
+    // _orderId: id of the order in which assets are deposited
+    // _increasedQuantity: quantity of assets added
 
     function _increaseDeposit(
         uint256 _orderId,
@@ -286,10 +280,10 @@ contract Book is IBook {
         emit IncreaseDeposit(msg.sender, _orderId, _increasedQuantity);
     }
     
-    /// @notice Liquidate **all** borrowing positions after taking an order, even if partial
-    /// outputs the quantity liquidated
-    /// doesn't perform external transfers
-    /// @param _fromOrderId order from which borrowing positions must be cleared
+    // liquidate **all** borrowing positions after taking an order, even if partial
+    // outputs the quantity liquidated
+    // doesn't perform external transfers
+    // _fromOrderId: order from which borrowing positions must be cleared
 
     function _liquidateAssets(uint256 _fromOrderId)
         internal
@@ -342,19 +336,17 @@ contract Book is IBook {
                 }
             }
         }
-        //success = (collateralToSeize == 0);
-
     }
 
-    /// @notice liquidate one borrowing position: seize collateral and write off debt for the same amount
-    /// liquidation of a position is always full, i.e. borrower's debt is fully written off
-    /// collateral is seized for the exact amount liquidated, i.e. no excess collateral is seized
-    /// as multiple orders by the same borrower may collateralize the liquidated position:
-    ///  - iterate on collateral orders made by borrower in the opposite currency
-    ///  - seize collateral orders as they come, stops when borrower's debt is fully written off
-    ///  - change internal balances
-    /// doesn't execute final external transfer of assets
-    /// @param _positionId id of the position to be liquidated
+    // liquidate one borrowing position: seize collateral and write off debt for the same amount
+    // liquidation of a position is always full, i.e. borrower's debt is fully written off
+    // collateral is seized for the exact amount liquidated, i.e. no excess collateral is seized
+    // as multiple orders by the same borrower may collateralize the liquidated position:
+    //  - iterate on collateral orders made by borrower in the opposite currency
+    //  - seize collateral orders as they come, stops when borrower's debt is fully written off
+    //  - change internal balances
+    // doesn't execute final external transfer of assets
+    // _positionId: id of the position to be liquidated
 
     function _liquidatePosition(
         uint256 _positionId)
@@ -415,7 +407,9 @@ contract Book is IBook {
         else baseToken.safeTransferFrom(_from, address(this), _quantity);
     }
 
+    // add order to Order
     // returns id of the new order
+
     function _addOrderToOrders(
         address _maker,
         bool _isBuyOrder,
@@ -439,6 +433,8 @@ contract Book is IBook {
     }
 
     // if order id is not in depositIds array, include it, otherwise do nothing
+    // reverts if max orders reached
+
     function _addOrderIdInDepositIdsInUsers(
         uint256 _orderId,
         address _maker
@@ -471,8 +467,9 @@ contract Book is IBook {
         if (row != ABSENT) users[_user].borrowFromIds[row] = 0;
     }
 
-    // update users: check if borrower already borrows from order,
-    // if not, add order id in borrowFromIds array
+    // check if borrower already borrows from order,
+    // if not, add order id in borrowFromIds array in mapping users,
+    // reverts if max borrowing reached
 
     function _addOrderIdInBorrowFromIdsInUsers(
         address _borrower,
@@ -486,7 +483,7 @@ contract Book is IBook {
             bool fillRow = false;
             for (uint256 i = 0; i < MAX_BORROWINGS; i++) {
                 uint256 orderId = users[_borrower].borrowFromIds[i];
-                if (orderId == 0 || _borrowZero(orderId, _borrower))
+                if (orderId == 0 || _userHasZeroBorrowingFromOrder(orderId, _borrower))
                 {
                     users[_borrower].borrowFromIds[i] = _orderId;
                     fillRow = true;
@@ -510,12 +507,12 @@ contract Book is IBook {
         }
     }
 
-    /// @notice update positions: add new position in positions mapping
-    /// check first that position doesn't already exist
-    /// returns existing or new position id in positions mapping
-    /// @param _borrower address of the borrower
-    /// @param _orderId id of the order from which assets are borrowed
-    /// @param _borrowedQuantity quantity of assets borrowed (quoteToken for buy orders, baseToken for sell orders)
+    // update positions: add new position in positions mapping
+    // check first that position doesn't already exist
+    // returns existing or new position id in positions mapping
+    // _borrower address of the borrower
+    // _orderId id of the order from which assets are borrowed
+    // _borrowedQuantity quantity of assets borrowed (quoteToken for buy orders, baseToken for sell orders)
 
     function _addPositionToPositions(
         address _borrower,
@@ -542,7 +539,7 @@ contract Book is IBook {
         }
     }
 
-    // update positions: decrease borrowedAssets, borrowing = 0 is equivalent to delete position
+    // decrease borrowedAssets in position, borrowing = 0 is equivalent to deleted position
     // quantity =< borrowing is checked before the call
 
     function _reduceBorrowingByQuantity(
@@ -555,7 +552,7 @@ contract Book is IBook {
         positions[_positionId].borrowedAssets -= _quantity;
     }
 
-    // update orders: add new position id in positionIds array
+    // add new position id in positionIds array in orders
     // check first that borrower does not borrow from order already
     // reverts if max number of positions is reached
 
@@ -583,7 +580,7 @@ contract Book is IBook {
         }
     }
 
-    // increase quantity offered in order, possibly from zero, delete order if emptied
+    // increase quantity offered in order, possibly from zero
     function _increaseOrderByQuantity(
         uint256 _orderId,
         uint256 _quantity
@@ -594,7 +591,7 @@ contract Book is IBook {
         orders[_orderId].quantity += _quantity;
     }
 
-    // reduce quantity offered in order, if emptied, order is implictly delete
+    // reduce quantity offered in order, emptied = deleted
     // reduced quantity =< order quantity has been check before the call
 
     function _reduceOrderByQuantity(
@@ -611,7 +608,7 @@ contract Book is IBook {
 
     //////////********* View functions *********/////////
 
-    // Add manual getters for Order struct fields
+    // Add manual getter for positionIds in Order
     function getOrderPositionIds(uint256 _orderId)
         public view
         returns (uint256[MAX_POSITIONS] memory)
@@ -619,7 +616,7 @@ contract Book is IBook {
         return orders[_orderId].positionIds;
     }
     
-    // Add manual getters for User struct fields
+    // Add manual getter for depositIds for User
     function getUserDepositIds(address user)
         public view
         returns (uint256[MAX_ORDERS] memory)
@@ -627,6 +624,7 @@ contract Book is IBook {
         return users[user].depositIds;
     }
 
+    // Add manual getter for borroFromIds for User
     function getUserBorrowFromIds(address user)
         public view
         returns (uint256[MAX_BORROWINGS] memory)
@@ -677,15 +675,15 @@ contract Book is IBook {
         return (positions[_positionId].borrowedAssets > 0);
     }
 
-    // get position id from positionIds array in orders and check if borrowing is positive
-    function _borrowZero (
+    // get position id from positionIds array in orders and check that borrowing is zero
+    function _userHasZeroBorrowingFromOrder (
         uint256 _orderId,
-        address _borrower
+        address _user
     )
         internal view
         returns (bool)
     {
-        uint256 row = _getPositionIdsRowInOrders(_orderId, _borrower);
+        uint256 row = _getPositionIdsRowInOrders(_orderId, _user);
         uint256 positionId = orders[_orderId].positionIds[row];
         return !_borrowingInPositionIsPositive(positionId);
     }
@@ -699,7 +697,6 @@ contract Book is IBook {
     }
 
     // sum all assets deposited by user in the quote or base token
-
     function getUserTotalDeposit(
         address _user,
         bool _inQuoteToken
@@ -902,8 +899,8 @@ contract Book is IBook {
         }
     }
 
-    // find in positionIds[] from orders if _borrower borrows from _orderId
-    // and, if so, at which row in the positionId array
+    // find in positionIds array from orders if _borrower borrows from _orderId
+    // if so, at which row in the positionId array
 
     function _getPositionIdsRowInOrders(
         uint256 _orderId,
@@ -924,8 +921,8 @@ contract Book is IBook {
         }
     }
 
-    // find in positionIds[] from orders if _borrower borrows from _orderId
-    // and, if so, what's the position id
+    // find in positionIds array from orders if _borrower borrows from _orderId
+    // if so, what's the position id
 
     function _getPositionIdFromPositionIdsInUsers(
         uint256 _orderId,
