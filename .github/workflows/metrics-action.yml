@@ -1,0 +1,22 @@
+name: Metrics
+
+on:
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  metrics:
+    name: 📊 Code Metrics
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup
+        uses: actions/checkout@v3
+      - name: 📊 Crunch Numbers
+        uses: tintinweb/solidity-metrics-action@v1
+        id: metrics
+        with:
+          target: '{,**/}*.sol'
+      - uses: actions/upload-artifact@v3
+        with:
+          name: metrics.html
+          path: ${{ steps.metrics.outputs.report }}
