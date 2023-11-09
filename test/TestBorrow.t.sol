@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Test, console} from "forge-std/Test.sol";
 import {Setup} from "./Setup.sol";
-import {StdCheats} from "forge-std/StdCheats.sol";
+import {MathLib, WAD} from "../lib/MathLib.sol";
 
 contract TestBorrow is Setup {
     
@@ -67,9 +67,9 @@ contract TestBorrow is Setup {
         uint256 lenderBalance = quoteToken.balanceOf(acc[1]);
         uint256 borrowerBalance = quoteToken.balanceOf(acc[2]);
         borrow(acc[2], 1, 1800);
-        assertEq(quoteToken.balanceOf(address(book)), bookBalance - 1800);
+        assertEq(quoteToken.balanceOf(address(book)), bookBalance - 1800 * WAD);
         assertEq(quoteToken.balanceOf(acc[1]), lenderBalance);
-        assertEq(quoteToken.balanceOf(acc[2]), borrowerBalance + 1800);
+        assertEq(quoteToken.balanceOf(acc[2]), borrowerBalance + 1800 * WAD);
         checkOrderQuantity(1, 1800);
         checkOrderQuantity(2, 30);
         checkBorrowingQuantity(1, 1800); 
@@ -83,9 +83,9 @@ contract TestBorrow is Setup {
         uint256 lenderBalance = baseToken.balanceOf(acc[1]);
         uint256 borrowerBalance = baseToken.balanceOf(acc[2]);
         borrow(acc[2], 1, 20);
-        assertEq(baseToken.balanceOf(address(book)), bookBalance - 20);
+        assertEq(baseToken.balanceOf(address(book)), bookBalance - 20 * WAD);
         assertEq(baseToken.balanceOf(acc[1]), lenderBalance);
-        assertEq(baseToken.balanceOf(acc[2]), borrowerBalance + 20);
+        assertEq(baseToken.balanceOf(acc[2]), borrowerBalance + 20 * WAD);
         checkOrderQuantity(1, 20);
         checkOrderQuantity(2, 3000);
         checkBorrowingQuantity(1, 20); 
@@ -95,24 +95,24 @@ contract TestBorrow is Setup {
     function test_BorrowBuyOrderOutable() public {
         depositBuyOrder(acc[1], 2000, 90);
         depositSellOrder(acc[2], 30, 110);
-        assertEq(book.outableQuantity(1, 2000), 2000);
-        assertEq(book.outableQuantity(1, 1900), 1900);
-        assertEq(book.outableQuantity(1, 1901), 0);
+        assertEq(book.outable(1, 2000 * WAD), true);
+        assertEq(book.outable(1, 1900 * WAD), true);
+        assertEq(book.outable(1, 1901 * WAD), false);
         borrow(acc[2], 1, 1000);
-        assertEq(book.outableQuantity(1, 1000), 1000);
+        assertEq(book.outable(1, 1000 * WAD), true);
     }
 
     // borrowable quantity from sell order is correct
     function test_BorrowSellOrderOutable() public {
         depositSellOrder(acc[1], 20, 110);
         depositBuyOrder(acc[2], 3000, 90);
-        assertEq(book.outableQuantity(1, 20), 20);
-        assertEq(book.outableQuantity(1, 19), 0);
-        assertEq(book.outableQuantity(1, 18), 18);
+        assertEq(book.outable(1, 20 * WAD), true);
+        assertEq(book.outable(1, 19 * WAD), false);
+        assertEq(book.outable(1, 18 * WAD), true);
         borrow(acc[2], 1, 10);
-        assertEq(book.outableQuantity(1, 10), 10);
-        assertEq(book.outableQuantity(1, 9), 0);
-        assertEq(book.outableQuantity(1, 8), 8);
+        assertEq(book.outable(1, 10 * WAD), true);
+        assertEq(book.outable(1, 9 * WAD), false);
+        assertEq(book.outable(1, 8 * WAD), true);
     }
 
     // Lender and borrower excess collaterals in quote and base token are correct
@@ -122,8 +122,8 @@ contract TestBorrow is Setup {
         uint256 lenderExcessCollateral = book.getUserExcessCollateral(acc[1], inQuoteToken);
         uint256 borrowerExcessCollateral = book.getUserExcessCollateral(acc[2], inBaseToken);
         borrow(acc[2], 1, 900);
-        assertEq(book.getUserExcessCollateral(acc[1], inQuoteToken), lenderExcessCollateral - 900);
-        assertEq(book.getUserExcessCollateral(acc[2], inBaseToken), borrowerExcessCollateral - 900/90);
+        assertEq(book.getUserExcessCollateral(acc[1], inQuoteToken), lenderExcessCollateral - 900 * WAD);
+        assertEq(book.getUserExcessCollateral(acc[2], inBaseToken), borrowerExcessCollateral - 10 * WAD);
     }
 
     // Lender and borrower excess collaterals in base and quote token are correct
@@ -133,8 +133,8 @@ contract TestBorrow is Setup {
         uint256 lenderExcessCollateral = book.getUserExcessCollateral(acc[1], inBaseToken);
         uint256 borrowerExcessCollateral = book.getUserExcessCollateral(acc[2], inQuoteToken);
         borrow(acc[2], 1, 10);
-        assertEq(book.getUserExcessCollateral(acc[1], inBaseToken), lenderExcessCollateral - 10);
-        assertEq(book.getUserExcessCollateral(acc[2], inQuoteToken), borrowerExcessCollateral - 10*110);
+        assertEq(book.getUserExcessCollateral(acc[1], inBaseToken), lenderExcessCollateral - 10 * WAD);
+        assertEq(book.getUserExcessCollateral(acc[2], inQuoteToken), borrowerExcessCollateral - 10*110 * WAD);
     }
 
     function test_BorrowFromIdInUsers() public {

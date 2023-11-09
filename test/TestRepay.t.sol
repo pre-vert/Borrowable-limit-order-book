@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Test, console} from "forge-std/Test.sol";
 import {Setup} from "./Setup.sol";
-import {StdCheats} from "forge-std/StdCheats.sol";
+import {MathLib, WAD} from "../lib/MathLib.sol";
 
 contract TestRepay is Setup {
 
@@ -140,9 +140,9 @@ contract TestRepay is Setup {
         uint256 lenderBalance = quoteToken.balanceOf(acc[1]);
         uint256 borrowerBalance = quoteToken.balanceOf(acc[2]);
         repay(acc[2], 1, 1200);
-        assertEq(quoteToken.balanceOf(address(book)), bookBalance + 1200);
+        assertEq(quoteToken.balanceOf(address(book)), bookBalance + 1200 * WAD);
         assertEq(quoteToken.balanceOf(acc[1]), lenderBalance);
-        assertEq(quoteToken.balanceOf(acc[2]), borrowerBalance - 1200);
+        assertEq(quoteToken.balanceOf(acc[2]), borrowerBalance - 1200 * WAD);
         checkOrderQuantity(1, 1800);
         checkOrderQuantity(2, 30);
         checkBorrowingQuantity(1, 400);
@@ -157,9 +157,9 @@ contract TestRepay is Setup {
         uint256 lenderBalance = baseToken.balanceOf(acc[1]);
         uint256 borrowerBalance = baseToken.balanceOf(acc[2]);
         repay(acc[2], 1, 8);
-        assertEq(baseToken.balanceOf(address(book)), bookBalance + 8);
+        assertEq(baseToken.balanceOf(address(book)), bookBalance + 8 * WAD);
         assertEq(baseToken.balanceOf(acc[1]), lenderBalance);
-        assertEq(baseToken.balanceOf(acc[2]), borrowerBalance - 8);
+        assertEq(baseToken.balanceOf(acc[2]), borrowerBalance - 8 * WAD);
         checkOrderQuantity(1, 20);
         checkOrderQuantity(2, 3000);
         checkBorrowingQuantity(1, 2);
@@ -173,8 +173,8 @@ contract TestRepay is Setup {
         uint256 lenderExcessCollateral = book.getUserExcessCollateral(acc[1], inQuoteToken);
         uint256 borrowerExcessCollateral = book.getUserExcessCollateral(acc[2], inBaseToken);
         repay(acc[2], 1, 450);
-        assertEq(book.getUserExcessCollateral(acc[1], inQuoteToken), lenderExcessCollateral + 450);
-        assertEq(book.getUserExcessCollateral(acc[2], inBaseToken), borrowerExcessCollateral + 450/90);
+        assertEq(book.getUserExcessCollateral(acc[1], inQuoteToken), lenderExcessCollateral + 450 * WAD);
+        assertEq(book.getUserExcessCollateral(acc[2], inBaseToken), borrowerExcessCollateral + 5 * WAD);
         checkOrderQuantity(1, 2000);
         checkOrderQuantity(2, 30);
     }
@@ -187,8 +187,8 @@ contract TestRepay is Setup {
         uint256 lenderExcessCollateral = book.getUserExcessCollateral(acc[1], inBaseToken);
         uint256 borrowerExcessCollateral = book.getUserExcessCollateral(acc[2], inQuoteToken);
         repay(acc[2], 1, 7);
-        assertEq(book.getUserExcessCollateral(acc[1], inBaseToken), lenderExcessCollateral + 7);
-        assertEq(book.getUserExcessCollateral(acc[2], inQuoteToken), borrowerExcessCollateral + 7*110);
+        assertEq(book.getUserExcessCollateral(acc[1], inBaseToken), lenderExcessCollateral + 7 * WAD);
+        assertEq(book.getUserExcessCollateral(acc[2], inQuoteToken), borrowerExcessCollateral + 770 * WAD);
         checkOrderQuantity(1, 20);
         checkOrderQuantity(2, 3000);
     }

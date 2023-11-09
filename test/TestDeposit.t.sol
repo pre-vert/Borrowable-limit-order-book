@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Test, console} from "forge-std/Test.sol";
 import {Setup} from "./Setup.sol";
-import {StdCheats} from "forge-std/StdCheats.sol";
+import {MathLib, WAD} from "../lib/MathLib.sol";
 
 contract TestDeposit is Setup {
 
@@ -12,8 +12,8 @@ contract TestDeposit is Setup {
         depositBuyOrder(acc[1], 2000, 90);
         (address maker, bool isBuyOrder, uint256 quantity, uint256 price) = book.orders(1);
         assertEq(maker, acc[1]);
-        assertEq(quantity, 2000);
-        assertEq(price, 90);
+        assertEq(quantity, 2000 * WAD);
+        assertEq(price, 90 * WAD);
         assertEq(isBuyOrder, buyOrder);
     }
 
@@ -21,8 +21,8 @@ contract TestDeposit is Setup {
         depositSellOrder(acc[2], 20, 110);
         (address maker, bool isBuyOrder, uint256 quantity, uint256 price) = book.orders(1);
         assertEq(maker, acc[2]);
-        assertEq(quantity, 20);
-        assertEq(price, 110);
+        assertEq(quantity, 20 * WAD);
+        assertEq(price, 110 * WAD);
         assertEq(isBuyOrder, sellOrder);
         assertEq(book.countOrdersOfUser(acc[2]), 1);
         assertEq(book.countOrdersOfUser(acc[2]), 1);
@@ -33,8 +33,8 @@ contract TestDeposit is Setup {
         uint256 orderBookBalance = quoteToken.balanceOf(address(book));
         uint256 userBalance = quoteToken.balanceOf(acc[1]);
         depositBuyOrder(acc[1], 2000, 90);
-        assertEq(quoteToken.balanceOf(address(book)), orderBookBalance + 2000);
-        assertEq(quoteToken.balanceOf(acc[1]), userBalance - 2000);
+        assertEq(quoteToken.balanceOf(address(book)), orderBookBalance + 2000 * WAD);
+        assertEq(quoteToken.balanceOf(acc[1]), userBalance - 2000 * WAD);
         checkOrderQuantity(1, 2000);
     }
 
@@ -42,8 +42,8 @@ contract TestDeposit is Setup {
         uint256 orderBookBalance = baseToken.balanceOf(address(book));
         uint256 userBalance = baseToken.balanceOf(acc[1]);
         depositSellOrder(acc[1], 20, 110);
-        assertEq(baseToken.balanceOf(address(book)), orderBookBalance + 20);
-        assertEq(baseToken.balanceOf(acc[1]), userBalance - 20);
+        assertEq(baseToken.balanceOf(address(book)), orderBookBalance + 20 * WAD);
+        assertEq(baseToken.balanceOf(acc[1]), userBalance - 20 * WAD);
         checkOrderQuantity(1, 20);
     }
 
@@ -53,8 +53,8 @@ contract TestDeposit is Setup {
         uint256 userBalance = quoteToken.balanceOf(acc[1]);
         depositBuyOrder(acc[1], 2000, 90);
         depositBuyOrder(acc[1], 3000, 95);
-        assertEq(quoteToken.balanceOf(address(book)), orderBookBalance + 5000);
-        assertEq(quoteToken.balanceOf(acc[1]), userBalance - 5000);
+        assertEq(quoteToken.balanceOf(address(book)), orderBookBalance + 5000 * WAD);
+        assertEq(quoteToken.balanceOf(acc[1]), userBalance - 5000 * WAD);
         checkOrderQuantity(1, 2000);
         checkOrderQuantity(2, 3000);
     }
@@ -65,7 +65,7 @@ contract TestDeposit is Setup {
         depositSellOrder(acc[1], 20, 110);
         depositBuyOrder(acc[1], 2000, 90);
         depositSellOrder(acc[2], 15, 105);
-        assertEq(baseToken.balanceOf(address(book)), bookBalance + 35);
+        assertEq(baseToken.balanceOf(address(book)), bookBalance + 35 * WAD);
         assertEq(book.countOrdersOfUser(acc[1]), 2);
         assertEq(book.countOrdersOfUser(acc[2]), 1);
         assertEq(book.countOrdersOfUser(acc[3]), 0);
@@ -97,13 +97,13 @@ contract TestDeposit is Setup {
         checkOrderQuantity(1, 0);
     }
 
-    // When an identical order exists, call increaseDeposit()
+    // When an identical order exists, increase deposit of that order
     function test_AggregateIdenticalBuyOrder() public {
         depositBuyOrder(acc[1], 3000, 110);
         depositBuyOrder(acc[1], 2000, 110);
         (,, uint256 quantity1,) = book.orders(1);
         (,, uint256 quantity2,) = book.orders(2);
-        assertEq(quantity1, 5000);
+        assertEq(quantity1, 5000 * WAD);
         assertEq(quantity2, 0);
         assertEq(book.countOrdersOfUser(acc[1]), 1);
         checkOrderQuantity(1, 5000);
@@ -114,7 +114,7 @@ contract TestDeposit is Setup {
         depositSellOrder(acc[1], 20, 90);
         (,, uint256 quantity1,) = book.orders(1);
         (,, uint256 quantity2,) = book.orders(2);
-        assertEq(quantity1, 50);
+        assertEq(quantity1, 50 * WAD);
         assertEq(quantity2, 0);
         assertEq(book.countOrdersOfUser(acc[1]), 1);
         checkOrderQuantity(1, 50);
@@ -135,14 +135,14 @@ contract TestDeposit is Setup {
         checkOrderQuantity(1, 30);
     }
 
-    // call increaseDeposit() check balances
+    // increase Deposit check balances
     function test_IncreaseBuyOrderCheckBalances() public {
         uint256 bookBalance = quoteToken.balanceOf(address(book));
         uint256 userBalance = quoteToken.balanceOf(acc[1]);
         depositBuyOrder(acc[1], 2000, 90);
         depositBuyOrder(acc[1], 3000, 90);
-        assertEq(quoteToken.balanceOf(address(book)), bookBalance + 5000);
-        assertEq(quoteToken.balanceOf(acc[1]), userBalance - 5000);
+        assertEq(quoteToken.balanceOf(address(book)), bookBalance + 5000 * WAD);
+        assertEq(quoteToken.balanceOf(acc[1]), userBalance - 5000 * WAD);
         checkOrderQuantity(1, 5000);
     }
 
@@ -151,8 +151,8 @@ contract TestDeposit is Setup {
         uint256 userBalance = baseToken.balanceOf(acc[1]);
         depositSellOrder(acc[1], 20, 110);
         depositSellOrder(acc[1], 30, 110);
-        assertEq(baseToken.balanceOf(address(book)), bookBalance + 50);
-        assertEq(baseToken.balanceOf(acc[1]), userBalance - 50);
+        assertEq(baseToken.balanceOf(address(book)), bookBalance + 50 * WAD);
+        assertEq(baseToken.balanceOf(acc[1]), userBalance - 50 * WAD);
         checkOrderQuantity(1, 50);
     }
 
@@ -179,7 +179,7 @@ contract TestDeposit is Setup {
         checkUserDepositId(acc[1], 1, 2);
     }
 
-    // tests what happens if a user has more than the max number of orders
+    // user pots more than max number of orders
     function test_OrdersForUserExceedLimit() public {
         depositBuyOrder(acc[1], 3000, 110);
         depositSellOrder(acc[1], 30, 90);

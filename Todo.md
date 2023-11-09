@@ -4,7 +4,10 @@
 
 ### 1.1 Implement price feed
 
-A price feed is pulled whenever a borrowed order is taken to check that the order is not taken at a loss.
+A price feed is pulled when:
+- a borrowed order is taken to check that the order is not taken at a loss
+- a user creates a new order to check that the price is in the money for takers
+- a borrower is liquidated
 
 ### 1.2 Implement interest rate
 
@@ -16,20 +19,24 @@ The interest rate is chosen by makers when the order is placed.
 - add a method for makers to change the interest rate of an order. If the order is borrowed, the change takes effect after the order is repaid.
 - allow maker to liquidate a loan after excess collateral has been exhausted by the interest load
 
-### 1.3 getBookSize
+### 1.3 Implement interest rate-based liquidation
 
-Number of orders on both sides of the book.
+Borrowing positions are closed out when the limit oder from which assets are borrowed is taken, with one exception: when the borrower runs out of collateral to pay a growing interest load.
 
-### 1.5 Implement custom errors
+When all remaining collateral is exhausted by the interest load, the maker/lender can seize the collateral and collect a 1% fee.
 
-https://soliditylang.org/blog/2021/04/21/custom-errors/
+
 
 
 ## 2. Lower priority
 
-### 2.1 Change limit price
+### 2.1.a Change limit price
 
-Implement changeLimitPrice(): allows Maker to change the limit price of their order. If the order is borrowed, the change takes effect after the borrowing is paid back.
+Implement changeLimitPrice(orderId, newPrice): allows Maker to change the limit price of their order. If the order is borrowed, the change takes effect after the borrowing is paid back. Only allows replacing further from current price.
+
+### 2.1.b Change stop price
+
+Implement changeStopPrice(orderId, newPrice): allows borrowers to change the stop (or closing) price of their order.
 
 ### 2.2 Connect to a lending layer for a minimal return
 
@@ -51,6 +58,10 @@ When a user makes a new order, she specifies 2 limit prices.
 
 - add a new attribute uint256 _dualPrice to orders
 - when an order is taken, check if a dual price is specified and, if so, repost the assets accordingly.
+
+### 2.5 Implement custom errors
+
+https://soliditylang.org/blog/2021/04/21/custom-errors/
 
 ## Things that could be done
 

@@ -4,9 +4,9 @@ pragma solidity ^0.8.20;
 import {Test, console} from "../lib/forge-std/src/Test.sol";
 import {Token} from "../src/Token.sol";
 import {Book} from "../src/Book.sol";
-//import {MathLib, WAD} from "../lib/MathLib.sol";
 import {DeployBook} from "../script/DeployBook.s.sol";
 import {StdCheats} from "../lib/forge-std/src/StdCheats.sol";
+import {MathLib, WAD} from "../lib/MathLib.sol";
 
 contract Setup is StdCheats, Test {
     Book public book;
@@ -20,10 +20,8 @@ contract Setup is StdCheats, Test {
     bool constant public inBaseToken = false;
 
     uint256 constant public accountNumber = 5;
-    uint256 constant public receiveQuoteToken = 10000;
-    uint256 constant public receiveBaseToken = 100;
-
-    uint256 testNumber = 42;
+    uint256 constant public receiveQuoteToken = 10000 * WAD;
+    uint256 constant public receiveBaseToken = 100 * WAD;
 
     mapping(uint256 => address) public acc;
 
@@ -48,77 +46,44 @@ contract Setup is StdCheats, Test {
         }
     }
 
-    function depositBuyOrder(
-        address _user,
-        uint256 _quantity,
-        uint256 _price
-    ) public {
+    function depositBuyOrder(address _user, uint256 _quantity, uint256 _price) public {
         vm.prank(_user);
-        book.deposit(_quantity, _price, buyOrder);
+        book.deposit(_quantity * WAD, _price * WAD, buyOrder);
     }
 
-    function depositSellOrder(
-        address _user,
-        uint256 _quantity,
-        uint256 _price
-    ) public {
+    function depositSellOrder(address _user, uint256 _quantity, uint256 _price) public {
         vm.prank(_user);
-        book.deposit(_quantity, _price, sellOrder);
+        book.deposit(_quantity * WAD, _price * WAD, sellOrder);
     }
 
-    function withdraw(
-        address _user,
-        uint256 _orderId,
-        uint256 _quantity
-    ) public {
+    function withdraw(address _user, uint256 _orderId, uint256 _quantity) public {
         vm.prank(_user);
-        book.withdraw(_orderId, _quantity);
+        book.withdraw(_orderId, _quantity * WAD);
     }
 
-    function take(
-        address _user,
-        uint256 _orderId,
-        uint256 _quantity
-    ) public {
+    function take(address _user, uint256 _orderId, uint256 _quantity) public {
         vm.prank(_user);
-        book.take(_orderId, _quantity);
+        book.take(_orderId, _quantity * WAD);
     }
 
-    function repay(
-        address _user,
-        uint256 _orderId,
-        uint256 _quantity
-    ) public {
+    function repay(address _user, uint256 _orderId, uint256 _quantity) public {
         vm.prank(_user);
-        book.repay(_orderId, _quantity);
+        book.repay(_orderId, _quantity * WAD);
     }
 
-    function borrow(
-        address _user,
-        uint256 _orderId,
-        uint256 _quantity
-    ) public {
+    function borrow(address _user, uint256 _orderId, uint256 _quantity) public {
         vm.prank(_user);
-        book.borrow(_orderId, _quantity);
-    }
-
-    function displayBalances(uint256 firstN) public view {
-        console.log("Contract  QT: ", quoteToken.balanceOf(address(book)));
-        console.log("Contract  BT: ", baseToken.balanceOf(address(book)));
-        for (uint8 i = 0; i < firstN; i++) {
-            console.log("Account", i, "QT: ", quoteToken.balanceOf(acc[i]));
-            console.log("Account", i, "BT: ", baseToken.balanceOf(acc[i]));
-        }
+        book.borrow(_orderId, _quantity * WAD);
     }
 
     function checkOrderQuantity(uint256 _orderId, uint256 _quantity) public {
         (,, uint256 quantity,) = book.orders(_orderId);
-        assertEq(quantity, _quantity);
+        assertEq(quantity, _quantity * WAD);
     }
 
     function checkBorrowingQuantity(uint256 _positionId, uint256 _quantity) public {
         (,, uint256 quantity) = book.positions(_positionId);
-        assertEq(quantity, _quantity);
+        assertEq(quantity, _quantity * WAD);
     }
 
     function checkOrderPositionId(uint256 _orderId, uint256 _row, uint256 _positionId) public {

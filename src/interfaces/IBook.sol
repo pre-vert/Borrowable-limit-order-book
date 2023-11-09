@@ -49,12 +49,6 @@ interface IBook {
         bool isBuyOrder
     );
 
-    event IncreaseDeposit(
-        address maker,
-        uint256 orderId,
-        uint256 increasedQuantity
-    );
-
     event Withdraw(
         address maker,
         uint256 quantity,
