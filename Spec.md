@@ -2,7 +2,7 @@
 
 ## :family: Actors
 
-- Makers:
+- Makers/lenders:
   - place orders
   - receive interest
   - can make their order unborrowable
@@ -51,8 +51,6 @@ Represents a buy or sell order placed in the system.
   - `increaseDeposit()`: To deposit assets for an order.
   - `withdraw()`: To withdraw assets from an order.
   - `take()`: To take or fulfill an order.
-  - `borrow()`: To borrow against an order.
-  - `repay()`: To repay the borrowed amount for an order.
 
 #### 3. **Position**
 Represents the assets borrowed from a specific order.
@@ -61,6 +59,7 @@ Represents the assets borrowed from a specific order.
   - `borrower: address`: The Ethereum address of the user who has borrowed the assets.
   - `orderId: uint256`: The ID linking back to the order from which the assets were borrowed.
   - `borrowedAssets: uint256`: The quantity of assets that have been borrowed.
+  - `timeWeightedRate` : Time-weighted average interest rate for the position
 - **Methods**:
   - `borrow()`: To initiate borrowing against an order.
   - `repay()`: To repay the borrowed assets.
@@ -77,14 +76,17 @@ A user, in the capacity of a borrower, can open multiple positions. Each positio
 An order can be associated with multiple positions when different borrowers borrow assets from the same order. This relationship is shown by the line linking `Order` to `Position`.
 
 
-## :scroll: Orderbook's rules
+## Orderbook's rules
+
+See [white paper](llob_wp.pdf) for explanations.
 
 1. Taking an order liquidates all positions which borrow from it
 2. Removing is limited to unborrowed assets, it cannot liquidate positions on the order book
-3. Users cannot borrow assets from collateral orders (see definition supra)
+3. Users cannot borrow assets from orders which serve as collateral
 4. Users whose assets are borrowed cannot use the same assets as collateral to borrow
 5. Taking a collateral order has the effect of closing the maker's borrowing positions
 6. Orders cannot be taken at a loss. A price oracle is pulled before any taking to check the condition
+7. Orders which assets are taken are automatically replaced the opposite side of the order book.
 
 ## Minimal deposit size and a minimal non-borrowable assets for orders
 
@@ -125,3 +127,28 @@ Deposit more assets $X$ in the order book or repaying a position, or other borro
 
 - more assets can be borrowed from order
 - owner of order can borrow more assets
+
+## Interest rate model
+
+The interest rates in the buy and sell markets are set according to a linear function of utilization rates:
+$$
+r_t = \alpha + (\beta + \gamma) \text{UR}_t + \gamma \text{UR}_t^*	
+$$
+
+with $\text{UR}_t^*$ the utilization rate of the opposite market.
+
+When a user deposits, withdraws, borrows, repays or liquidates a loan, the protocol:
+
+- updates total deposits and total borrowings in the two markets
+- revises $\text{UR}_t$ and $\text{UR}_t^*$
+- updates interest rates $r_t$ with new values
+- pulls current block.timestamp and computes elapsed time $n_t - n_{t-1}$
+- updates time-weighted total interest rate $R_t = n_1 r_1 + n_2 r_2 + ... + n_t r_t$
+
+In addition, when a user borrows from a limit order, the protocol:
+
+- stores the updated time-weighted total interest rate $R_t$ in borrowing position struct
+
+When a borrower repays or closes  his loan, or he's liquidated at date $t'$, the protocol:
+
+- computes $R_{t, t'} = R_{t'} - R_t$ and interest rate $e^{R_{t, t'}} - 1$ thanks to Taylor approximation.

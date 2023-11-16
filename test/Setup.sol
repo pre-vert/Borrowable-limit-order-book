@@ -82,7 +82,7 @@ contract Setup is StdCheats, Test {
     }
 
     function checkBorrowingQuantity(uint256 _positionId, uint256 _quantity) public {
-        (,, uint256 quantity) = book.positions(_positionId);
+        (,, uint256 quantity,) = book.positions(_positionId);
         assertEq(quantity, _quantity * WAD);
     }
 

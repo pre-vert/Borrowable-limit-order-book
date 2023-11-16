@@ -1,6 +1,7 @@
-# :book: Borrowable Limit Order Book - VERSIONING
+## Borrowable Limit Order Book
+## VERSIONING
 
-## What's new in V0.1
+### What's new in V0.1
 
 - handle fixed point variables with WAD = 1e18 scaling
 - add _reduceUserBorrow() and closePosition()

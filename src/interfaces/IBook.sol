@@ -8,6 +8,7 @@ interface IBook {
     /// @param _quantity The quantity of assets deposited (quoteToken for buy orders, baseToken for sell orders)
     /// @param _price price of the buy or sell order
     /// @param _isBuyOrder true for buy orders, false for sell orders
+
     
     function deposit(uint256 _quantity, uint256 _price, bool _isBuyOrder) external;
 
@@ -18,15 +19,16 @@ interface IBook {
     
     function withdraw(uint256 _removedOrderId, uint256 _quantityToRemove) external;
 
-    /// @notice Let users take limit orders, regardless the orders' assets are borrowed or not
-    /// taking liquidates **all** borrowing positions even if taking is partial
-    /// taking of a collateral order triggers the borrower's liquidation for enough assets
+    /// @notice Let users take limit orders, regardless orders' assets are borrowed or not
+    /// taking, even for 0, liquidates:
+    /// - all positions borrowing from the order (assets are transferred to maker)
+    /// - maker's own positions for 100% of the taken order which assets are collateral (transferred to contract)
     /// @param _takenOrderId id of the order to be taken
     /// @param _takenQuantity quantity of assets taken from the order
 
     function take(uint256 _takenOrderId, uint256 _takenQuantity) external;
 
-    /// @notice Lets users borrow assets from orders (create or increase TO DO a borrowing position)
+    /// @notice Lets users borrow assets from orders (create or increase a borrowing position)
     /// Borrowers need to place orders first on the other side of the book with enough assets
     /// order is borrowable up to order's available assets or user's excess collateral
     /// @param _borrowedOrderId id of the order which assets are borrowed

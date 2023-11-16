@@ -84,4 +84,20 @@ Offsetting is the action for a lender at limit/liquidation price $p$ to borrow a
 
 Suppose Alice and Carol both place a buy order at the same limit price 2000 for 1 ETH. Bob borrows 1 ETH from Alice's order. Normally, Alice cannot remove her 1 ETH. However, if Carol's interest rate is not higher than Alice's one, she can borrow 1 ETH from Carol without additional collateral requirement. This has the same effect as removing 1 ETH. Bob is now borrowing from Carol.
 
+### 3.4 Borrow stealing
+
+- Alice deposits a buy order at 1900 with 2700 USDC
+- Bob
+  - deposits a sell order at 2000 with 3 ETH
+  - borrows 2700 from Alice
+- Clair
+  - deposits a buy order with 1900 USDC
+  - pays back Alice with 2700 additional USDC
+  - replaces Alice by taking Bob's position 
+
+It is profitable for Alice if Bob's interest rate is higher than current rate, especially if the term premium gets large
+
+It is neutral for Bob
+
+It is beneficial for Alice if she wants to withdraw her assets from the buy order
 
