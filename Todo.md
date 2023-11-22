@@ -9,34 +9,31 @@ A price feed is pulled when:
 - a user creates a new order to check that the price is in the money for takers
 - a borrower is liquidated
 
-### 1.2 Implement interest rate
-
-The interest rate is chosen by makers when the order is placed.
-
-- add a new attribute uint256 interest rate to orders
-- modify deposit()
-- compute accrued interest rate
-- add a method for makers to change the interest rate of an order. If the order is borrowed, the change takes effect after the order is repaid.
-- allow maker to liquidate a loan after excess collateral has been exhausted by the interest load
-
-### 1.3 Implement interest rate-based liquidation
+### 1.2 Implement interest rate-based liquidation
 
 Borrowing positions are closed out when the limit oder from which assets are borrowed is taken, with one exception: when the borrower runs out of collateral to pay a growing interest load.
 
 When all remaining collateral is exhausted by the interest load, the maker/lender can seize the collateral and collect a 1% fee.
 
+### 1.3 Self-replacing orders
 
+Self-replacing orders are orders which, once filled, are automatically reposted in the order book at a limit price specified by the maker.
 
+Example: Alice deposits 3800 USDC and places a buy order at 1900 USDC. She specifies a dual limit price at 2000 USDC. Once filled at 1900, the converted assets (2 ETH) are automatically reposted in a sell order at 2000 USDC. If the price reverts to 2000 and her sell order is taken, her profit is 4000 - 3800 = 200 USDC. The USDC are automatically reposted in a buy order at 1900.
+
+When a user makes a new order, she specifies 2 limit prices.
+
+- add a new attribute uint256 _dualPrice to orders
+- when an order is taken, check if a dual price is specified and, if so, repost the assets accordingly.
 
 ## 2. Lower priority
 
-### 2.1.a Change limit price
+### 2.1 Change limit price
 
-Implement changeLimitPrice(orderId, newPrice): allows Maker to change the limit price of their order. If the order is borrowed, the change takes effect after the borrowing is paid back. Only allows replacing further from current price.
-
-### 2.1.b Change stop price
-
-Implement changeStopPrice(orderId, newPrice): allows borrowers to change the stop (or closing) price of their order.
+Implement changeLimitPrice(_orderId, _newPrice):
+- allows Maker to change the limit price of their order
+- if the order is borrowed, the change takes effect after the borrowing is paid back
+- only allows replacing further from current price.
 
 ### 2.2 Connect to a lending layer for a minimal return
 
@@ -48,22 +45,19 @@ Makers can choose to make their order non borrowable when the order is placed or
 
 If the order is made non-borrowable while its assets are borrowed, the order becomes non-borowable after the borrowing is repaid.
 
-### 2.4 Self-replacing orders
-
-Self-replacing orders are orders which, once filled, are automatically reposted in the order book at a limit price specified by the maker.
-
-Example: Alice deposits 3800 USDC and places a buy order at 1900 USDC. She specifies a dual limit price at 2000 USDC. Once filled at 1900, the converted assets (2 ETH) are automatically reposted in a sell order at 2000 USDC. If the price reverts to 2000 and her sell order is taken, her profit is 4000 - 3800 = 200 USDC. The USDC are automatically reposted in a buy order at 1900.
-
-When a user makes a new order, she specifies 2 limit prices.
-
-- add a new attribute uint256 _dualPrice to orders
-- when an order is taken, check if a dual price is specified and, if so, repost the assets accordingly.
-
-### 2.5 Implement custom errors
+### 2.4 Implement custom errors
 
 https://soliditylang.org/blog/2021/04/21/custom-errors/
 
 ## Things that could be done
+
+### 3.1 Implement a break on interest variations
+
+$$
+R_t = \phi R^* + (1-\phi) R_{t-1}
+$$
+
+Espcially important at start when liquidity and borrows are low
 
 ### 3.2 Lenders' soft exit
 

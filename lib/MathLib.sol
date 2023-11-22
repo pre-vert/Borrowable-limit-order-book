@@ -7,6 +7,12 @@ uint256 constant WAD = 1e18;
 /// @notice Library to manage fixed-point arithmetic
 
 library MathLib {
+
+    /// @dev (x * y) / WAD rounded up.
+    function wMulUp(uint256 x, uint256 y) internal pure returns (uint256) {
+        return mulDivUp(x, y, WAD);
+    }
+
     /// @dev (x * y) / WAD rounded down.
     function wMulDown(uint256 x, uint256 y) internal pure returns (uint256) {
         return mulDivDown(x, y, WAD);

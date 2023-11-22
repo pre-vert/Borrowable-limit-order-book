@@ -9,27 +9,27 @@ contract TestRepay is Setup {
 
     // repay fails if non-existing buy order
     function test_RepayNonExistingBuyOrder() public {
-        depositBuyOrder(acc[1], 2000, 90);
-        depositSellOrder(acc[2], 30, 110);
-        borrow(acc[2], 1, 1000);
-        vm.expectRevert("Order has zero assets");
-        repay(acc[2], 3, 10);
-        vm.expectRevert("Order has zero assets");
-        repay(acc[2], 3, 0);
-        checkOrderQuantity(1, 2000);
-        checkOrderQuantity(2, 30);
-        checkBorrowingQuantity(1, 1000); 
+        depositBuyOrder(Alice, 2000, 90);
+        depositSellOrder(Bob, 30, 110);
+        borrow(Bob, 1, 1000);
+        vm.expectRevert("Borrowing position does not exist");
+        repay(Bob, Carol_Position, 10);
+        vm.expectRevert("Borrowing position does not exist");
+        repay(Bob, Carol_Position, 0);
+        checkOrderQuantity(Alice_Order, 2000);
+        checkOrderQuantity(Bob_Order, 30);
+        checkBorrowingQuantity(Bob_Position, 1000); 
     }
 
     // repay fails if non-existing sell order
     function test_RepayNonExistingSellOrder() public {
-        depositSellOrder(acc[1], 20, 110);
-        depositBuyOrder(acc[2], 3000, 90);
-        borrow(acc[2], 1, 10);
-        vm.expectRevert("Order has zero assets");
-        repay(acc[2], 3, 10);
-        vm.expectRevert("Order has zero assets");
-        repay(acc[2], 3, 0);
+        depositSellOrder(Alice, 20, 110);
+        depositBuyOrder(Bob, 3000, 90);
+        borrow(Bob, Alice_Order, 10);
+        vm.expectRevert("Borrowing position does not exist");
+        repay(Bob, Carol_Position, 10);
+        vm.expectRevert("Borrowing position does not exist");
+        repay(Bob, Carol_Position, 0);
         checkOrderQuantity(1, 20);
         checkOrderQuantity(2, 3000);
         checkBorrowingQuantity(1, 10); 
@@ -37,171 +37,193 @@ contract TestRepay is Setup {
     
     // fails if repay buy order for zero
     function test_RepayBuyOrderFailsIfZero() public {
-        depositBuyOrder(acc[1], 2000, 90);
-        depositSellOrder(acc[2], 30, 110);
-        borrow(acc[2], 1, 1000);
+        depositBuyOrder(Alice, 2000, 90);
+        depositSellOrder(Bob, 30, 110);
+        borrow(Bob, Alice_Order, 1000);
         vm.expectRevert("Must be positive");
-        repay(acc[2], 1, 0);
+        repay(Bob, Bob_Position, 0);
         checkOrderQuantity(1, 2000);
         checkOrderQuantity(2, 30);
     }
 
     // fails if repay sell order for zero
     function test_RepaySellOrderFailsIfZero() public {
-        depositSellOrder(acc[1], 20, 110);
-        depositBuyOrder(acc[2], 3000, 90);
-        borrow(acc[2], 1, 10);
+        depositSellOrder(Alice, 20, 110);
+        depositBuyOrder(Bob, 3000, 90);
+        borrow(Bob, Alice_Order, 10);
         vm.expectRevert("Must be positive");
-        repay(acc[2], 1, 0);
+        repay(Bob, Bob_Position, 0);
         checkOrderQuantity(1, 20);
         checkOrderQuantity(2, 3000);
     }
 
     // fails if repay buy order > borrowed amount
     function test_RepayBuyOrderFailsIfTooMuch() public {
-        depositBuyOrder(acc[1], 2000, 90);
-        depositSellOrder(acc[2], 30, 110);
-        borrow(acc[2], 1, 1000);
+        depositBuyOrder(Alice, 2000, 90);
+        depositSellOrder(Bob, 30, 110);
+        borrow(Bob, Alice_Order, 1000);
         vm.expectRevert("Quantity exceeds limit");
-        repay(acc[2], 1, 1400);
-        checkOrderQuantity(1, 2000);
-        checkOrderQuantity(2, 30);
+        repay(Bob, Bob_Position, 1400);
+        checkOrderQuantity(Alice_Order, 2000);
+        checkOrderQuantity(Bob_Order, 30);
     }
 
     // fails if repay sell order > borrowed amount
     function test_RepaySellOrderFailsIfTooMuch() public {
-        depositSellOrder(acc[1], 20, 110);
-        depositBuyOrder(acc[2], 3000, 90);
-        borrow(acc[2], 1, 10);
+        depositSellOrder(Alice, 20, 110);
+        depositBuyOrder(Bob, 3000, 90);
+        borrow(Bob, Alice_Order, 10);
         vm.expectRevert("Quantity exceeds limit");
-        repay(acc[2], 1, 15);
-        checkOrderQuantity(1, 20);
-        checkOrderQuantity(2, 3000);
+        repay(Bob, Bob_Position, 15);
+        checkOrderQuantity(Alice_Order, 20);
+        checkOrderQuantity(Bob_Order, 3000);
+    }
+
+    // fails if repayer is not borrower of buy order
+    function test_RepayBuyOrderFailsIfNotBorrower() public {
+        depositBuyOrder(Alice, 2000, 90);
+        depositSellOrder(Bob, 30, 110);
+        borrow(Bob, Alice_Order, 1000);
+        vm.expectRevert("Only borrower can repay position");
+        repay(Alice, Bob_Position, 800);
+        checkOrderQuantity(Alice_Order, 2000);
+        checkOrderQuantity(Bob_Order, 30);
+    }
+
+    // fails if repayer is not borrower of sell order
+    function test_RepaySellOrderFailsIfNotBorrower() public {
+        depositSellOrder(Alice, 20, 110);
+        depositBuyOrder(Bob, 3000, 90);
+        borrow(Bob, Alice_Order, 10);
+        vm.expectRevert("Only borrower can repay position");
+        repay(Carol, Bob_Position, 5);
+        checkOrderQuantity(Alice_Order, 20);
+        checkOrderQuantity(Bob_Order, 3000);
     }
 
     // ok if borrower then repayer of buy order is maker
     function test_RepayBuyOrderOkIfMaker() public {
-        depositBuyOrder(acc[1], 2000, 100);
-        depositSellOrder(acc[1], 30, 110);
-        borrow(acc[1], 1, 1000);
+        depositBuyOrder(Alice, 2000, 100);
+        depositSellOrder(Alice, 30, 110);
+        borrow(Alice, Alice_Order, 1000);
         checkBorrowingQuantity(1, 1000);
-        repay(acc[1], 1, 500);
-        checkOrderQuantity(1, 2000);
-        checkOrderQuantity(2, 30);
-        checkBorrowingQuantity(1, 500);
+        repay(Alice, Alice_Position, 500);
+        checkOrderQuantity(Alice_Order, 2000);
+        checkOrderQuantity(Bob_Order, 30);
+        checkBorrowingQuantity(Bob_Position, 500);
     }
 
     // ok if borrower then repayer of sell order is maker
     function test_RepaySellOrderOkIfMaker() public {
-        depositSellOrder(acc[1], 20, 100);
-        depositBuyOrder(acc[1], 3000, 90);
-        borrow(acc[1], 1, 20);
-        checkBorrowingQuantity(1, 20); 
-        repay(acc[1], 1, 10);
-        checkOrderQuantity(1, 20);
-        checkOrderQuantity(2, 3000);
-        checkBorrowingQuantity(1, 10); 
+        depositSellOrder(Alice, 20, 100);
+        depositBuyOrder(Alice, 3000, 90);
+        borrow(Alice, Alice_Order, 20);
+        checkBorrowingQuantity(Alice_Position, 20); 
+        repay(Alice, Alice_Position, 10);
+        checkOrderQuantity(Alice_Order, 20);
+        checkOrderQuantity(Alice_Order + 1, 3000);
+        checkBorrowingQuantity(Alice_Position, 10); 
     }
 
     // fails if borrower repay non-borrowed buy order
     function test_RepayNonBorrowedBuyOrder() public {
-        depositBuyOrder(acc[1], 2000, 90);
-        depositSellOrder(acc[2], 50, 110);
-        borrow(acc[2], 1, 1000);
-        depositBuyOrder(acc[3], 3000, 80);
-        vm.expectRevert("Must be positive");
-        repay(acc[2], 3, 500);
-        checkOrderQuantity(1, 2000);
-        checkOrderQuantity(2, 50);
-        checkOrderQuantity(3, 3000);
-        checkBorrowingQuantity(1, 1000); 
+        depositBuyOrder(Alice, 2000, 90);
+        depositSellOrder(Bob, 50, 110);
+        borrow(Bob, Alice_Order, 1000);
+        depositBuyOrder(Carol, 3000, 80);
+        vm.expectRevert("Borrowing position does not exist");
+        repay(Bob, Carol_Position, 500);
+        checkOrderQuantity(Alice_Order, 2000);
+        checkOrderQuantity(Bob_Order, 50);
+        checkOrderQuantity(Carol_Order, 3000);
+        checkBorrowingQuantity(Bob_Position, 1000); 
     }
 
     // fails if borrower repay non-borrowed sell order
     function test_RepayNonBorrowedSellOrder() public {
-        depositSellOrder(acc[1], 20, 110);
-        depositBuyOrder(acc[2], 5000, 100);
-        borrow(acc[2], 1, 10);
-        depositSellOrder(acc[3], 30, 120);
-        vm.expectRevert("Must be positive");
-        repay(acc[2], 3, 5);
-        checkOrderQuantity(1, 20);
-        checkOrderQuantity(2, 5000);
-        checkOrderQuantity(3, 30);
-        checkBorrowingQuantity(1, 10);
+        depositSellOrder(Alice, 20, 110);
+        depositBuyOrder(Bob, 5000, 100);
+        borrow(Bob, Alice_Order, 10);
+        depositSellOrder(Carol, 30, 120);
+        vm.expectRevert("Borrowing position does not exist");
+        repay(Bob, Carol_Position, 5);
+        checkOrderQuantity(Alice_Order, 20);
+        checkOrderQuantity(Bob_Order, 5000);
+        checkOrderQuantity(Carol_Order, 30);
+        checkBorrowingQuantity(Bob_Position, 10);
     }
     
     // repay buy order correctly adjusts balances
     function test_RepayBuyOrderCheckBalances() public {
-        depositBuyOrder(acc[1], 1800, 90);
-        depositSellOrder(acc[2], 30, 110);
-        borrow(acc[2], 1, 1600);
-        uint256 bookBalance = quoteToken.balanceOf(address(book));
-        uint256 lenderBalance = quoteToken.balanceOf(acc[1]);
-        uint256 borrowerBalance = quoteToken.balanceOf(acc[2]);
-        repay(acc[2], 1, 1200);
-        assertEq(quoteToken.balanceOf(address(book)), bookBalance + 1200 * WAD);
-        assertEq(quoteToken.balanceOf(acc[1]), lenderBalance);
-        assertEq(quoteToken.balanceOf(acc[2]), borrowerBalance - 1200 * WAD);
-        checkOrderQuantity(1, 1800);
-        checkOrderQuantity(2, 30);
-        checkBorrowingQuantity(1, 400);
+        depositBuyOrder(Alice, 1800, 90);
+        depositSellOrder(Bob, 30, 110);
+        borrow(Bob, Alice_Order, 1600);
+        uint256 bookBalance = quoteToken.balanceOf(OrderBook);
+        uint256 lenderBalance = quoteToken.balanceOf(Alice);
+        uint256 borrowerBalance = quoteToken.balanceOf(Bob);
+        repay(Bob, Bob_Position, 1200);
+        assertEq(quoteToken.balanceOf(OrderBook), bookBalance + 1200 * WAD);
+        assertEq(quoteToken.balanceOf(Alice), lenderBalance);
+        assertEq(quoteToken.balanceOf(Bob), borrowerBalance - 1200 * WAD);
+        checkOrderQuantity(Alice_Order, 1800);
+        checkOrderQuantity(Bob_Order, 30);
+        checkBorrowingQuantity(Bob_Position, 400);
     }
 
     // repay sell order correctly adjusts external balances
     function test_BorowSellOrderCheckBalances() public {
-        depositSellOrder(acc[1], 20, 110);
-        depositBuyOrder(acc[2], 3000, 90);
-        borrow(acc[2], 1, 10);
-        uint256 bookBalance = baseToken.balanceOf(address(book));
-        uint256 lenderBalance = baseToken.balanceOf(acc[1]);
-        uint256 borrowerBalance = baseToken.balanceOf(acc[2]);
-        repay(acc[2], 1, 8);
-        assertEq(baseToken.balanceOf(address(book)), bookBalance + 8 * WAD);
-        assertEq(baseToken.balanceOf(acc[1]), lenderBalance);
-        assertEq(baseToken.balanceOf(acc[2]), borrowerBalance - 8 * WAD);
-        checkOrderQuantity(1, 20);
-        checkOrderQuantity(2, 3000);
-        checkBorrowingQuantity(1, 2);
+        depositSellOrder(Alice, 20, 110);
+        depositBuyOrder(Bob, 3000, 90);
+        borrow(Bob, Alice_Order, 10);
+        uint256 bookBalance = baseToken.balanceOf(OrderBook);
+        uint256 lenderBalance = baseToken.balanceOf(Alice);
+        uint256 borrowerBalance = baseToken.balanceOf(Bob);
+        repay(Bob, Bob_Position, 8);
+        assertEq(baseToken.balanceOf(OrderBook), bookBalance + 8 * WAD);
+        assertEq(baseToken.balanceOf(Alice), lenderBalance);
+        assertEq(baseToken.balanceOf(Bob), borrowerBalance - 8 * WAD);
+        checkOrderQuantity(Alice_Order, 20);
+        checkOrderQuantity(Bob_Order, 3000);
+        checkBorrowingQuantity(Bob_Position, 2);
     }
 
     // Lender and borrower excess collaterals in quote and base tokens are correct
     function test_RepayBuyOrderExcessCollateral() public {
-        depositBuyOrder(acc[1], 2000, 90);
-        depositSellOrder(acc[2], 30, 110);
-        borrow(acc[2], 1, 900);
-        uint256 lenderExcessCollateral = book.getUserExcessCollateral(acc[1], inQuoteToken);
-        uint256 borrowerExcessCollateral = book.getUserExcessCollateral(acc[2], inBaseToken);
-        repay(acc[2], 1, 450);
-        assertEq(book.getUserExcessCollateral(acc[1], inQuoteToken), lenderExcessCollateral + 450 * WAD);
-        assertEq(book.getUserExcessCollateral(acc[2], inBaseToken), borrowerExcessCollateral + 5 * WAD);
-        checkOrderQuantity(1, 2000);
-        checkOrderQuantity(2, 30);
+        depositBuyOrder(Alice, 2000, 90);
+        depositSellOrder(Bob, 30, 110);
+        borrow(Bob, Alice_Order, 900);
+        uint256 lenderExcessCollateral = book.getUserExcessCollateral(Alice, InQuoteToken);
+        uint256 borrowerExcessCollateral = book.getUserExcessCollateral(Bob, InBaseToken);
+        repay(Bob, Bob_Position, 450);
+        assertEq(book.getUserExcessCollateral(Alice, InQuoteToken), lenderExcessCollateral + 450 * WAD);
+        assertEq(book.getUserExcessCollateral(Bob, InBaseToken), borrowerExcessCollateral + 5 * WAD);
+        checkOrderQuantity(Alice_Order, 2000);
+        checkOrderQuantity(Bob_Order, 30);
     }
 
     // Lender and borrower excess collaterals in base and quote tokens are correct
     function test_RepaySellOrderExcessCollateral() public {
-        depositSellOrder(acc[1], 20, 110);
-        depositBuyOrder(acc[2], 3000, 90);
-        borrow(acc[2], 1, 10);
-        uint256 lenderExcessCollateral = book.getUserExcessCollateral(acc[1], inBaseToken);
-        uint256 borrowerExcessCollateral = book.getUserExcessCollateral(acc[2], inQuoteToken);
-        repay(acc[2], 1, 7);
-        assertEq(book.getUserExcessCollateral(acc[1], inBaseToken), lenderExcessCollateral + 7 * WAD);
-        assertEq(book.getUserExcessCollateral(acc[2], inQuoteToken), borrowerExcessCollateral + 770 * WAD);
-        checkOrderQuantity(1, 20);
-        checkOrderQuantity(2, 3000);
+        depositSellOrder(Alice, 20, 110);
+        depositBuyOrder(Bob, 3000, 90);
+        borrow(Bob, Alice_Order, 10);
+        uint256 lenderExcessCollateral = book.getUserExcessCollateral(Alice, InBaseToken);
+        uint256 borrowerExcessCollateral = book.getUserExcessCollateral(Bob, InQuoteToken);
+        repay(Bob, Bob_Position, 7);
+        assertEq(book.getUserExcessCollateral(Alice, InBaseToken), lenderExcessCollateral + 7 * WAD);
+        assertEq(book.getUserExcessCollateral(Bob, InQuoteToken), borrowerExcessCollateral + 770 * WAD);
+        checkOrderQuantity(Alice_Order, 20);
+        checkOrderQuantity(Bob_Order, 3000);
     }
 
     function test_BorrowRepayFromIdInUsers() public {
-        depositSellOrder(acc[1], 20, 110);
-        depositBuyOrder(acc[2], 3000, 90);
-        borrow(acc[2], 1, 10);
-        repay(acc[2], 1, 10);
-        checkUserBorrowId(acc[2], 0, 1);
-        borrow(acc[2], 1, 10);
-        checkUserBorrowId(acc[2], 0, 1);
-        checkUserBorrowId(acc[2], 1, 0);
+        depositSellOrder(Alice, 20, 110);
+        depositBuyOrder(Bob, 3000, 90);
+        borrow(Bob, Alice_Order, 10);
+        repay(Bob, Bob_Position, 10);
+        checkUserBorrowId(Bob, 0, 1);
+        borrow(Bob, Alice_Order, 10);
+        checkUserBorrowId(Bob, 0, 1);
+        checkUserBorrowId(Bob, 1, 0);
     }
 
 }

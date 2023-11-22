@@ -4,7 +4,7 @@
 ### What's new in V0.1
 
 - handle fixed point variables with WAD = 1e18 scaling
-- add _reduceUserBorrow() and closePosition()
+- add _reduceUserBorrow() and _closePosition()
 - implement interest rate model (in progress):
   - add an appendix in wp explaining the model
   - add storage variables:
@@ -22,3 +22,12 @@
     - baseInstantRate()
   - add _updateInterestRate() (in progress)
   - more tests (TestInterestRate.t.sol)
+
+### What's new in V0.2
+
+- implement interest rate model (see [Spec.md](Spec.md)):
+  - utilization rates (UR) and interest rates (IR) in function of UR on both sides is updated every action (deposit, repay, take, borrow and repay)
+  - borrower's IR is computed then added to borrowed quantity when the amount changes either because borrow is increased, decreased or partially liquidated
+- more tests (essentially in TestLiquidate.t.sol and TestInterest.t.sol)
+- code optimization
+- remains to code: see [Todo.md](Todo.md)

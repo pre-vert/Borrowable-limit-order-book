@@ -34,34 +34,6 @@ Tasks:
 - emits event
 
 ```solidity
-function increaseDeposit(
-    uint256 _orderId,
-    uint256 _increasedQuantity
-) external;
-```
-
-Who: Maker
-
-Consequences:
-
-- increases excess collateral:
-  - more borrowing capacity for the maker
-  - more borrowable assets for other borrower
-
-Inputs :
-
-- `_orderId`: order id
-- `_increasedQuantity`: quantity added to the order
-
-
-Tasks:
-
-- performs guard checks
-- updates quantity in orders
-- transfers tokens to the pool
-- emits event
-
-```solidity
 withdraw(
     uint256 _removedOrderId,
     uint256 _quantityToRemove
@@ -88,40 +60,6 @@ Tasks:
 - compute removable assets as total assets in order - asset lent - minimum deposit
 - updates orders (reduce quantity, possibly to zero)
 - transfers tokens to remover (full or partial)
-- emits event
-
-```solidity
-function take(
-    uint256 _takenOrderId,
-    uint256 _takenQuantity
-) external;
-```
-
-Who: anyone (including the maker and borrowers of the order)
-
-Consequences:
-
-- all borrowing positions are liquidated, even if $1 is taken from order
-- maker's excess collateral is:
-  - reduced as maker has less deposits
-  - increased as lent assets are liquidated
-  - increased as sufficient maker's orders are closed out
-- less orders and assets in the book
-
-Inputs :
-
-- `_takenOrderId`: id of the order to be taken
-- `_takenQuantity`: quantity of assets taken from the order
-
-Tasks:
-
-- performs guard checks
-- taking can be
-  - full (total assets - borrowed assets)
-  - partial (< total assets - borrowed assets - minimum deposit)
-- liquidates all borrowing positions (calls \_liquidateAssets())
-- updates orders (reduce quantity, possibly to zero)
-- transfers ERC20 tokens between taker and maker
 - emits event
 
 ```solidity
@@ -158,7 +96,7 @@ Tasks:
 
 ```solidity
 repay(
-    uint256 _repaidOrderId,
+    uint256 _positionId,
     uint256 _repaidQuantity
 ) external;
 ```
@@ -173,7 +111,7 @@ Consequences:
 
 Inputs :
 
-- `_borrowedOrderId`: id of the order which assets are borrowed
+- `_positionId`: position id describing the position
 - `_borrowedQuantity`: quantity of assets borrowed from the order
 
 Tasks:
@@ -181,6 +119,40 @@ Tasks:
 - sanity checks
 - update positions: decrease borrowed assets
 - transfers ERC20 tokens from borrower to contract
+- emits event
+
+```solidity
+function take(
+    uint256 _takenOrderId,
+    uint256 _takenQuantity
+) external;
+```
+
+Who: anyone (including the maker and borrowers of the order)
+
+Consequences:
+
+- all borrowing positions are liquidated, even if $1 is taken from order
+- maker's excess collateral is:
+  - reduced as maker has less deposits
+  - increased as lent assets are liquidated
+  - increased as sufficient maker's orders are closed out
+- less orders and assets in the book
+
+Inputs :
+
+- `_takenOrderId`: id of the order to be taken
+- `_takenQuantity`: quantity of assets taken from the order
+
+Tasks:
+
+- performs guard checks
+- taking can be
+  - full (total assets - borrowed assets)
+  - partial (< total assets - borrowed assets - minimum deposit)
+- liquidates all borrowing positions (calls \_liquidateAssets())
+- updates orders (reduce quantity, possibly to zero)
+- transfers ERC20 tokens between taker and maker
 - emits event
 
 ## Internal functions

@@ -19,15 +19,6 @@ interface IBook {
     
     function withdraw(uint256 _removedOrderId, uint256 _quantityToRemove) external;
 
-    /// @notice Let users take limit orders, regardless orders' assets are borrowed or not
-    /// taking, even for 0, liquidates:
-    /// - all positions borrowing from the order (assets are transferred to maker)
-    /// - maker's own positions for 100% of the taken order which assets are collateral (transferred to contract)
-    /// @param _takenOrderId id of the order to be taken
-    /// @param _takenQuantity quantity of assets taken from the order
-
-    function take(uint256 _takenOrderId, uint256 _takenQuantity) external;
-
     /// @notice Lets users borrow assets from orders (create or increase a borrowing position)
     /// Borrowers need to place orders first on the other side of the book with enough assets
     /// order is borrowable up to order's available assets or user's excess collateral
@@ -37,10 +28,19 @@ interface IBook {
     function borrow(uint256 _borrowedOrderId, uint256 _borrowedQuantity) external;
 
     /// @notice lets users decrease or close a borrowing position
-    /// @param _repaidOrderId id of the order which assets are paid back
+    /// @param _positionId id of the order which assets are paid back
     /// @param _repaidQuantity quantity of assets paid back
     
-    function repay(uint256 _repaidOrderId, uint256 _repaidQuantity) external;
+    function repay(uint256 _positionId, uint256 _repaidQuantity) external;
+
+    /// @notice Let users take limit orders, regardless orders' assets are borrowed or not
+    /// taking, even 0, liquidates:
+    /// - all positions borrowing from the order (assets are transferred to maker)
+    /// - maker's own positions for 100% of the taken order which assets are collateral (transferred to contract)
+    /// @param _takenOrderId id of the order to be taken
+    /// @param _takenQuantity quantity of assets taken from the order
+
+    function take(uint256 _takenOrderId, uint256 _takenQuantity) external;
 
     // Events
 

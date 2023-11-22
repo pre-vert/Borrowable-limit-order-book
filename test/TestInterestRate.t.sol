@@ -11,10 +11,10 @@ contract TestInterestRate is Setup {
 
     // borrow fails if non-existing sell order
     function test_BorrowNonExistingSellOrder() public {
-        depositBuyOrder(acc[1], 6000, 100);
-        depositSellOrder(acc[1], 30, 110);
+        depositBuyOrder(Alice, 6000, 100);
+        depositSellOrder(Alice, 30, 110);
         // vm.expectRevert("Order has zero assets");
-        // borrow(acc[1], 2, 1000);
+        // borrow(Alice, 2, 1000);
         // checkOrderQuantity(1, 20);
     }
 
