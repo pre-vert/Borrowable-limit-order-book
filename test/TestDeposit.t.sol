@@ -9,181 +9,182 @@ contract TestDeposit is Setup {
 
     // if new limit order, create order in orders
     function test_DepositBuyOrder() public {
-        depositBuyOrder(acc[1], 2000, 90);
+        depositBuyOrder(Alice, 2000, 90);
         (address maker, bool isBuyOrder, uint256 quantity, uint256 price) = book.orders(1);
-        assertEq(maker, acc[1]);
+        assertEq(maker, Alice);
         assertEq(quantity, 2000 * WAD);
         assertEq(price, 90 * WAD);
-        assertEq(isBuyOrder, buyOrder);
+        assertEq(isBuyOrder, BuyOrder);
     }
 
     function test_DepositSellOrder() public {
-        depositSellOrder(acc[2], 20, 110);
+        depositSellOrder(Bob, 20, 110);
         (address maker, bool isBuyOrder, uint256 quantity, uint256 price) = book.orders(1);
-        assertEq(maker, acc[2]);
+        assertEq(maker, Bob);
         assertEq(quantity, 20 * WAD);
         assertEq(price, 110 * WAD);
-        assertEq(isBuyOrder, sellOrder);
-        assertEq(book.countOrdersOfUser(acc[2]), 1);
-        assertEq(book.countOrdersOfUser(acc[2]), 1);
+        assertEq(isBuyOrder, SellOrder);
+        assertEq(book.countOrdersOfUser(Bob), 1);
+        assertEq(book.countOrdersOfUser(Bob), 1);
     }
 
-    // Transfer tokens to contract, check balances
+    // Transfer tokens to contract, correctly adjustsbalances
     function test_DepositBuyOrderCheckBalances() public {
-        uint256 orderBookBalance = quoteToken.balanceOf(address(book));
-        uint256 userBalance = quoteToken.balanceOf(acc[1]);
-        depositBuyOrder(acc[1], 2000, 90);
-        assertEq(quoteToken.balanceOf(address(book)), orderBookBalance + 2000 * WAD);
-        assertEq(quoteToken.balanceOf(acc[1]), userBalance - 2000 * WAD);
+        uint256 OrderBookBalance = quoteToken.balanceOf(OrderBook);
+        uint256 userBalance = quoteToken.balanceOf(Alice);
+        depositBuyOrder(Alice, 2000, 90);
+        assertEq(quoteToken.balanceOf(OrderBook), OrderBookBalance + 2000 * WAD);
+        assertEq(quoteToken.balanceOf(Alice), userBalance - 2000 * WAD);
         checkOrderQuantity(1, 2000);
     }
 
     function test_DepositSellOrderCheckBalances() public {
-        uint256 orderBookBalance = baseToken.balanceOf(address(book));
-        uint256 userBalance = baseToken.balanceOf(acc[1]);
-        depositSellOrder(acc[1], 20, 110);
-        assertEq(baseToken.balanceOf(address(book)), orderBookBalance + 20 * WAD);
-        assertEq(baseToken.balanceOf(acc[1]), userBalance - 20 * WAD);
+        uint256 OrderBookBalance = baseToken.balanceOf(OrderBook);
+        uint256 userBalance = baseToken.balanceOf(Alice);
+        depositSellOrder(Alice, 20, 110);
+        assertEq(baseToken.balanceOf(OrderBook), OrderBookBalance + 20 * WAD);
+        assertEq(baseToken.balanceOf(Alice), userBalance - 20 * WAD);
         checkOrderQuantity(1, 20);
     }
 
-    // Make two orders, check external balances
+    // Make two orders, correctly adjusts external balances
     function test_DepositTwoBuyOrders() public {
-        uint256 orderBookBalance = quoteToken.balanceOf(address(book));
-        uint256 userBalance = quoteToken.balanceOf(acc[1]);
-        depositBuyOrder(acc[1], 2000, 90);
-        depositBuyOrder(acc[1], 3000, 95);
-        assertEq(quoteToken.balanceOf(address(book)), orderBookBalance + 5000 * WAD);
-        assertEq(quoteToken.balanceOf(acc[1]), userBalance - 5000 * WAD);
-        checkOrderQuantity(1, 2000);
-        checkOrderQuantity(2, 3000);
+        uint256 OrderBookBalance = quoteToken.balanceOf(OrderBook);
+        uint256 userBalance = quoteToken.balanceOf(Alice);
+        depositBuyOrder(Alice, 2000, 90);
+        depositBuyOrder(Alice, 3000, 95);
+        assertEq(quoteToken.balanceOf(OrderBook), OrderBookBalance + 5000 * WAD);
+        assertEq(quoteToken.balanceOf(Alice), userBalance - 5000 * WAD);
+        checkOrderQuantity(Alice_Order, 2000);
+        checkOrderQuantity(Alice_Order + 1, 3000);
     }
 
-    // Make three orders, check external balances
+    // Make three orders, correctly adjusts external balances
     function test_DepositThreeOrders() public {
-        uint256 bookBalance = baseToken.balanceOf(address(book));
-        depositSellOrder(acc[1], 20, 110);
-        depositBuyOrder(acc[1], 2000, 90);
-        depositSellOrder(acc[2], 15, 105);
-        assertEq(baseToken.balanceOf(address(book)), bookBalance + 35 * WAD);
-        assertEq(book.countOrdersOfUser(acc[1]), 2);
-        assertEq(book.countOrdersOfUser(acc[2]), 1);
-        assertEq(book.countOrdersOfUser(acc[3]), 0);
+        uint256 bookBalance = baseToken.balanceOf(OrderBook);
+        depositSellOrder(Alice, 20, 110);
+        depositBuyOrder(Alice, 2000, 90);
+        depositSellOrder(Bob, 15, 105);
+        assertEq(baseToken.balanceOf(OrderBook), bookBalance + 35 * WAD);
+        assertEq(book.countOrdersOfUser(Alice), 2);
+        assertEq(book.countOrdersOfUser(Bob), 1);
+        assertEq(book.countOrdersOfUser(Carol), 0);
     }
 
     // When deposit is less than min deposit, revert
     function test_RevertBuyOrderIfZeroDeposit() public {
-        vm.expectRevert("Quantity exceeds limit");
-        depositBuyOrder(acc[1], 99, 90);
-        checkOrderQuantity(1, 0);
+        vm.expectRevert("Quantity exceeds limit"); // confusing error message
+        depositBuyOrder(Alice, 99, 90);
+        checkOrderQuantity(Alice_Order, 0);
     }
 
     function test_RevertSellOrderIfZeroDeposit() public {
         vm.expectRevert("Quantity exceeds limit");
-        depositSellOrder(acc[1], 1, 110);
-        checkOrderQuantity(1, 0);
+        depositSellOrder(Alice, 1, 110);
+        checkOrderQuantity(Alice_Order, 0);
     }
 
     // When price is zero, revert
     function test_RevertBuyOrderIfZeroPrice() public {
         vm.expectRevert("Must be positive");
-        depositBuyOrder(acc[1], 1000, 0);
-        checkOrderQuantity(1, 0);
+        depositBuyOrder(Alice, 1000, 0);
+        checkOrderQuantity(Alice_Order, 0);
     }
 
     function test_RevertSellOrderIfZeroPrice() public {
         vm.expectRevert("Must be positive");
-        depositSellOrder(acc[1], 10, 0);
-        checkOrderQuantity(1, 0);
+        depositSellOrder(Alice, 10, 0);
+        checkOrderQuantity(Alice_Order, 0);
     }
 
     // When an identical order exists, increase deposit of that order
     function test_AggregateIdenticalBuyOrder() public {
-        depositBuyOrder(acc[1], 3000, 110);
-        depositBuyOrder(acc[1], 2000, 110);
+        depositBuyOrder(Alice, 3000, 110);
+        depositBuyOrder(Alice, 2000, 110);
         (,, uint256 quantity1,) = book.orders(1);
         (,, uint256 quantity2,) = book.orders(2);
-        assertEq(quantity1, 5000 * WAD);
+        assertEq(quantity1, (3000 + 2000) * WAD);
         assertEq(quantity2, 0);
-        assertEq(book.countOrdersOfUser(acc[1]), 1);
-        checkOrderQuantity(1, 5000);
+        assertEq(book.countOrdersOfUser(Alice), 1);
+        checkOrderQuantity(Alice_Order, 5000);
+        checkOrderQuantity(Alice_Order + 1, 0);
     }
 
     function test_AggregateIdenticalSellOrder() public {
-        depositSellOrder(acc[1], 30, 90);
-        depositSellOrder(acc[1], 20, 90);
+        depositSellOrder(Alice, 30, 90);
+        depositSellOrder(Alice, 20, 90);
         (,, uint256 quantity1,) = book.orders(1);
         (,, uint256 quantity2,) = book.orders(2);
         assertEq(quantity1, 50 * WAD);
         assertEq(quantity2, 0);
-        assertEq(book.countOrdersOfUser(acc[1]), 1);
-        checkOrderQuantity(1, 50);
+        assertEq(book.countOrdersOfUser(Alice), 1);
+        checkOrderQuantity(Alice_Order, 50);
     }
     
     // revert if 0 quantity via increaseDeposit() if same limit price
     function test_IncreaseBuyOrderZeroQuantity() public {
-        depositBuyOrder(acc[1], 3000, 110);
+        depositBuyOrder(Alice, 3000, 110);
         vm.expectRevert("Must be positive");
-        depositBuyOrder(acc[1], 0, 110);
-        checkOrderQuantity(1, 3000);
+        depositBuyOrder(Alice, 0, 110);
+        checkOrderQuantity(Alice_Order, 3000);
     }
 
     function test_IncreaseSellOrderZeroQuantity() public {
-        depositSellOrder(acc[1], 30, 90);
+        depositSellOrder(Alice, 30, 90);
         vm.expectRevert("Must be positive");
-        depositSellOrder(acc[1], 0, 90);
-        checkOrderQuantity(1, 30);
+        depositSellOrder(Alice, 0, 90);
+        checkOrderQuantity(Alice_Order, 30);
     }
 
-    // increase Deposit check balances
+    // increase Deposit correctly adjusts balances
     function test_IncreaseBuyOrderCheckBalances() public {
-        uint256 bookBalance = quoteToken.balanceOf(address(book));
-        uint256 userBalance = quoteToken.balanceOf(acc[1]);
-        depositBuyOrder(acc[1], 2000, 90);
-        depositBuyOrder(acc[1], 3000, 90);
-        assertEq(quoteToken.balanceOf(address(book)), bookBalance + 5000 * WAD);
-        assertEq(quoteToken.balanceOf(acc[1]), userBalance - 5000 * WAD);
-        checkOrderQuantity(1, 5000);
+        uint256 bookBalance = quoteToken.balanceOf(OrderBook);
+        uint256 userBalance = quoteToken.balanceOf(Alice);
+        depositBuyOrder(Alice, 2000, 90);
+        depositBuyOrder(Alice, 3000, 90);
+        assertEq(quoteToken.balanceOf(OrderBook), bookBalance + 5000 * WAD);
+        assertEq(quoteToken.balanceOf(Alice), userBalance - 5000 * WAD);
+        checkOrderQuantity(Alice_Order, 5000);
     }
 
     function test_IncreaseSellOrderCheckBalances() public {
-        uint256 bookBalance = baseToken.balanceOf(address(book));
-        uint256 userBalance = baseToken.balanceOf(acc[1]);
-        depositSellOrder(acc[1], 20, 110);
-        depositSellOrder(acc[1], 30, 110);
-        assertEq(baseToken.balanceOf(address(book)), bookBalance + 50 * WAD);
-        assertEq(baseToken.balanceOf(acc[1]), userBalance - 50 * WAD);
-        checkOrderQuantity(1, 50);
+        uint256 bookBalance = baseToken.balanceOf(OrderBook);
+        uint256 userBalance = baseToken.balanceOf(Alice);
+        depositSellOrder(Alice, 20, 110);
+        depositSellOrder(Alice, 30, 110);
+        assertEq(baseToken.balanceOf(OrderBook), bookBalance + 50 * WAD);
+        assertEq(baseToken.balanceOf(Alice), userBalance - 50 * WAD);
+        checkOrderQuantity(Alice_Order, 50);
     }
 
     // add new order if same order but different maker
     function test_AddSameBuyOrderDifferentMaker() public {
-        depositBuyOrder(acc[1], 3000, 110);
-        depositBuyOrder(acc[2], 2000, 110);
+        depositBuyOrder(Alice, 3000, 110);
+        depositBuyOrder(Bob, 2000, 110);
         checkOrderQuantity(1, 3000);
         checkOrderQuantity(2, 2000);
-        assertEq(book.countOrdersOfUser(acc[1]), 1);
-        assertEq(book.countOrdersOfUser(acc[2]), 1);
-        checkOrderQuantity(1, 3000);
-        checkOrderQuantity(2, 2000);
+        assertEq(book.countOrdersOfUser(Alice), 1);
+        assertEq(book.countOrdersOfUser(Bob), 1);
+        checkOrderQuantity(Alice_Order, 3000);
+        checkOrderQuantity(Bob_Order, 2000);
     }
 
     // add order id in depositIds in users
     function test_AddDepositIdInUsers() public {
-        checkUserDepositId(acc[1], 0, 0);
-        depositBuyOrder(acc[1], 3000, 110);
-        checkUserDepositId(acc[1], 0, 1);
-        checkUserDepositId(acc[1], 1, 0);
-        depositBuyOrder(acc[1], 2000, 120);
-        checkUserDepositId(acc[1], 0, 1);
-        checkUserDepositId(acc[1], 1, 2);
+        checkUserDepositId(Alice, 0, 0);
+        depositBuyOrder(Alice, 3000, 110);
+        checkUserDepositId(Alice, 0, Alice_Order);
+        checkUserDepositId(Alice, 1, 0);
+        depositBuyOrder(Alice, 2000, 120);
+        checkUserDepositId(Alice, 0, Alice_Order);
+        checkUserDepositId(Alice, 1, Alice_Order + 1);
     }
 
-    // user pots more than max number of orders
+    // user posts more than max number of orders
     function test_OrdersForUserExceedLimit() public {
-        depositBuyOrder(acc[1], 3000, 110);
-        depositSellOrder(acc[1], 30, 90);
+        depositBuyOrder(Alice, 3000, 110);
+        depositSellOrder(Alice, 30, 90);
         vm.expectRevert("Max number of orders reached for user");
-        depositBuyOrder(acc[1], 4000, 120);
+        depositBuyOrder(Alice, 4000, 120);
     }
 }

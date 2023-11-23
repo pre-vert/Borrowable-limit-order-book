@@ -9,195 +9,251 @@ contract TestBorrow is Setup {
     
     // borrow fails if non-existing buy order
     function test_BorrowNonExistingBuyOrder() public {
-        depositBuyOrder(acc[1], 2000, 90);
+        depositBuyOrder(Alice, 2000, 90);
         vm.expectRevert("Order has zero assets");
-        borrow(acc[1], 2, 10);
+        borrow(Alice, Bob_Order, 10);
         checkOrderQuantity(1, 2000);
     }
 
     // borrow fails if non-existing sell order
     function test_BorrowNonExistingSellOrder() public {
-        depositSellOrder(acc[1], 20, 110);
+        depositSellOrder(Alice, 20, 110);
         vm.expectRevert("Order has zero assets");
-        borrow(acc[1], 2, 1000);
+        borrow(Alice, Bob_Order, 1000);
         checkOrderQuantity(1, 20);
     }
     
     // fails if borrowing of buy order is zero
     function test_BorrowBuyOrderFailsIfZero() public {
-        depositBuyOrder(acc[1], 2000, 90);
-        depositSellOrder(acc[2], 30, 110);
+        depositBuyOrder(Alice, 2000, 90);
+        depositSellOrder(Bob, 30, 110);
         vm.expectRevert("Must be positive");
-        borrow(acc[2], 1, 0);
-        checkOrderQuantity(1, 2000);
+        borrow(Bob, Alice_Order, 0);
+        checkOrderQuantity(Alice_Order, 2000);
     }
 
     // fails if borrowing of sell order is zero
     function test_BorrowSellOrderFailsIfZero() public {
-        depositSellOrder(acc[1], 20, 110);
-        depositBuyOrder(acc[2], 3000, 90);
+        depositSellOrder(Alice, 20, 110);
+        depositBuyOrder(Bob, 3000, 90);
         vm.expectRevert("Must be positive");
-        borrow(acc[2], 1, 0);
-        checkOrderQuantity(1, 20);
+        borrow(Bob, Alice_Order, 0);
+        checkOrderQuantity(Alice_Order, 20);
     }
 
     // ok if borrower of buy order is maker
     function test_BorrowBuyOrderOkIfMaker() public {
-        depositBuyOrder(acc[1], 2000, 90);
-        depositSellOrder(acc[1], 30, 110);
-        borrow(acc[1], 1, 2000);
-        checkOrderQuantity(1, 2000);
-        checkBorrowingQuantity(1, 2000); 
+        depositBuyOrder(Alice, 2000, 90);
+        depositSellOrder(Alice, 30, 110);
+        borrow(Alice, Alice_Order, 2000);
+        checkOrderQuantity(Alice_Order, 2000);
+        checkBorrowingQuantity(Alice_Order, 2000); 
     }
 
     // ok if borrower of sell order is maker
     function test_BorrowSellOrderOkIfMaker() public {
-        depositSellOrder(acc[1], 20, 110);
-        depositBuyOrder(acc[1], 3000, 90);
-        borrow(acc[1], 1, 20);
-        checkOrderQuantity(1, 20);
+        depositSellOrder(Alice, 20, 110);
+        depositBuyOrder(Alice, 3000, 90);
+        borrow(Alice, Alice_Order, 20);
+        checkOrderQuantity(Alice_Order, 20);
         checkBorrowingQuantity(1, 20); 
     }
     
     // borrow of buy order correctly adjusts balances
     function test_BorrowBuyOrderCheckBalances() public {
-        depositBuyOrder(acc[1], 1800, 90);
-        depositSellOrder(acc[2], 30, 110);
-        uint256 bookBalance = quoteToken.balanceOf(address(book));
-        uint256 lenderBalance = quoteToken.balanceOf(acc[1]);
-        uint256 borrowerBalance = quoteToken.balanceOf(acc[2]);
-        borrow(acc[2], 1, 1800);
-        assertEq(quoteToken.balanceOf(address(book)), bookBalance - 1800 * WAD);
-        assertEq(quoteToken.balanceOf(acc[1]), lenderBalance);
-        assertEq(quoteToken.balanceOf(acc[2]), borrowerBalance + 1800 * WAD);
-        checkOrderQuantity(1, 1800);
-        checkOrderQuantity(2, 30);
+        depositBuyOrder(Alice, 1800, 90);
+        depositSellOrder(Bob, 30, 110);
+        uint256 bookBalance = quoteToken.balanceOf(OrderBook);
+        uint256 lenderBalance = quoteToken.balanceOf(Alice);
+        uint256 borrowerBalance = quoteToken.balanceOf(Bob);
+        borrow(Bob, Alice_Order, 1800);
+        assertEq(quoteToken.balanceOf(OrderBook), bookBalance - 1800 * WAD);
+        assertEq(quoteToken.balanceOf(Alice), lenderBalance);
+        assertEq(quoteToken.balanceOf(Bob), borrowerBalance + 1800 * WAD);
+        checkOrderQuantity(Alice_Order, 1800);
+        checkOrderQuantity(Bob_Order, 30);
         checkBorrowingQuantity(1, 1800); 
     }
 
     // borrow of sell order correctly adjusts external balances
     function test_BorowSellOrderCheckBalances() public {
-        depositSellOrder(acc[1], 20, 110);
-        depositBuyOrder(acc[2], 3000, 90);
-        uint256 bookBalance = baseToken.balanceOf(address(book));
-        uint256 lenderBalance = baseToken.balanceOf(acc[1]);
-        uint256 borrowerBalance = baseToken.balanceOf(acc[2]);
-        borrow(acc[2], 1, 20);
-        assertEq(baseToken.balanceOf(address(book)), bookBalance - 20 * WAD);
-        assertEq(baseToken.balanceOf(acc[1]), lenderBalance);
-        assertEq(baseToken.balanceOf(acc[2]), borrowerBalance + 20 * WAD);
-        checkOrderQuantity(1, 20);
-        checkOrderQuantity(2, 3000);
+        depositSellOrder(Alice, 20, 110);
+        depositBuyOrder(Bob, 3000, 90);
+        uint256 bookBalance = baseToken.balanceOf(OrderBook);
+        uint256 lenderBalance = baseToken.balanceOf(Alice);
+        uint256 borrowerBalance = baseToken.balanceOf(Bob);
+        borrow(Bob, Alice_Order, 20);
+        assertEq(baseToken.balanceOf(OrderBook), bookBalance - 20 * WAD);
+        assertEq(baseToken.balanceOf(Alice), lenderBalance);
+        assertEq(baseToken.balanceOf(Bob), borrowerBalance + 20 * WAD);
+        checkOrderQuantity(Alice_Order, 20);
+        checkOrderQuantity(Bob_Order, 3000);
         checkBorrowingQuantity(1, 20); 
     }
 
     // borrowable quantity from buy order is correct
     function test_BorrowBuyOrderOutable() public {
-        depositBuyOrder(acc[1], 2000, 90);
-        depositSellOrder(acc[2], 30, 110);
-        assertEq(book.outable(1, 2000 * WAD), true);
-        assertEq(book.outable(1, 1900 * WAD), true);
-        assertEq(book.outable(1, 1901 * WAD), false);
-        borrow(acc[2], 1, 1000);
-        assertEq(book.outable(1, 1000 * WAD), true);
+        depositBuyOrder(Alice, 2000, 90);
+        depositSellOrder(Bob, 30, 110);
+        assertEq(book.outable(Alice_Order, 2000 * WAD), true);
+        assertEq(book.outable(Alice_Order, 1900 * WAD), true);
+        assertEq(book.outable(Alice_Order, 1901 * WAD), false);
+        borrow(Bob, Alice_Order, 1000);
+        assertEq(book.outable(Alice_Order, 1000 * WAD), true);
     }
 
     // borrowable quantity from sell order is correct
     function test_BorrowSellOrderOutable() public {
-        depositSellOrder(acc[1], 20, 110);
-        depositBuyOrder(acc[2], 3000, 90);
-        assertEq(book.outable(1, 20 * WAD), true);
-        assertEq(book.outable(1, 19 * WAD), false);
-        assertEq(book.outable(1, 18 * WAD), true);
-        borrow(acc[2], 1, 10);
-        assertEq(book.outable(1, 10 * WAD), true);
-        assertEq(book.outable(1, 9 * WAD), false);
-        assertEq(book.outable(1, 8 * WAD), true);
+        depositSellOrder(Alice, 20, 110);
+        depositBuyOrder(Bob, 3000, 90);
+        assertEq(book.outable(Alice_Order, 20 * WAD), true);
+        assertEq(book.outable(Alice_Order, 19 * WAD), false);
+        assertEq(book.outable(Alice_Order, 18 * WAD), true);
+        borrow(Bob, Alice_Order, 10);
+        assertEq(book.outable(Alice_Order, 10 * WAD), true);
+        assertEq(book.outable(Alice_Order, 9 * WAD), false);
+        assertEq(book.outable(Alice_Order, 8 * WAD), true);
     }
 
     // Lender and borrower excess collaterals in quote and base token are correct
     function test_BorrowBuyOrderExcessCollateral() public {
-        depositBuyOrder(acc[1], 2000, 90);
-        depositSellOrder(acc[2], 30, 110);
-        uint256 lenderExcessCollateral = book.getUserExcessCollateral(acc[1], inQuoteToken);
-        uint256 borrowerExcessCollateral = book.getUserExcessCollateral(acc[2], inBaseToken);
-        borrow(acc[2], 1, 900);
-        assertEq(book.getUserExcessCollateral(acc[1], inQuoteToken), lenderExcessCollateral - 900 * WAD);
-        assertEq(book.getUserExcessCollateral(acc[2], inBaseToken), borrowerExcessCollateral - 10 * WAD);
+        depositBuyOrder(Alice, 2000, 90);
+        depositSellOrder(Bob, 30, 110);
+        uint256 lenderExcessCollateral = book.getUserExcessCollateral(Alice, InQuoteToken);
+        uint256 borrowerExcessCollateral = book.getUserExcessCollateral(Bob, InBaseToken);
+        borrow(Bob, Alice_Order, 900);
+        assertEq(book.getUserExcessCollateral(Alice, InQuoteToken), lenderExcessCollateral - 900 * WAD);
+        assertEq(book.getUserExcessCollateral(Bob, InBaseToken), borrowerExcessCollateral - 10 * WAD);
     }
 
     // Lender and borrower excess collaterals in base and quote token are correct
     function test_BorrowSellOrderExcessCollateral() public {
-        depositSellOrder(acc[1], 20, 110);
-        depositBuyOrder(acc[2], 3000, 90);
-        uint256 lenderExcessCollateral = book.getUserExcessCollateral(acc[1], inBaseToken);
-        uint256 borrowerExcessCollateral = book.getUserExcessCollateral(acc[2], inQuoteToken);
-        borrow(acc[2], 1, 10);
-        assertEq(book.getUserExcessCollateral(acc[1], inBaseToken), lenderExcessCollateral - 10 * WAD);
-        assertEq(book.getUserExcessCollateral(acc[2], inQuoteToken), borrowerExcessCollateral - 10*110 * WAD);
+        depositSellOrder(Alice, 20, 110);
+        depositBuyOrder(Bob, 3000, 90);
+        uint256 lenderExcessCollateral = book.getUserExcessCollateral(Alice, InBaseToken);
+        uint256 borrowerExcessCollateral = book.getUserExcessCollateral(Bob, InQuoteToken);
+        borrow(Bob, Alice_Order, 10);
+        assertEq(book.getUserExcessCollateral(Alice, InBaseToken), lenderExcessCollateral - 10 * WAD);
+        assertEq(book.getUserExcessCollateral(Bob, InQuoteToken), borrowerExcessCollateral - 10*110 * WAD);
     }
 
+    // Bob borrows from Alice's sell order, borrowFromIds arrary correctly updates
     function test_BorrowFromIdInUsers() public {
-        depositSellOrder(acc[1], 20, 110);
-        depositBuyOrder(acc[2], 3000, 90);
-        checkUserBorrowId(acc[2], 0, 0);
-        borrow(acc[2], 1, 10);
-        checkUserBorrowId(acc[2], 0, 1);
-        checkUserBorrowId(acc[2], 1, 0);
+        depositSellOrder(Alice, 20, 110);
+        depositBuyOrder(Bob, 3000, 90);
+        checkUserBorrowId(Bob, 0, No_Order);
+        borrow(Bob, Alice_Order, 10);
+        checkUserBorrowId(Bob, 0, Alice_Order);
+        checkUserBorrowId(Bob, 1, No_Order);
     }
 
+    // Bob borrows twice from Alice's sell order, borrowFromIds arrary correctly updates
     function test_BorrowTwiceFromSameOrder() public {
-        depositSellOrder(acc[1], 30, 110);
-        depositBuyOrder(acc[2], 5000, 90);
-        borrow(acc[2], 1, 10);
-        borrow(acc[2], 1, 5);
+        depositSellOrder(Alice, 30, 110);
+        depositBuyOrder(Bob, 5000, 90);
+        borrow(Bob, Alice_Order, 10);
+        borrow(Bob, Alice_Order, 5);
         checkBorrowingQuantity(1, 15);
-        checkUserBorrowId(acc[2], 0, 1);
-        checkUserBorrowId(acc[2], 1, 0);
+        checkUserBorrowId(Bob, 0, Alice_Order);
+        checkUserBorrowId(Bob, 1, No_Order);
     }
 
+    // Alice borrows from Alice's and Bob's sell order, borrowFromIds arrary correctly updates
     function test_BorrowTwiceFromTwoOrders() public {
-        depositSellOrder(acc[1], 30, 110);
-        depositSellOrder(acc[2], 20, 100);
-        depositBuyOrder(acc[3], 6000, 90);
-        checkUserBorrowId(acc[3], 0, 0);
-        borrow(acc[3], 1, 15);
-        checkUserBorrowId(acc[3], 0, 1);
-        borrow(acc[3], 2, 10);
+        depositSellOrder(Alice, 30, 110);
+        depositSellOrder(Bob, 20, 100);
+        depositBuyOrder(Carol, 6000, 90);
+        checkUserBorrowId(Carol, 0, No_Order);
+        borrow(Carol, Alice_Order, 15);
+        checkUserBorrowId(Carol, 0, Alice_Order);
+        borrow(Carol, Bob_Order, 10);
         checkBorrowingQuantity(1, 15);
         checkBorrowingQuantity(2, 10);
-        checkUserBorrowId(acc[3], 0, 1);
-        checkUserBorrowId(acc[3], 1, 2);
+        checkUserBorrowId(Carol, 0, Alice_Order);
+        checkUserBorrowId(Carol, 1, Bob_Order);
     }
 
-    // tests what happens if a user has more than the max number of positions
+    // fail if user has more than max number of positions
     function test_PositionsForUserExceedLimit() public {
-        depositSellOrder(acc[1], 30, 110);
-        depositSellOrder(acc[2], 20, 100);
-        depositSellOrder(acc[3], 40, 120);
-        depositBuyOrder(acc[3], 10000, 90);
-        borrow(acc[3], 1, 15);
-        borrow(acc[3], 2, 10);
-        checkUserBorrowId(acc[3], 0, 1);
-        checkUserBorrowId(acc[3], 1, 2);
+        depositSellOrder(Alice, 30, 110);
+        depositSellOrder(Bob, 20, 100);
+        depositSellOrder(Carol, 40, 120);
+        depositBuyOrder(Dave, 10000, 90);
+        borrow(Dave, Alice_Order, 15);
+        borrow(Dave, Bob_Order, 10);
+        checkUserBorrowId(Dave, 0, Alice_Order);
+        checkUserBorrowId(Dave, 1, Bob_Order);
         vm.expectRevert("Max number of positions reached for borrower");
-        borrow(acc[3], 3, 5);
+        borrow(Dave, Carol_Order, 5);
         checkBorrowingQuantity(3, 0);
     }
 
-    // tests what happens if an order has more than the max number of positions
+    // fail if order has more than max number of positions
     function test_PositionsForOrderExceedLimit() public {
-        depositBuyOrder(acc[1], 6000, 90);
-        depositSellOrder(acc[2], 20, 100);
-        depositSellOrder(acc[3], 40, 120);
-        depositSellOrder(acc[4], 10, 110);
-        borrow(acc[2], 1, 5);
-        borrow(acc[3], 1, 10);
-        checkOrderPositionId(1, 0, 1);
-        checkOrderPositionId(1, 1, 2);
+        depositBuyOrder(Alice, 6000, 90);
+        depositSellOrder(Bob, 20, 100);
+        depositSellOrder(Carol, 40, 120);
+        depositSellOrder(Dave, 10, 110);
+        borrow(Bob, Alice_Order, 5);
+        borrow(Carol, Alice_Order, 10);
+        checkOrderPositionId(Alice_Order, 0, 1);
+        checkOrderPositionId(Alice_Order, 1, 2);
         vm.expectRevert("Max number of positions reached for order");
-        borrow(acc[4], 1, 8);
+        borrow(Dave, Alice_Order, 8);
         checkBorrowingQuantity(3, 0);
+    }
+
+    // borrower of buy order is maker correctly adjusts balances
+    function test_MakerBorrowsHerBuyOrderCheckBalances() public {
+        depositBuyOrder(Alice, 1800, 90);
+        depositSellOrder(Alice, 30, 110);
+        uint256 bookBalance = quoteToken.balanceOf(OrderBook);
+        uint256 lenderBorrowerBalance = quoteToken.balanceOf(Alice);
+        borrow(Alice, Alice_Order, 1800);
+        assertEq(quoteToken.balanceOf(OrderBook), bookBalance - 1800 * WAD);
+        assertEq(quoteToken.balanceOf(Alice), lenderBorrowerBalance + 1800 * WAD);
+        checkOrderQuantity(Alice_Order, 1800);
+        checkOrderQuantity(Alice_Order + 1, 30);
+        checkBorrowingQuantity(1, 1800); 
+    }
+
+    // maker cross-borrows her own orders correctly adjusts balances
+    function test_MakerCrossBorrowsHerOrdersCheckBalances() public {
+        depositBuyOrder(Alice, 3600, 90);
+        depositSellOrder(Alice, 60, 100);
+        uint256 bookQuoteBalance = quoteToken.balanceOf(OrderBook);
+        uint256 lenderBorrowerQuoteBalance = quoteToken.balanceOf(Alice);
+        uint256 bookBaseBalance = baseToken.balanceOf(OrderBook);
+        uint256 lenderBorrowerBaseBalance = baseToken.balanceOf(Alice);
+        borrow(Alice, Alice_Order, 900);
+        borrow(Alice, Alice_Order + 1, 10);
+        assertEq(quoteToken.balanceOf(OrderBook), bookQuoteBalance - 900 * WAD);
+        assertEq(quoteToken.balanceOf(Alice), lenderBorrowerQuoteBalance + 900 * WAD);
+        assertEq(baseToken.balanceOf(OrderBook), bookBaseBalance - 10 * WAD);
+        assertEq(baseToken.balanceOf(Alice), lenderBorrowerBaseBalance + 10 * WAD);
+        checkOrderQuantity(Alice_Order, 3600); // borrowing does'nt change quantity in order
+        checkOrderQuantity(Alice_Order + 1, 60);
+        checkBorrowingQuantity(1, 900);
+        checkBorrowingQuantity(2, 10); 
+    }
+
+    // maker loop-borrows her own orders correctly adjusts balances
+    function test_MakerLoopBorrowsHerOrdersCheckBalances() public {
+        depositBuyOrder(Alice, 4500, 90);
+        depositSellOrder(Alice, 60, 100);
+        uint256 bookQuoteBalance = quoteToken.balanceOf(OrderBook);
+        uint256 lenderBorrowerQuoteBalance = quoteToken.balanceOf(Alice);
+        uint256 bookBaseBalance = baseToken.balanceOf(OrderBook);
+        uint256 lenderBorrowerBaseBalance = baseToken.balanceOf(Alice);
+        borrow(Alice, Alice_Order, 1800);
+        depositBuyOrder(Alice, 1800, 90);
+        assertEq(quoteToken.balanceOf(OrderBook), bookQuoteBalance);
+        assertEq(quoteToken.balanceOf(Alice), lenderBorrowerQuoteBalance);
+        assertEq(baseToken.balanceOf(OrderBook), bookBaseBalance);
+        assertEq(baseToken.balanceOf(Alice), lenderBorrowerBaseBalance);
+        checkOrderQuantity(Alice_Order, 4500 + 1800); // borrowing doesn't change quantity in order
+        checkOrderQuantity(Alice_Order + 1, 60);
+        checkBorrowingQuantity(1, 1800);
     }
 
 }

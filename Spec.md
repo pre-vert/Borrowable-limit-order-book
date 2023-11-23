@@ -130,6 +130,35 @@ Deposit more assets $X$ in the order book or repaying a position, or other borro
 
 ## Interest rate model
 
+### General model with examples
+
+- Alice deposits a buy order with 6000 USDC (p = 2000)
+- Bob deposits a sell order with 3 ETH (p = 2100)
+- Bob borrows 4000 USDC from Alice at date t, interest rate is 10%
+- 1 year later, Bob's Borrow is 4400
+
+#### Case 1. Bob repays his position
+
+- repays 4400 USDC, can take back his 3 ETH from his sell order
+
+#### Case 2. Alice's buy order is taken first for 2000
+
+- Bob's position is liquidated for 4400
+- Alice receives (2000 + 4400)/p = 1 + 2.2 ETH
+- Bob's sell order is reduced by 2.2 ETH
+
+#### Case 3. Bob's sell order is taken first for 3 ETH
+
+- Bob receives 3*p = 6300
+- from which 4400 are used to repay his loan
+
+#### Case 4. Bob increases his borrowing
+
+- increase borrowing position by 400 at date t'
+- restarts R_t to R_{t'}
+
+### Calculation
+
 The interest rates in the buy and sell markets are set according to a linear function of utilization rates:
 $$
 r_t = \alpha + (\beta + \gamma) \text{UR}_t + \gamma \text{UR}_t^*	
@@ -137,18 +166,56 @@ $$
 
 with $\text{UR}_t^*$ the utilization rate of the opposite market.
 
+### Steps
+
 When a user deposits, withdraws, borrows, repays or liquidates a loan, the protocol:
 
-- updates total deposits and total borrowings in the two markets
-- revises $\text{UR}_t$ and $\text{UR}_t^*$
-- updates interest rates $r_t$ with new values
-- pulls current block.timestamp and computes elapsed time $n_t - n_{t-1}$
-- updates time-weighted total interest rate $R_t = n_1 r_1 + n_2 r_2 + ... + n_t r_t$
+- call _incrementTimeWeightedRates()
+  - pull current block.timestamp $n_t$ (in seconds) and computes elapsed time $n_t - n_{t-1}$ since last update
+  - increment time-weighted rates since origin $TWIR_t = n_1 IR_0 + (n_2 - n_1) IR_1 + ... + (n_t - n_{t-1}) IR_{t-1}$
+  - use IR$_{t-1}$ based on UR valid between $t-1$ and $t$, according to the linear formula
+- update total deposits and total borrowings in the affected market
+  - UR$_t$ and UR$_t^*$ will be used to determine IR$_t$ in the next iteration
 
 In addition, when a user borrows from a limit order, the protocol:
 
-- stores the updated time-weighted total interest rate $R_t$ in borrowing position struct
+- store the updated $TWIR_t$ in borrowing position struct
 
-When a borrower repays or closes  his loan, or he's liquidated at date $t'$, the protocol:
+When a borrower repays or closes his loan, or he's liquidated at date $T$, the protocol:
 
-- computes $R_{t, t'} = R_{t'} - R_t$ and interest rate $e^{R_{t, t'}} - 1$ thanks to Taylor approximation.
+- calculate $DR_t = TWIR_T - TWIR_t = (n_{t+1} - n_t) IR_t + ... + (n_T - n_{T-1}) IR_{T-1}$
+- compute interest rate $e^{DR_t} - 1$ thanks to Taylor approximation.
+
+### Decrease borrowing
+
+Bob borrows 2000 at 10%. One year later, he pays back 1000:
+
+- interest rate is added to his loan which becomes 2200
+- TWIR$_t$ of his borrowing position is updated to TWIR$_T$
+- pays 1000 from 2200
+- debt is now 1200
+
+### Increase borrowing
+
+Bob borrows 2000 at 10%. One year later, he borrows 1000 more:
+
+- interest rate is added to his loan which becomes 2200
+- TWIR$_t$ of his borrowing position is updated to TWIR$_T$
+- 1000 is added to 2200
+- debt is now 2200
+
+### Liqudation
+
+Bob borrows 2000 at 10%. One year later, his position is liquidated:
+
+- interest rate is added to his loan which becomes 2200
+- debt is now 2200
+- his collateral is seized for 2200/p
+
+### Partial closing
+
+Bob borrows 2000 at 10%. One year later, his own limit order which serves as collatera is taken. His position is reduced by 1000 
+
+- interest rate is added to his loan which becomes 2200
+- debt is now 2200
+- part of the collateral taken is seized for 1000/p to reduce his debt by 1000
