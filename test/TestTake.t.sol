@@ -24,6 +24,7 @@ contract TestTake is Setup {
     // taking is ok if zero taken, buy order
     function test_TakeBuyOrderWithZero() public {
         depositBuyOrder(Alice, 2000, 90);
+        setPrice(80);
         take(Bob, Alice_Order, 0);
         checkOrderQuantity(Alice_Order, 2000);
     }
@@ -31,6 +32,7 @@ contract TestTake is Setup {
     // taking is ok if zero taken, sell order
     function test_TakeSellOrderWithZero() public {
         depositSellOrder(Alice, 20, 110);
+        setPrice(120);
         take(Bob, Alice_Order, 0);
         checkOrderQuantity(Alice_Order, 20);
     }
@@ -39,6 +41,7 @@ contract TestTake is Setup {
     function test_TakeBuyOrderFailsIfTooMuch() public {
         depositBuyOrder(Alice, 2000, 90);
         assertEq(book.outable(Alice_Order, 2001 * WAD), false);
+        setPrice(80);
         vm.expectRevert("Too much assets taken");
         take(Bob, Alice_Order, 2001);
     }
@@ -47,8 +50,25 @@ contract TestTake is Setup {
     function test_TakeSellOrderFailsIfTooMuch() public {
         depositSellOrder(Alice, 20, 110);
         assertEq(book.outable(Alice_Order, 21 * WAD), false);
+        setPrice(120);
         vm.expectRevert("Too much assets taken");
         take(Bob, Alice_Order, 21);
+    }
+
+    // taking fails if non-profitable buy order
+    function test_TakingFailsIfNonProfitableBuyOrder() public {
+        depositBuyOrder(Alice, 2000, 90);
+        setPrice(91);
+        vm.expectRevert("Trade must be profitable");
+        take(Bob, Alice_Order, 1000);
+    }
+
+    // taking fails if non profitable sell order
+    function test_TakingFailsIfNonProfitableSellOrder() public {
+        depositSellOrder(Alice, 20, 110);
+        setPrice(109);
+        vm.expectRevert("Trade must be profitable");
+        take(Bob, Alice_Order, 10);
     }
 
     // taking of buy order correctly adjusts external balances
@@ -59,6 +79,7 @@ contract TestTake is Setup {
         uint256 makerBaseBalance = baseToken.balanceOf(Alice);
         uint256 takerQuoteBalance = quoteToken.balanceOf(Bob);
         uint256 takerBaseBalance = baseToken.balanceOf(Bob);
+        setPrice(80);
         take(Bob, Alice_Order, 1800);
         assertEq(quoteToken.balanceOf(OrderBook), contractQuoteBalance - 1800 * WAD);
         assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance);
@@ -75,6 +96,7 @@ contract TestTake is Setup {
         uint256 makerQuoteBalance = quoteToken.balanceOf(Alice);
         uint256 takerBaseBalance = baseToken.balanceOf(Bob);
         uint256 takerQuoteBalance = quoteToken.balanceOf(Bob);
+        setPrice(120);
         take(Bob, Alice_Order, 20);
         assertEq(baseToken.balanceOf(OrderBook), contractBaseBalance - 20 * WAD);
         assertEq(baseToken.balanceOf(Alice), makerBaseBalance);
@@ -89,7 +111,9 @@ contract TestTake is Setup {
         uint256 contractQuoteBalance = quoteToken.balanceOf(OrderBook);
         uint256 makerQuoteBalance = quoteToken.balanceOf(Alice);
         uint256 makerBaseBalance = baseToken.balanceOf(Alice);
+        setPrice(80);
         take(Alice, Alice_Order, 900);
+        setPrice(80);
         assertEq(quoteToken.balanceOf(OrderBook), contractQuoteBalance - 900 * WAD);
         assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance + 900 * WAD);
         assertEq(baseToken.balanceOf(Alice), makerBaseBalance);

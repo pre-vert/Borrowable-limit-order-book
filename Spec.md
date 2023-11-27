@@ -48,7 +48,6 @@ Represents a buy or sell order placed in the system.
   - `positionIds: uint256[]`: An array that lists the IDs of positions that have borrowed from this particular order.
 - **Methods**:
   - `deposit()`: To place an order.
-  - `increaseDeposit()`: To deposit assets for an order.
   - `withdraw()`: To withdraw assets from an order.
   - `take()`: To take or fulfill an order.
 
@@ -160,9 +159,9 @@ Deposit more assets $X$ in the order book or repaying a position, or other borro
 ### Calculation
 
 The interest rates in the buy and sell markets are set according to a linear function of utilization rates:
-$$
+\[
 r_t = \alpha + (\beta + \gamma) \text{UR}_t + \gamma \text{UR}_t^*	
-$$
+\]
 
 with $\text{UR}_t^*$ the utilization rate of the opposite market.
 
@@ -173,9 +172,9 @@ When a user deposits, withdraws, borrows, repays or liquidates a loan, the proto
 - call _incrementTimeWeightedRates()
   - pull current block.timestamp $n_t$ (in seconds) and computes elapsed time $n_t - n_{t-1}$ since last update
   - increment time-weighted rates since origin $TWIR_t = n_1 IR_0 + (n_2 - n_1) IR_1 + ... + (n_t - n_{t-1}) IR_{t-1}$
-  - use IR$_{t-1}$ based on UR valid between $t-1$ and $t$, according to the linear formula
+  - use $IR_{t-1}$ based on UR valid between $t-1$ and $t$, according to the linear formula
 - update total deposits and total borrowings in the affected market
-  - UR$_t$ and UR$_t^*$ will be used to determine IR$_t$ in the next iteration
+  - $UR_t$ and $UR_t^*$ will be used to determine $IR_t$ in the next iteration
 
 In addition, when a user borrows from a limit order, the protocol:
 
