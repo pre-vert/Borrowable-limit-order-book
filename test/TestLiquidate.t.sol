@@ -360,6 +360,7 @@ contract TestLiquidate is Setup {
         uint256 lenderBorrowerQuoteBalance = quoteToken.balanceOf(Alice);
         uint256 bookBaseBalance = baseToken.balanceOf(OrderBook);
         uint256 lenderBorrowerBaseBalance = baseToken.balanceOf(Alice);
+        setPrice(80);
         take(Bob, Alice_Order, 540);
         assertEq(quoteToken.balanceOf(OrderBook), bookQuoteBalance - 540 * WAD);
         assertEq(quoteToken.balanceOf(Alice), lenderBorrowerQuoteBalance);
@@ -388,7 +389,9 @@ contract TestLiquidate is Setup {
         uint256 bookBaseBalance = baseToken.balanceOf(OrderBook);
         uint256 lenderBorrowerBaseBalance = baseToken.balanceOf(Alice);
         uint256 takerBaseBalance = baseToken.balanceOf(Bob);
+        setPrice(80);
         take(Bob, Alice_Order, 900);
+        setPrice(80);
         assertEq(quoteToken.balanceOf(OrderBook), bookQuoteBalance - 900 * WAD);
         assertEq(quoteToken.balanceOf(Alice), lenderBorrowerQuoteBalance);
         assertEq(quoteToken.balanceOf(Bob), takerQuoteBalance + 900 * WAD);

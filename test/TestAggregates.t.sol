@@ -141,6 +141,7 @@ contract TestAggregates is Setup {
         uint256 buyOrderinstantRate = book.getInstantRate(BuyOrder); // pulling IR before updated in take()
         uint256 sellOrderinstantRate = book.getInstantRate(SellOrder);
         vm.warp(2 * DAY);
+        setPrice(80);
         take(Bob, Alice_Order, 1000);
         assertEq(book.getTimeWeightedRate(BuyOrder), buyOrderTimeWeightedRate + DAY * buyOrderinstantRate / YEAR);
         assertEq(book.getTimeWeightedRate(SellOrder), sellOrderTimeWeightedRate + DAY * sellOrderinstantRate / YEAR);
@@ -167,6 +168,7 @@ contract TestAggregates is Setup {
         uint256 buyOrderinstantRate = book.getInstantRate(BuyOrder);
         uint256 sellOrderinstantRate = book.getInstantRate(SellOrder);
         vm.warp(2 * DAY);
+        setPrice(120);
         take(Bob, Alice_Order, 18);
         assertEq(book.getTimeWeightedRate(BuyOrder), buyOrderTimeWeightedRate + DAY * buyOrderinstantRate / YEAR);
         assertEq(book.getTimeWeightedRate(SellOrder), sellOrderTimeWeightedRate + DAY * sellOrderinstantRate / YEAR);

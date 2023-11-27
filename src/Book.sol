@@ -70,6 +70,8 @@ contract Book is IBook {
     uint256 public totalBaseAssets = 0; // total base assets deposited in sell order market
     uint256 public totalBaseBorrow = 0; // total base assets borrowed in sell order market
 
+    uint256 public price = 100 * WAD;
+
     constructor(address _quoteToken, address _baseToken) {
         quoteToken = IERC20(_quoteToken);
         baseToken = IERC20(_baseToken);
@@ -122,7 +124,7 @@ contract Book is IBook {
             _addOrderIdInDepositIdsInUsers(newOrderId, msg.sender);            
         }
         _incrementTimeWeightedRates();
-        _increaseTotalAssets(_quantity, _isBuyOrder);
+        _increaseTotalAssetsBy(_quantity, _isBuyOrder);
         _transferFrom(msg.sender, _quantity, _isBuyOrder);
         emit Deposit(msg.sender, _quantity, _price, _isBuyOrder);
     }
@@ -147,10 +149,10 @@ contract Book is IBook {
         revertIfSuperiorTo(_removedQuantity, getUserExcessCollateral(removedOrder.maker, inQuoteToken));
 
         // reduce quantity in order, possibly to zero
-        _reduceOrderByQuantity(_removedOrderId, _removedQuantity);
+        _reduceOrderBy(_removedOrderId, _removedQuantity);
 
         _incrementTimeWeightedRates();
-        _decreaseTotalAssets(_removedQuantity, inQuoteToken);
+        _decreaseTotalAssetsBy(_removedQuantity, inQuoteToken);
         _transferTo(msg.sender, _removedQuantity, removedOrder.isBuyOrder);
         emit Withdraw(removedOrder.maker, _removedQuantity, removedOrder.price, removedOrder.isBuyOrder);
     }
@@ -186,7 +188,7 @@ contract Book is IBook {
         // create new or update existing borrowing position in positions
         // output the id of the new or updated borrowing position
         uint256 positionId = _addPositionToPositions(msg.sender, _borrowedOrderId, _borrowedQuantity);
-        _increaseTotalBorrow(positions[positionId].borrowedAssets, inQuoteToken);
+        _increaseTotalBorrowBy(positions[positionId].borrowedAssets, inQuoteToken);
 
         // add new positionId in positionIds array in orders, check first that position doesn't already exist
         // reverts if max number of positions is reached
@@ -214,13 +216,13 @@ contract Book is IBook {
         uint256 interestLoad = _interestLoad(_positionId);
         _increaseBorrowBy(_positionId, interestLoad);
         positions[_positionId].timeWeightedRate = getTimeWeightedRate(inQuoteToken);
-        _increaseTotalBorrow(interestLoad, inQuoteToken);
+        _increaseTotalBorrowBy(interestLoad, inQuoteToken);
 
         revertIfSuperiorTo(_repaidQuantity, positions[_positionId].borrowedAssets);
 
         // decrease borrowedAssets in positions, possibly to zero
         _reduceBorrowBy(_positionId, _repaidQuantity);
-        _decreaseTotalBorrow(_repaidQuantity, inQuoteToken);
+        _decreaseTotalBorrowBy(_repaidQuantity, inQuoteToken);
 
         _transferFrom(msg.sender, _repaidQuantity, inQuoteToken);
         emit Repay(msg.sender, _positionId, _repaidQuantity, inQuoteToken);
@@ -237,6 +239,9 @@ contract Book is IBook {
         Order memory takenOrder = orders[_takenOrderId];
         bool isBuyOrder = takenOrder.isBuyOrder;
 
+        // taking is allowed for profitable trades only
+        if (getAssetsLentByOrder(_takenOrderId) == 0) require(takable(_takenOrderId), "Trade must be profitable");
+        
         // taking is allowed for non-borrowed assets, possibly net of minimum deposit if taking is partial
         require(outable(_takenOrderId, _takenQuantity), "Too much assets taken");
 
@@ -252,11 +257,11 @@ contract Book is IBook {
         uint256 writtenOffDebt;
         if (seizedBorrowerCollateral > 0) {
             // total deposits from borrowers' side are reduced by 2 ETH
-            _decreaseTotalAssets(seizedBorrowerCollateral, !isBuyOrder);
+            _decreaseTotalAssetsBy(seizedBorrowerCollateral, !isBuyOrder);
             // if 2 ETH are seized, 2*p = 4000 USDC of debt are written off
             writtenOffDebt = convert(seizedBorrowerCollateral, takenOrder.price, !isBuyOrder);
             // total borrow is reduced by 4000 USDC
-            _decreaseTotalBorrow(writtenOffDebt, isBuyOrder);
+            _decreaseTotalBorrowBy(writtenOffDebt, isBuyOrder);
         } else {
             writtenOffDebt = 0;
         }
@@ -270,12 +275,12 @@ contract Book is IBook {
 
         uint256 budgetToRepayLoans = convert(_takenQuantity + writtenOffDebt, takenOrder.price, isBuyOrder);
         uint256 reducedBorrow = _reduceUserBorrow(takenOrder.maker, budgetToRepayLoans, isBuyOrder);
-        _decreaseTotalBorrow(reducedBorrow, !isBuyOrder);
+        _decreaseTotalBorrowBy(reducedBorrow, !isBuyOrder);
 
         // Alice buy order is reduced by amount taken + 2 * p USDC
-        _reduceOrderByQuantity(_takenOrderId, _takenQuantity + writtenOffDebt);
+        _reduceOrderBy(_takenOrderId, _takenQuantity + writtenOffDebt);
         // total deposits from maker's side are reduced by taken quantity + 2*p USDC
-        _decreaseTotalAssets(_takenQuantity + writtenOffDebt, isBuyOrder);
+        _decreaseTotalAssetsBy(_takenQuantity + writtenOffDebt, isBuyOrder);
 
         // quantity given by taker in exchange of _takenQuantity (can be zero)
         uint256 exchangedQuantity = convert(_takenQuantity, takenOrder.price, isBuyOrder);
@@ -294,7 +299,6 @@ contract Book is IBook {
     ///////******* Internal functions *******///////
     
     // liquidate **all** borrowing positions after taking an order, even if partial
-    // output the quantity liquidated
     // doesn't perform external transfers
     // _fromOrderId: order from which borrowing positions must be cleared
 
@@ -309,8 +313,7 @@ contract Book is IBook {
         for (uint256 i = 0; i < MAX_POSITIONS; i++) {
             uint256 positionId = positionIds[i];
             if(_borrowingInPositionIsPositive(positionId)) {
-                (bool success, uint256 seizedCollateral) = _liquidatePosition(positionId);
-                require(success, "Some collateral couldn't be seized");
+                uint256 seizedCollateral = _closePosition(positionId);
                 seizedBorrowerCollateral += seizedCollateral;
             }
         }
@@ -325,10 +328,10 @@ contract Book is IBook {
     //  - change internal balances
     // doesn't execute final external transfer of assets
 
-    function _liquidatePosition(uint256 _positionId)
+    function _closePosition(uint256 _positionId)
         internal
         positionExists(_positionId)
-        returns (bool success, uint256 seizedCollateral)
+        returns (uint256 seizedCollateral)
     {
         Position memory position = positions[_positionId]; // position to be liquidated
         Order memory takenOrder = orders[position.orderId]; // order from which assets are taken
@@ -358,21 +361,20 @@ contract Book is IBook {
                     outable(orderId, remainingCollateralToSeize)
                 ) {
                     // enough collateral assets are seized before borrower's order is fully seized
-                    _reduceOrderByQuantity(orderId, remainingCollateralToSeize);
+                    _reduceOrderBy(orderId, remainingCollateralToSeize);
                     uint256 reducedBorrow = convert(remainingCollateralToSeize, takenOrder.price, !inQuoteToken);
                     positions[_positionId].borrowedAssets -= reducedBorrow;
                     remainingCollateralToSeize = 0;
                     break;
                 } else {
                     // borrower's order is fully seized, reduce order quantity to zero
-                    _reduceOrderByQuantity(orderId, orderQuantity);
+                    _reduceOrderBy(orderId, orderQuantity);
                     // write off debt for the same amount as collateral seized
                     positions[_positionId].borrowedAssets = 0;
                     remainingCollateralToSeize -= orderQuantity;
                 }
             }
         }
-        success = (remainingCollateralToSeize == 0);
     }
 
     // reduce maker's borrowing positions possibly as high as BudgetToRepayLoans
@@ -428,7 +430,7 @@ contract Book is IBook {
         bool inQuoteToken = orders[positions[_positionId].orderId].isBuyOrder;
         _increaseBorrowBy(_positionId, interestLoad);
         positions[_positionId].timeWeightedRate = getTimeWeightedRate(inQuoteToken);
-        _increaseTotalBorrow(interestLoad, inQuoteToken);
+        _increaseTotalBorrowBy(interestLoad, inQuoteToken);
         
         uint256 borrowedAssets = positions[_positionId].borrowedAssets;
         if (borrowedAssets >= _budget) {
@@ -661,7 +663,7 @@ contract Book is IBook {
     // reduce quantity offered in order, emptied = deleted
     // reduced quantity =< order quantity has been check before the call
 
-    function _reduceOrderByQuantity(
+    function _reduceOrderBy(
         uint256 _orderId,
         uint256 _quantity
     )
@@ -673,14 +675,14 @@ contract Book is IBook {
     }
 
     // increase total assets in quote (buy order side) or base (sell order side) token
-    function _increaseTotalAssets(uint256 _quantity, bool _inQuote)
+    function _increaseTotalAssetsBy(uint256 _quantity, bool _inQuote)
         internal
     {
         if (_inQuote) totalQuoteAssets += _quantity;
         else totalBaseAssets += _quantity;
     }
 
-    function _decreaseTotalAssets(uint256 _quantity, bool _inQuote)
+    function _decreaseTotalAssetsBy(uint256 _quantity, bool _inQuote)
         internal
     {
         if (_inQuote) totalQuoteAssets -= _quantity;
@@ -688,7 +690,7 @@ contract Book is IBook {
     }
 
     // increase total borrow in quote (buy order side) or base (sell order side) token
-    function _increaseTotalBorrow(uint256 _quantity, bool _inQuote)
+    function _increaseTotalBorrowBy(uint256 _quantity, bool _inQuote)
         internal
     {
         if (_inQuote) totalQuoteBorrow += _quantity;
@@ -696,7 +698,7 @@ contract Book is IBook {
     }
 
     // decrease total borrow in quote or base tokens
-    function _decreaseTotalBorrow(uint256 _quantity, bool _inQuote)
+    function _decreaseTotalBorrowBy(uint256 _quantity, bool _inQuote)
         internal
     {
         if (_inQuote) totalQuoteBorrow -= _quantity;
@@ -723,7 +725,7 @@ contract Book is IBook {
         uint256 _positionId,
         bool _inQuoteToken
     )
-        internal
+        internal view
         returns (uint256 accruedInterestRate_)
     {
         accruedInterestRate_ = (
@@ -733,12 +735,18 @@ contract Book is IBook {
     }
 
     function _interestLoad(uint256 _positionId)
-        internal
+        internal view
         returns (uint256 interestLoad_)
     {
         bool inQuoteToken = orders[positions[_positionId].orderId].isBuyOrder;
         uint256 interestRate = _accruedInterestRate(_positionId, inQuoteToken);
         interestLoad_ = interestRate.wMulUp(positions[_positionId].borrowedAssets);
+    }
+
+    function setPrice(uint256 _newPrice)
+        public
+    {
+        price = _newPrice;
     }
 
     //////////********* View functions *********/////////
@@ -791,6 +799,7 @@ contract Book is IBook {
         internal view
         returns (bool)
     {
+        console.log("orders[_orderId].quantity: ", orders[_orderId].quantity);
         return (orders[_orderId].quantity > 0);
     }
 
@@ -934,7 +943,7 @@ contract Book is IBook {
     }
 
     // get quantity of assets lent by order
-    function getTotalAssetsLentByOrder(uint256 _orderId)
+    function getAssetsLentByOrder(uint256 _orderId)
         public view
         returns (uint256 totalLentAssets)
     {
@@ -945,6 +954,17 @@ contract Book is IBook {
         }
     }
 
+    function takable(
+        uint256 _orderId
+    )
+        public view
+        // orderHasAssets(_orderId)
+        returns (bool)
+    {
+        if (orders[_orderId].isBuyOrder) return (orders[_orderId].price >= price);
+        else return (orders[_orderId].price <= price);
+    }
+    
     // get quantity of assets available in order: order quantity - assets lent - minimum deposit
     // available assets are non-borrowed assets if what is left is higher than minimal deposit
     // _outQuantity positive is checked before the call, if necessary
@@ -955,10 +975,9 @@ contract Book is IBook {
         uint256 _outQuantity // quantity to be removed, borrowed, liquidated or taken
     )
         public view
-        orderHasAssets(_orderId)
         returns (bool)
     {
-        uint256 lentAssets = getTotalAssetsLentByOrder(_orderId);
+        uint256 lentAssets = getAssetsLentByOrder(_orderId);
         uint256 minDep = minDeposit(orders[_orderId].isBuyOrder);
         uint256 availableAssets = orders[_orderId].quantity > lentAssets ? 
             orders[_orderId].quantity - lentAssets : 0;     
@@ -969,15 +988,15 @@ contract Book is IBook {
         else return true;
     }
 
-    // get quantity of assets available in order: order quantity - assets lent
-    function nonBorrowedAssetsInOrder(uint256 _orderId)
-        public view
-        orderHasAssets(_orderId)
-        returns (uint256 nonBorrowedAssets)
-    {
-        nonBorrowedAssets = orders[_orderId].quantity > getTotalAssetsLentByOrder(_orderId) ?
-        orders[_orderId].quantity - getTotalAssetsLentByOrder(_orderId) : 0;
-    }
+    // // get quantity of assets available in order: order quantity - assets lent
+    // function nonBorrowedAssetsInOrder(uint256 _orderId)
+    //     public view
+    //     orderHasAssets(_orderId)
+    //     returns (uint256 nonBorrowedAssets)
+    // {
+    //     nonBorrowedAssets = orders[_orderId].quantity > getAssetsLentByOrder(_orderId) ?
+    //     orders[_orderId].quantity - getAssetsLentByOrder(_orderId) : 0;
+    // }
 
     // find if user placed order id
     // if so, outputs its row in depositIds array

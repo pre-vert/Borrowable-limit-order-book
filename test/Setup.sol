@@ -112,6 +112,10 @@ contract Setup is StdCheats, Test {
         book.borrow(_orderId, _quantity * WAD);
     }
 
+    function setPrice(uint256 _price) public {
+        book.setPrice(_price * WAD);
+    }
+
     // check assets in order == _quantity
     function checkOrderQuantity(uint256 _orderId, uint256 _quantity) public {
         (,, uint256 quantity,) = book.orders(_orderId);

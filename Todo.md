@@ -6,7 +6,6 @@
 
 A price feed is pulled when:
 - a borrowed order is taken to check that the order is not taken at a loss
-- a user creates a new order to check that the price is in the money for takers
 - a borrower is liquidated
 
 ### 1.2 Implement interest rate-based liquidation
@@ -49,7 +48,31 @@ If the order is made non-borrowable while its assets are borrowed, the order bec
 
 https://soliditylang.org/blog/2021/04/21/custom-errors/
 
-## Things that could be done
+### 2.5 Debt substituion
+
+Suppose Alice and Carol both place a buy order at the same limit price 2000 for 1 ETH. Bob deposits 1 ETH and borrows 2000 USDC from Alice's order. Normally, Alice cannot remove her 2000 USDC. However, there exists three complementary ways to set Alice's order free.
+
+#### 2.5.1 Borrower hops to another limit order
+
+Bob switches his debt from Alice to Clair.
+
+##### 2.5.2 Offsetting: Maker whose assets are borrowed borrows herself from another position ()
+
+Offsetting is the action for a lender at limit/liquidation price $p$ to borrow assets at the same limit price $p$, which is equivalent to removing assets from an order which is borrowed.
+
+Alice borrows 2000 USDC from Carol without additional collateral requirement. This has the same effect as removing 2000 USDC for Alice. After, internal accounts updated, Bob is now borrowing 2000 USDC from Carol.
+
+It is beneficial for Alice if she wants to withdraw her assets from the buy order and beneficial to Bob and Clair
+
+Rem 1: The protocol should check that Carol's interest rate is not higher than Alice's one, but this is normally not possible as the base interest rate is common to all positions and the term spread makes Clair's asset borrowable at a better term.
+
+### 2.5.3 Borrow stealing
+
+Clair pays back Alice with her USDC and replaces Alice by taking Bob's position 
+
+It is profitable for Alice if Bob's interest rate is higher than current rate, especially if the term premium gets large
+
+## 3. Things that could be done
 
 ### 3.1 Implement a break on interest variations
 
@@ -72,26 +95,5 @@ $$
 - $R$ is a ceiling for the interest rate
 - $\alpha$ is the instantaneous increase rate
 
-### 3.3 Offsetting
 
-Offsetting is the action for a lender at limit/liquidation price $p$ to borrow assets at the same limit price $p$, which is equivalent to removing assets from an order which is borrowed.
-
-Suppose Alice and Carol both place a buy order at the same limit price 2000 for 1 ETH. Bob borrows 1 ETH from Alice's order. Normally, Alice cannot remove her 1 ETH. However, if Carol's interest rate is not higher than Alice's one, she can borrow 1 ETH from Carol without additional collateral requirement. This has the same effect as removing 1 ETH. Bob is now borrowing from Carol.
-
-### 3.4 Borrow stealing
-
-- Alice deposits a buy order at 1900 with 2700 USDC
-- Bob
-  - deposits a sell order at 2000 with 3 ETH
-  - borrows 2700 from Alice
-- Clair
-  - deposits a buy order with 1900 USDC
-  - pays back Alice with 2700 additional USDC
-  - replaces Alice by taking Bob's position 
-
-It is profitable for Alice if Bob's interest rate is higher than current rate, especially if the term premium gets large
-
-It is neutral for Bob
-
-It is beneficial for Alice if she wants to withdraw her assets from the buy order
 
