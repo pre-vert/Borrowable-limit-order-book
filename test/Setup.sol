@@ -112,8 +112,13 @@ contract Setup is StdCheats, Test {
         book.borrow(_orderId, _quantity * WAD);
     }
 
-    function setPrice(uint256 _price) public {
-        book.setPrice(_price * WAD);
+    function liquidate(address _user, uint256 _positionId) public {
+        vm.prank(_user);
+        book.liquidate(_positionId);
+    }
+
+    function setPriceFeed(uint256 _price) public {
+        book.setPriceFeed(_price * WAD);
     }
 
     // check assets in order == _quantity
@@ -143,18 +148,17 @@ contract Setup is StdCheats, Test {
     }
 
     function checkInstantRate(bool _isBuyOrder) public {
-        assertEq(book.getInstantRate(_isBuyOrder),
-            book.ALPHA() +
+        uint256 annualRate = book.ALPHA() +
             book.BETA() * book.getUtilizationRate(_isBuyOrder) / WAD +
-            book.GAMMA() * book.getUtilizationRate(!_isBuyOrder) / WAD
-        );
+            book.GAMMA() * book.getUtilizationRate(!_isBuyOrder) / WAD;
+        assertEq(book.getInstantRate(_isBuyOrder), annualRate / YEAR);
         if (_isBuyOrder) {
             console.log("Utilization rate in buy order market (1e04): ", book.getUtilizationRate(_isBuyOrder) * 1e4 / WAD);
-            console.log("Instant rate in buy order market (1e5): ", book.getInstantRate(_isBuyOrder) * 1e5 / WAD);
+            console.log("Annualized rate in buy order market (1e05): ", book.getInstantRate(_isBuyOrder) * 1e5 * YEAR / WAD);
         }
         else {
             console.log("Utilization rate in sell order market (1e04): ", book.getUtilizationRate(_isBuyOrder) * 1e4 / WAD);
-            console.log("instantRate in sell order market (1e5): ", book.getInstantRate(_isBuyOrder) * 1e5 / WAD);
+            console.log("Annualized rate in sell order market (1e05): ", book.getInstantRate(_isBuyOrder) * 1e5 * YEAR / WAD);
         }
     }
     

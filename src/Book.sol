@@ -17,8 +17,8 @@ contract Book is IBook {
     using MathLib for uint256;
     using SafeERC20 for IERC20;
 
-    /// @notice provides core public functions (deposit, withdraw, take, borrow, repay)
-    /// + internal functions (liquidateAssets, liquidatePositions, educeUserBorrow, ...) + view functions
+    /// @notice provides core public functions (deposit, withdraw, take, borrow, repay, liquidate)
+    /// + internal functions (closeAllPositions, closePosition, liquidate, reduceUserBorrow, ...) + view functions
     
     IERC20 public quoteToken;
     IERC20 public baseToken;
@@ -28,9 +28,11 @@ contract Book is IBook {
     uint256 constant public MIN_DEPOSIT_BASE = 2 * WAD; // Minimum deposited base tokens to be received by takers
     uint256 constant public MIN_DEPOSIT_QUOTE = 100 * WAD; // Minimum deposited quote tokens to be received by takers
     uint256 constant private ABSENT = type(uint256).max; // id for non existing order or position in arrays
+    bool constant private ROUNDUP = true; // round up in conversions
     uint256 public constant ALPHA = 5 * WAD / 1000; // IRM parameter = 0.005
     uint256 public constant BETA = 15 * WAD / 1000; // IRM parameter = 0.015
-    uint256 public constant GAMMA = 10 * WAD / 1000; // IRM parameter=  0.010
+    uint256 public constant GAMMA = 10 * WAD / 1000; // IRM parameter =  0.010
+    uint256 public constant FEE = 20 * WAD / 1000; // interest-based liquidation fee for maker =  0.020 (2%)
     uint256 public constant YEAR = 365 days; // number of seconds in one year
 
     struct Order {
@@ -70,7 +72,7 @@ contract Book is IBook {
     uint256 public totalBaseAssets = 0; // total base assets deposited in sell order market
     uint256 public totalBaseBorrow = 0; // total base assets borrowed in sell order market
 
-    uint256 public price = 100 * WAD;
+    uint256 public priceFeed = 100 * WAD;
 
     constructor(address _quoteToken, address _baseToken) {
         quoteToken = IERC20(_quoteToken);
@@ -109,6 +111,7 @@ contract Book is IBook {
         bool _isBuyOrder
     )
         external
+        isPositive(_quantity)
         isPositive(_price)
     {
         // check if an identical order exists already, if so increase deposit, else create
@@ -121,12 +124,13 @@ contract Book is IBook {
             // add order to orders, output the id of the new order
             uint256 newOrderId = _addOrderToOrders(msg.sender, _isBuyOrder, _quantity, _price);
             // add new orderId in depositIds array in users
-            _addOrderIdInDepositIdsInUsers(newOrderId, msg.sender);            
+            _addOrderIdInDepositIdsInUsers(newOrderId, msg.sender);  
+            orderId = newOrderId;          
         }
         _incrementTimeWeightedRates();
         _increaseTotalAssetsBy(_quantity, _isBuyOrder);
         _transferFrom(msg.sender, _quantity, _isBuyOrder);
-        emit Deposit(msg.sender, _quantity, _price, _isBuyOrder);
+        emit Deposit(msg.sender, _quantity, _price, _isBuyOrder, orderId);
     }
 
     /// @inheritdoc IBook
@@ -146,15 +150,16 @@ contract Book is IBook {
         // Remaining total deposits must be enough to secure maker's existing borrowing positions
         // Maker's excess collateral must remain positive after removal
         bool inQuoteToken = removedOrder.isBuyOrder;
-        revertIfSuperiorTo(_removedQuantity, getUserExcessCollateral(removedOrder.maker, inQuoteToken));
+
+        _incrementTimeWeightedRates(); // necessary to update excess collateral
+        revertIfSuperiorTo(_removedQuantity, _getExcessCollateral(removedOrder.maker, inQuoteToken));
 
         // reduce quantity in order, possibly to zero
         _reduceOrderBy(_removedOrderId, _removedQuantity);
 
-        _incrementTimeWeightedRates();
         _decreaseTotalAssetsBy(_removedQuantity, inQuoteToken);
         _transferTo(msg.sender, _removedQuantity, removedOrder.isBuyOrder);
-        emit Withdraw(removedOrder.maker, _removedQuantity, removedOrder.price, removedOrder.isBuyOrder);
+        emit Withdraw(removedOrder.maker, _removedQuantity, removedOrder.price, removedOrder.isBuyOrder, _removedOrderId);
     }
 
     /// @inheritdoc IBook
@@ -171,31 +176,29 @@ contract Book is IBook {
         // cannot borrow more than available assets, net of minimum deposit
         require(outable(_borrowedOrderId, _borrowedQuantity), "Too much assets borrowed");
 
-        // check available assets are not used as collateral by maker and can be borrowed
         bool inQuoteToken = borrowedOrder.isBuyOrder;
-        revertIfSuperiorTo(_borrowedQuantity, getUserExcessCollateral(borrowedOrder.maker, inQuoteToken));
+
+        // check available assets are not used as collateral by maker and can be borrowed, update TWIR first
+        _incrementTimeWeightedRates();
+        revertIfSuperiorTo(_borrowedQuantity, _getExcessCollateral(borrowedOrder.maker, inQuoteToken));
 
         // check borrowed amount is collateralized enough by borrower's own orders
-        uint256 convertedBorrowableQuantity = convert(_borrowedQuantity, borrowedOrder.price, inQuoteToken);
-        revertIfSuperiorTo(convertedBorrowableQuantity, getUserExcessCollateral(msg.sender, !inQuoteToken));   
+        uint256 neededCollateral = convert(_borrowedQuantity, borrowedOrder.price, inQuoteToken, ROUNDUP);
+        revertIfSuperiorTo(neededCollateral, _getExcessCollateral(msg.sender, !inQuoteToken));   
 
         // check if borrower already borrows from order, if not, add orderId to borrowFromIds array, revert if max position reached
         _addOrderIdInBorrowFromIdsInUsers(msg.sender, _borrowedOrderId);
 
-        // increment time-weighted interest rates and update total borrowing before adding position
-        _incrementTimeWeightedRates();
-
         // create new or update existing borrowing position in positions
         // output the id of the new or updated borrowing position
         uint256 positionId = _addPositionToPositions(msg.sender, _borrowedOrderId, _borrowedQuantity);
-        _increaseTotalBorrowBy(positions[positionId].borrowedAssets, inQuoteToken);
 
         // add new positionId in positionIds array in orders, check first that position doesn't already exist
         // reverts if max number of positions is reached
         _AddPositionIdToPositionIdsInOrders(positionId, _borrowedOrderId);
 
         _transferTo(msg.sender, _borrowedQuantity, inQuoteToken);
-        emit Borrow(msg.sender, _borrowedOrderId, _borrowedQuantity, inQuoteToken);
+        emit Borrow(msg.sender, positionId, _borrowedQuantity, inQuoteToken);
     }
 
     /// @inheritdoc IBook
@@ -212,11 +215,9 @@ contract Book is IBook {
 
         // increment time-weighted rates with IR based on UR before repay
         _incrementTimeWeightedRates();
-        // add interest rate to borrowed quantity and update TWIR_t to TWIR_T
-        uint256 interestLoad = _interestLoad(_positionId);
-        _increaseBorrowBy(_positionId, interestLoad);
-        positions[_positionId].timeWeightedRate = getTimeWeightedRate(inQuoteToken);
-        _increaseTotalBorrowBy(interestLoad, inQuoteToken);
+
+        // add interest rate to borrowed quantity, update TWIR_t to TWIR_T to reset interest rate to zero
+        _addInterestRateTo(_positionId);
 
         revertIfSuperiorTo(_repaidQuantity, positions[_positionId].borrowedAssets);
 
@@ -233,37 +234,35 @@ contract Book is IBook {
         uint256 _takenOrderId,
         uint256 _takenQuantity
     )
-        external
+        public
         orderHasAssets(_takenOrderId)
     {
         Order memory takenOrder = orders[_takenOrderId];
         bool isBuyOrder = takenOrder.isBuyOrder;
 
-        // taking is allowed for profitable trades only
-        if (getAssetsLentByOrder(_takenOrderId) == 0) require(takable(_takenOrderId), "Trade must be profitable");
+        // if the order is borowed, taking is allowed for profitable trades only
+        if (getAssetsLentByOrder(_takenOrderId) > 0) require(profitable(_takenOrderId), "Trade must be profitable");
         
         // taking is allowed for non-borrowed assets, possibly net of minimum deposit if taking is partial
         require(outable(_takenOrderId, _takenQuantity), "Too much assets taken");
 
-        // increment time-weighted rates with IR based on past UR before take changes UR forward
+        // increment time-weighted rates with IR based on past UR before take() changes UR forward
         _incrementTimeWeightedRates();
         
         // liquidate all borrowing positions, output seized borrowers' collateral
         // Ex: Bob deposits 2 ETH in a sell order to borrow 4000 from Alice's buy order (p = 2000)
-        // Alice's buy order is taken, Bob's collateral is seized for 4000/p = 2 ETH      
-        uint256 seizedBorrowerCollateral = _liquidateAssets(_takenOrderId);
+        // Alice's buy order is taken, Bob's collateral is seized for 4000/p = 2 ETH  
+        uint256 seizedCollateral = _closeAllPositions(_takenOrderId);
 
         // Liquidation means les assets deposited (seized collateral) and less assets borrowed (written off debt)
-        uint256 writtenOffDebt;
-        if (seizedBorrowerCollateral > 0) {
+        uint256 writtenOffDebt = 0;
+        if (seizedCollateral > 0) {
             // total deposits from borrowers' side are reduced by 2 ETH
-            _decreaseTotalAssetsBy(seizedBorrowerCollateral, !isBuyOrder);
+            _decreaseTotalAssetsBy(seizedCollateral, !isBuyOrder);
             // if 2 ETH are seized, 2*p = 4000 USDC of debt are written off
-            writtenOffDebt = convert(seizedBorrowerCollateral, takenOrder.price, !isBuyOrder);
+            writtenOffDebt = convert(seizedCollateral, takenOrder.price, !isBuyOrder, !ROUNDUP);
             // total borrow is reduced by 4000 USDC
             _decreaseTotalBorrowBy(writtenOffDebt, isBuyOrder);
-        } else {
-            writtenOffDebt = 0;
         }
 
         // assets taken could collateralize maker's own borrowing positions
@@ -273,36 +272,57 @@ contract Book is IBook {
         // Her borrowing in ETH is reduced by min(X/p, 1) 
         // Taking a collateral order writes off the debt first (exit strategy)
 
-        uint256 budgetToRepayLoans = convert(_takenQuantity + writtenOffDebt, takenOrder.price, isBuyOrder);
-        uint256 reducedBorrow = _reduceUserBorrow(takenOrder.maker, budgetToRepayLoans, isBuyOrder);
-        _decreaseTotalBorrowBy(reducedBorrow, !isBuyOrder);
+        uint256 reducedBorrow = 0;
+        if (_takenQuantity + writtenOffDebt > 0) {
+            uint256 budgetToRepayLoans = convert(_takenQuantity + writtenOffDebt, takenOrder.price, isBuyOrder, !ROUNDUP);
+            reducedBorrow = _reduceUserBorrow(takenOrder.maker, budgetToRepayLoans, isBuyOrder);
+            _decreaseTotalBorrowBy(reducedBorrow, !isBuyOrder);
+            // Alice's buy order is reduced by amount taken + 2 * p USDC
+            _reduceOrderBy(_takenOrderId, _takenQuantity + writtenOffDebt);
+            // total deposits from maker's side are reduced by taken quantity + 2*p USDC
+            _decreaseTotalAssetsBy(_takenQuantity + writtenOffDebt, isBuyOrder);
+        }
 
-        // Alice buy order is reduced by amount taken + 2 * p USDC
-        _reduceOrderBy(_takenOrderId, _takenQuantity + writtenOffDebt);
-        // total deposits from maker's side are reduced by taken quantity + 2*p USDC
-        _decreaseTotalAssetsBy(_takenQuantity + writtenOffDebt, isBuyOrder);
-
-        // quantity given by taker in exchange of _takenQuantity (can be zero)
-        uint256 exchangedQuantity = convert(_takenQuantity, takenOrder.price, isBuyOrder);
-
+        uint256 exchangedQuantity = 0;
         if (_takenQuantity > 0) {
+            // quantity given by taker in exchange of _takenQuantity (can be zero)
+            exchangedQuantity = convert(_takenQuantity, takenOrder.price, isBuyOrder, ROUNDUP);
             _transferTo(msg.sender, _takenQuantity, isBuyOrder);
             _transferFrom(msg.sender, exchangedQuantity, !isBuyOrder);
         }
 
-        if (exchangedQuantity + seizedBorrowerCollateral - reducedBorrow > 0) {
-            _transferTo(takenOrder.maker, exchangedQuantity + seizedBorrowerCollateral - reducedBorrow, !isBuyOrder);
+        if (exchangedQuantity + seizedCollateral - reducedBorrow > 0) {
+            _transferTo(takenOrder.maker, exchangedQuantity + seizedCollateral - reducedBorrow, !isBuyOrder);
         }  
-        emit Take(msg.sender, takenOrder.maker, _takenQuantity, takenOrder.price, isBuyOrder);
+        emit Take(msg.sender, _takenOrderId, takenOrder.maker, _takenQuantity, takenOrder.price, isBuyOrder);
+    }
+
+    /// @inheritdoc IBook
+    function liquidate(uint256 _positionId)
+        external
+        positionExists(_positionId)
+    {
+        uint256 orderId = positions[_positionId].orderId;
+        
+        // if taking is profitable, liquidate all positions, not only the undercollateralized one
+        if (profitable(orderId)) {
+            console.log("take here");
+            take(orderId, 0);
+        } else {
+            // only maker can pull the trigger
+            _onlyMaker(orderId);
+            console.log("liquidate here");
+            _liquidate(_positionId);
+        }
     }
 
     ///////******* Internal functions *******///////
     
-    // liquidate **all** borrowing positions after taking an order, even if partial
+    // close **all** borrowing positions after taking an order, even if taking is partial or 0
     // doesn't perform external transfers
     // _fromOrderId: order from which borrowing positions must be cleared
 
-    function _liquidateAssets(uint256 _fromOrderId)
+    function _closeAllPositions(uint256 _fromOrderId)
         internal
         returns (uint256 seizedBorrowerCollateral)
     {
@@ -312,58 +332,66 @@ contract Book is IBook {
         // iterate on position ids which borrow from the order taken, liquidate position one by one
         for (uint256 i = 0; i < MAX_POSITIONS; i++) {
             uint256 positionId = positionIds[i];
-            if(_borrowingInPositionIsPositive(positionId)) {
-                uint256 seizedCollateral = _closePosition(positionId);
+            if(_borrowIsPositive(positionId)) {
+                // add interest rate to borrowed quantity
+                _increaseBorrowBy(positionId, _interestLoad(positionId));
+                uint256 seizedCollateral = _closePosition(
+                    positionId,
+                    positions[positionId].borrowedAssets,
+                    orders[_fromOrderId].price
+                );
                 seizedBorrowerCollateral += seizedCollateral;
             }
         }
     }
 
-    // liquidate one borrowing position: seize collateral and write off debt for the same amount
-    // liquidation is full, i.e. borrower's debt is fully written off
-    // collateral is seized for the exact amount liquidated
-    // as multiple orders may collateralize the liquidated position:
+    // close one borrowing position for quantity _borrowToWriteOff:
+    // - write off debt for this quantity
+    // - seize collateral for the exact amount liquidated at exchange rate _price
+    // as multiple orders may collateralize the closed position:
     //  - iterate on collateral orders made by borrower in the opposite currency
     //  - seize collateral orders as they come, stop when borrower's debt is fully written off
     //  - change internal balances
+    // interest rate has been added to position before the call
     // doesn't execute final external transfer of assets
+    // outputs actually seized collateral considering that interest-based liquidations could have not occurred
 
-    function _closePosition(uint256 _positionId)
+    function _closePosition(
+        uint256 _positionId,
+        uint256 _borrowToWriteOff,
+        uint256 _price
+    )
         internal
-        positionExists(_positionId)
-        returns (uint256 seizedCollateral)
+        returns (uint256 seizedCollateral_)
     {
         Position memory position = positions[_positionId]; // position to be liquidated
-        Order memory takenOrder = orders[position.orderId]; // order from which assets are taken
-        bool inQuoteToken = takenOrder.isBuyOrder;
-
-        // add interest rate to borrowed quantity
-        _increaseBorrowBy(_positionId, _interestLoad(_positionId));
+        bool inQuoteToken = orders[position.orderId].isBuyOrder; // type of order from which assets are taken
         
         // collateral to seize the other side of the book given borrowed quantity
         // ex: Bob deposits 1 ETH in 2 sell orders to borrow 4000 from Alice's buy order (p = 2000)
         // Alice's buy order is taken => seized Bob's collateral is 4000/p = 2 ETH spread over 2 orders
-        seizedCollateral = convert(position.borrowedAssets, takenOrder.price, inQuoteToken);
-        uint256 remainingCollateralToSeize = seizedCollateral;
+        uint256 collateralToSeize = convert(_borrowToWriteOff, _price, inQuoteToken, ROUNDUP);
+
+        uint256 remainingCollateralToSeize = collateralToSeize;
 
         // order id list of collateral orders to seize:
         uint256[MAX_ORDERS] memory depositIds = users[position.borrower].depositIds;
         for (uint256 j = 0; j < MAX_ORDERS; j++) {
-            // order id from which assets are seized, ex: id of Bob's first sell order
+            // order id from which assets are seized, ex: id of Bob's first sell order with ETH as collateral
             uint256 orderId = depositIds[j];
             if (_orderHasAssets(orderId) &&
                 orders[orderId].isBuyOrder != inQuoteToken)
             {
                 uint256 orderQuantity = orders[orderId].quantity;
 
-                // if order quantity > remaining collateral to seize and doesn't leave dusts
-                if (orderQuantity > remainingCollateralToSeize &&
-                    outable(orderId, remainingCollateralToSeize)
-                ) {
-                    // enough collateral assets are seized before borrower's order is fully seized
+                if (orderQuantity > remainingCollateralToSeize)
+                {
+                    // enough collateral assets are seized before borrower's order could be fully seized
                     _reduceOrderBy(orderId, remainingCollateralToSeize);
-                    uint256 reducedBorrow = convert(remainingCollateralToSeize, takenOrder.price, !inQuoteToken);
-                    positions[_positionId].borrowedAssets -= reducedBorrow;
+                    uint256 reducedBorrow = convert(remainingCollateralToSeize, _price, !inQuoteToken, ROUNDUP);
+                    // handle rounding errors
+                    positions[_positionId].borrowedAssets = _substract(
+                        positions[_positionId].borrowedAssets, reducedBorrow, "error code 001", true);
                     remainingCollateralToSeize = 0;
                     break;
                 } else {
@@ -375,6 +403,8 @@ contract Book is IBook {
                 }
             }
         }
+        // could be less than collateralToSeize if maker has not liquidated undercollateralized positions
+        seizedCollateral_ = collateralToSeize - remainingCollateralToSeize;
     }
 
     // reduce maker's borrowing positions possibly as high as BudgetToRepayLoans
@@ -400,11 +430,11 @@ contract Book is IBook {
         // iterate on position ids which borrow from the order taken, liquidate position one by one
         for (uint256 i = 0; i < MAX_BORROWINGS; i++) {
             uint256 borrowedOrderId = borrowFromIds[i];
-            uint256 positionId = _getPositionId(borrowedOrderId, _borrower);
+            uint256 positionId = getPositionId(borrowedOrderId, _borrower);
             if (positions[positionId].borrowedAssets > 0 &&
                 orders[borrowedOrderId].isBuyOrder != _isBuyOrder)
             {
-                (uint256 budgetAfter, uint256 reducedBorrow) =_closePosition(positionId, budgetBefore);
+                (uint256 budgetAfter, uint256 reducedBorrow) =_closeMakerPosition(positionId, budgetBefore);
                 totalReducedBorrow_ += reducedBorrow;
                 if (budgetAfter == 0) break;
                 else budgetBefore = budgetAfter;
@@ -415,7 +445,7 @@ contract Book is IBook {
     // reduce user's borrow from one order, partially or fully
     // _budget: remaining assets from taken position available to partially or fully repay the position
 
-    function _closePosition(
+    function _closeMakerPosition(
         uint256 _positionId,
         uint256 _budget 
     )
@@ -425,12 +455,8 @@ contract Book is IBook {
             uint256 reducedBorrow_ // quantity of assets reduced from this position
         )
     {
-        // add interest rate to borrowed quantity and update TWIR_t to TWIR_T
-        uint256 interestLoad = _interestLoad(_positionId);
-        bool inQuoteToken = orders[positions[_positionId].orderId].isBuyOrder;
-        _increaseBorrowBy(_positionId, interestLoad);
-        positions[_positionId].timeWeightedRate = getTimeWeightedRate(inQuoteToken);
-        _increaseTotalBorrowBy(interestLoad, inQuoteToken);
+        // add interest rate to borrowed quantity and update TWIR_t to TWIR_T to reset interest rate to zero
+        _addInterestRateTo(_positionId);
         
         uint256 borrowedAssets = positions[_positionId].borrowedAssets;
         if (borrowedAssets >= _budget) {
@@ -443,6 +469,44 @@ contract Book is IBook {
             remainingBudget_ = _budget - borrowedAssets;
         }
         _reduceBorrowBy(_positionId, reducedBorrow_);
+    }
+
+    // liquidate borrowing positions from users which excess collateral is zero or negative
+    // borrower's excess collateral must be zero or negative
+    // only maker can liquidate position from his own order
+
+    function _liquidate(uint256 _positionId) internal
+    {
+        Position memory position = positions[_positionId]; // position to be liquidated
+        Order memory borrowedOrder = orders[position.orderId]; // order of maker from which assets are borrowed
+        bool inQuoteToken = borrowedOrder.isBuyOrder;
+        
+        // increment time-weighted rates with IR before liquidate (necessary for up-to-date excess collateral)
+        console.log("hereeeeeeeeeeeeeeeeeeee BEFORE");
+        _incrementTimeWeightedRates();
+        console.log("hereeeeeeeeeeeeeeeeeeee AFTER");
+
+        require(_getExcessCollateral(position.borrower, !inQuoteToken) == 0,
+            "Borrower's excess collateral is positive");
+
+        // add fee rate to borrowed quantity (interest rate has been already added)
+        uint256 totalFee = FEE.wMulUp(position.borrowedAssets);
+        _increaseBorrowBy(_positionId, totalFee);
+
+        // seize collateral equivalent to borrowed quantity + interest rate + fee
+        uint256 seizedCollateral = _closePosition(_positionId, positions[_positionId].borrowedAssets, priceFeed);
+        console.log("seizedCollateral: ", seizedCollateral / WAD);
+
+        // Liquidation means less assets deposited (seized collateral) and less assets borrowed (written off debt)
+        if (seizedCollateral > 0) {
+            // total deposits from borrowers' side are reduced by 2 ETH
+            _decreaseTotalAssetsBy(seizedCollateral, !inQuoteToken);
+            // if 2 ETH are seized, 2*p = 4000 USDC of debt are written off
+            _decreaseTotalBorrowBy(convert(seizedCollateral, borrowedOrder.price, !inQuoteToken, !ROUNDUP), inQuoteToken);
+            // transfer seized collateral to maker
+            _transferTo(borrowedOrder.maker, seizedCollateral, !inQuoteToken);
+        }
+        emit Liquidate(borrowedOrder.maker, _positionId, seizedCollateral, inQuoteToken);
     }
 
     // tranfer ERC20 from contract to user/taker/borrower
@@ -463,7 +527,9 @@ contract Book is IBook {
         address _from,
         uint256 _quantity,
         bool _isBuyOrder
-    ) internal isPositive(_quantity)
+    )
+        internal
+        isPositive(_quantity)
     {
         if (_isBuyOrder) quoteToken.safeTransferFrom(_from, address(this), _quantity);
         else baseToken.safeTransferFrom(_from, address(this), _quantity);
@@ -502,7 +568,6 @@ contract Book is IBook {
         address _maker
     )
         internal
-        orderHasAssets(_orderId)
     {
         if (_getDepositIdsRowInUsers(_maker, _orderId) != ABSENT) return;
         bool fillRow = false;
@@ -516,17 +581,6 @@ contract Book is IBook {
         if (!fillRow) revert("Max number of orders reached for user");
     }
 
-    function _removeOrderIdFromBorrowFromIdsInUsers(
-        address _user,
-        uint256 _orderId
-    )
-        internal
-        orderHasAssets(_orderId)
-    {
-        uint256 row = _getBorrowFromIdsRowInUsers(_user, _orderId);
-        if (row != ABSENT) users[_user].borrowFromIds[row] = 0;
-    }
-
     // if borrower doen't already borrow from order, add order id in borrowFromIds array in mapping users
     // reverts if max borrowing reached
 
@@ -535,7 +589,6 @@ contract Book is IBook {
         uint256 _orderId
     )
         internal
-        orderHasAssets(_orderId)
     {
         if (_getBorrowFromIdsRowInUsers(_borrower, _orderId) != ABSENT) return;
         bool fillRow = false;
@@ -551,21 +604,8 @@ contract Book is IBook {
         if (!fillRow) revert("Max number of positions reached for borrower");
     }
 
-    function _removeOrderIdFromDepositIdsInUsers(
-        address _user,
-        uint256 _orderId
-    )
-        internal
-        orderHasAssets(_orderId)
-    {
-        if (orders[_orderId].quantity == 0) {
-            uint256 row = _getDepositIdsRowInUsers(_user, _orderId);
-            if (row != ABSENT) users[_user].depositIds[row] = 0;
-        }
-    }
-
     // if position doesn't exist, add new position in positions mapping
-    // if exists, increase borrow by quantity + interest load, restarts R_t to R_T
+    // if exists, increase borrow by quantity + interest load and reset R_t to R_T
     // returns existing or new position id in positions mapping
     // _orderId: from which assets are borrowed
 
@@ -575,29 +615,26 @@ contract Book is IBook {
         uint256 _borrowedQuantity
     )
         internal
-        orderHasAssets(_orderId)
-        isPositive(_borrowedQuantity)
         returns (uint256 positionId_)
     {
-        positionId_ = _getPositionId(_orderId, _borrower);
+        positionId_ = getPositionId(_orderId, _borrower);
         bool inQuoteToken = orders[_orderId].isBuyOrder;
-        uint256 timeWeightedRate = getTimeWeightedRate(inQuoteToken);
         if (positionId_ != 0) {
-            // add interest rate to borrowed quantity and update TWIR_t to TWIR_T
-            uint256 interestLoad = _interestLoad(positionId_);
-            _increaseBorrowBy(positionId_, _borrowedQuantity + interestLoad);
-            positions[positionId_].timeWeightedRate = timeWeightedRate;
+            // add interest rate to borrowed quantity, update TWIR_t to TWIR_T to reset interest rate to zero
+            _addInterestRateTo(positionId_);
+            _increaseBorrowBy(positionId_, _borrowedQuantity);
         } else {
             Position memory newPosition = Position({
                 borrower: _borrower,
                 orderId: _orderId,
                 borrowedAssets: _borrowedQuantity,
-                timeWeightedRate: timeWeightedRate
+                timeWeightedRate: getTimeWeightedRate(inQuoteToken)
             });
             positions[lastPositionId] = newPosition;
             positionId_ = lastPositionId;
             lastPositionId++;
         }
+        _increaseTotalBorrowBy(_borrowedQuantity, inQuoteToken);
     }
 
     // increase borrowedAssets in position, special attention to excessCollateral
@@ -607,7 +644,6 @@ contract Book is IBook {
         uint256 _quantity
     )
         internal
-        positionExists(_positionId)
     {
         positions[_positionId].borrowedAssets += _quantity;
     }
@@ -620,9 +656,10 @@ contract Book is IBook {
         uint256 _quantity
     )
         internal
-        positionExists(_positionId)
     {
-        positions[_positionId].borrowedAssets -= _quantity;
+        positions[_positionId].borrowedAssets = _substract(
+            positions[_positionId].borrowedAssets, _quantity, "error code 002", true
+        );
     }
 
     // if borrower doesn't already borrow from order, add new position id in positionIds array in orders
@@ -633,14 +670,14 @@ contract Book is IBook {
         uint256 _orderId
     )
         internal
-        orderHasAssets(_orderId)
-        positionExists(_positionId)
+        // orderHasAssets(_orderId)
+        // positionExists(_positionId)
     {
-        if (_getPositionId(_orderId, positions[_positionId].borrower) != 0) return; // could save gas by avoiding two loops FOR
+        if (getPositionId(_orderId, positions[_positionId].borrower) != 0) return; // could save gas by avoiding two loops FOR
         bool fillRow = false;
         uint256[MAX_POSITIONS] memory positionIds = orders[_orderId].positionIds;
         for (uint256 i = 0; i < MAX_POSITIONS; i++) {
-            if (positionIds[i] == 0 || ! _borrowingInPositionIsPositive(positionIds[i])) {
+            if (positionIds[i] == 0 || ! _borrowIsPositive(positionIds[i])) {
                 orders[_orderId].positionIds[i] = _positionId;
                 fillRow = true;
                 break;
@@ -655,7 +692,6 @@ contract Book is IBook {
         uint256 _quantity
     )
         internal
-        isPositive(_quantity)
     {
         orders[_orderId].quantity += _quantity;
     }
@@ -668,29 +704,38 @@ contract Book is IBook {
         uint256 _quantity
     )
         internal
-        orderHasAssets(_orderId)
     {
-        if (orders[_orderId].quantity >= _quantity) orders[_orderId].quantity -= _quantity;
-        else orders[_orderId].quantity = 0;
+        orders[_orderId].quantity = _substract(
+            orders[_orderId].quantity, _quantity, "error code 003", true
+        );
     }
 
     // increase total assets in quote (buy order side) or base (sell order side) token
-    function _increaseTotalAssetsBy(uint256 _quantity, bool _inQuote)
+    function _increaseTotalAssetsBy(
+        uint256 _quantity,
+        bool _inQuote
+    )
         internal
     {
         if (_inQuote) totalQuoteAssets += _quantity;
         else totalBaseAssets += _quantity;
     }
 
-    function _decreaseTotalAssetsBy(uint256 _quantity, bool _inQuote)
+    function _decreaseTotalAssetsBy(
+        uint256 _quantity,
+        bool _inQuote
+    )
         internal
     {
-        if (_inQuote) totalQuoteAssets -= _quantity;
-        else totalBaseAssets -= _quantity;
+        if (_inQuote) totalQuoteAssets = _substract(totalQuoteAssets, _quantity, "error code 004", true);
+        else totalBaseAssets = _substract(totalBaseAssets, _quantity, "error code 005", true);
     }
 
     // increase total borrow in quote (buy order side) or base (sell order side) token
-    function _increaseTotalBorrowBy(uint256 _quantity, bool _inQuote)
+    function _increaseTotalBorrowBy(
+        uint256 _quantity,
+        bool _inQuote
+    )
         internal
     {
         if (_inQuote) totalQuoteBorrow += _quantity;
@@ -698,11 +743,36 @@ contract Book is IBook {
     }
 
     // decrease total borrow in quote or base tokens
-    function _decreaseTotalBorrowBy(uint256 _quantity, bool _inQuote)
+    function _decreaseTotalBorrowBy(
+        uint256 _quantity,
+        bool _inQuote
+    )
         internal
     {
-        if (_inQuote) totalQuoteBorrow -= _quantity;
-        else totalBaseBorrow -= _quantity;
+        if (_inQuote) totalQuoteBorrow = _substract(totalQuoteBorrow, _quantity, "error code 006", true);
+        else totalBaseBorrow = _substract(totalBaseBorrow, _quantity, "error code 007", true);
+    }
+
+    function _substract(
+        uint256 _a,
+        uint256 _b,
+        string memory errorCode,
+        bool recover
+    )
+        internal view
+        returns (uint256)
+    {
+        if (_a >= _b)
+        {
+            return _a - _b;
+        } else {
+            if (recover) {
+                console.log("Error code: ", errorCode);
+                return 0;
+            } else {
+                revert(errorCode);
+            }
+        }
     }
 
     // add IR_{t-1} (n_t - n_{t-1})/N to time-weighted interest rate TWIR_{t-2} in the two markets:
@@ -712,45 +782,91 @@ contract Book is IBook {
     function _incrementTimeWeightedRates()
         internal
     {
+        console.log("block.timestamp: ", block.timestamp);
+        console.log("lastTimeStamp: ", lastTimeStamp);
         uint256 elapsed = block.timestamp - lastTimeStamp;
-        quoteTimeWeightedRate += elapsed * getInstantRate(true) / YEAR;
-        baseTimeWeightedRate += elapsed * getInstantRate(false) / YEAR;
+        if (elapsed == 0) return;
+        quoteTimeWeightedRate += elapsed * getInstantRate(true);
+        baseTimeWeightedRate += elapsed * getInstantRate(false);
         lastTimeStamp = block.timestamp;
     }
 
-    // compute interest rate since start of borrowing position between t and T
-    // exp(TWIR_T - TWIR_t) - 1 using a Taylor approximation
+    // get user's excess collateral in the quote or base token
+    // excess collateral = total deposits - borrowed assets - needed collateral
+    // needed collateral is computed with interest rate added to borrowed assets
 
-    function _accruedInterestRate(
-        uint256 _positionId,
+    function _getExcessCollateral(
+        address _user,
         bool _inQuoteToken
     )
-        internal view
-        returns (uint256 accruedInterestRate_)
-    {
-        accruedInterestRate_ = (
-            getTimeWeightedRate(_inQuoteToken)
-            - positions[_positionId].timeWeightedRate
-        ).wTaylorCompounded();
+        public
+        returns (uint256) {
+        
+        uint256 totalDeposit = getUserTotalDeposit(_user, _inQuoteToken);
+        uint256 totalBorrow = getUserTotalBorrow(_user, _inQuoteToken);
+        uint256 neededCollateral = _getBorrowerNeededCollateral(_user, _inQuoteToken);
+        
+        if (totalDeposit > totalBorrow + neededCollateral) {
+            return totalDeposit - totalBorrow - neededCollateral;
+        } else {
+            return 0;
+        }
     }
 
-    function _interestLoad(uint256 _positionId)
-        internal view
-        returns (uint256 interestLoad_)
+    // compute and add interest rate to borrowed quantity
+    // update TWIR_t to TWIR_T to reset interest rate to zero
+    // update total borrow in quote or base token
+    
+    function _addInterestRateTo(uint256 _positionId) internal
     {
         bool inQuoteToken = orders[positions[_positionId].orderId].isBuyOrder;
-        uint256 interestRate = _accruedInterestRate(_positionId, inQuoteToken);
-        interestLoad_ = interestRate.wMulUp(positions[_positionId].borrowedAssets);
+        uint256 interestLoad = _interestLoad(_positionId);
+        _increaseBorrowBy(_positionId, interestLoad);
+        positions[_positionId].timeWeightedRate = getTimeWeightedRate(inQuoteToken);
+        _increaseTotalBorrowBy(interestLoad, inQuoteToken); 
     }
 
-    function setPrice(uint256 _newPrice)
+    // borrower's total collateral needed to secure his debt in the quote or base token
+    // update borrowing by adding interest rate to it beforehand (_incrementTimeWeightedRates() has been called before)
+    // if needed collateral is not in quote token (base token), borrowed order is a buy order
+    // Ex: Alice deposits 3800 USDC to sell at 1900; Bob borrows 1900 USDC from Alice and needs 1 ETH as collateral
+    // _inQuoteToken = false as collateral needed is in ETH
+
+    function _getBorrowerNeededCollateral(
+        address _borrower,
+        bool _inQuoteToken
+    )
+        public
+        returns (uint256 totalNeededCollateral)
+    {
+        totalNeededCollateral = 0;
+        uint256[MAX_BORROWINGS] memory borrowedIds = users[_borrower].borrowFromIds;
+        for (uint256 i = 0; i < MAX_BORROWINGS; i++) {
+            Order memory order = orders[borrowedIds[i]]; // order id which assets are borrowed
+            // look for borrowing positions to assess needed collateral in the opposite currency
+            if (order.isBuyOrder == !_inQuoteToken) {
+                uint256 positionId = getPositionId(borrowedIds[i], _borrower);
+                if (positionId != 0) {
+                    // first add interest rate to borrowed quantity, update TWIR_t to TWIR_T to reset interest rate to zero
+                    _addInterestRateTo(positionId);
+                    totalNeededCollateral += convert(
+                        positions[positionId].borrowedAssets,
+                        order.price,
+                        order.isBuyOrder,
+                        ROUNDUP);
+                }
+            }
+        }
+    }
+
+    //////////********* Public View functions *********/////////
+
+    function setPriceFeed(uint256 _newPrice)
         public
     {
-        price = _newPrice;
+        priceFeed = _newPrice;
     }
-
-    //////////********* View functions *********/////////
-
+    
     // get UR = total borrow / total assets in the buy order or sell order market
     function getUtilizationRate(bool _isBuyOrder)
         public view
@@ -774,72 +890,24 @@ contract Book is IBook {
 
     function getInstantRate(bool _isBuyOrder)
         public view
-        returns (uint256)
+        returns (uint256 instantRate)
     {
-        return ALPHA 
+        uint256 annualRate = ALPHA 
             + BETA.wMulDown(getUtilizationRate(_isBuyOrder))
             + GAMMA.wMulDown(getUtilizationRate(!_isBuyOrder));
+        instantRate = annualRate / YEAR;
     }
     
-    // get TWIR_T in buy or sell order market, used in computing interest rate for borrowing positions
+    // get TWIR_T in buy or sell order market
+    // used in computing interest rate for borrowing positions
+
     function getTimeWeightedRate(bool isBuyOrder)
         public view
         returns (uint256)
     {
         return isBuyOrder ? quoteTimeWeightedRate : baseTimeWeightedRate;
     }
-    
-    function _revertIfOrderHasZeroAssets(uint256 _orderId)
-        internal view
-    {
-        require(_orderHasAssets(_orderId), "Order has zero assets");
-    }
 
-    function _orderHasAssets(uint256 _orderId)
-        internal view
-        returns (bool)
-    {
-        console.log("orders[_orderId].quantity: ", orders[_orderId].quantity);
-        return (orders[_orderId].quantity > 0);
-    }
-
-    function _onlyMaker(uint256 orderId)
-        internal view
-    {
-        require(getMaker(orderId) == msg.sender, "Only maker can remove order");
-    }
-
-    function _onlyBorrower(uint256 _positionId)
-        internal view
-    {
-        require(getBorrower(_positionId) == msg.sender, "Only borrower can repay position");
-    }
-
-    function _revertIfPositionDoesntExist(uint256 _positionId)
-        internal view
-    {
-        require(_borrowingInPositionIsPositive(_positionId), "Borrowing position does not exist");
-    }
-
-    function _borrowingInPositionIsPositive(uint256 _positionId)
-        internal view
-        returns (bool)
-    {
-        return (positions[_positionId].borrowedAssets > 0);
-    }
-
-    // get position id from positionIds array in orders and check that borrow is zero
-    function _userHasZeroBorrowingFromOrder (
-        uint256 _orderId,
-        address _user
-    )
-        internal view
-        returns (bool)
-    {
-        uint256 positionId = _getPositionId(_orderId, _user);
-        return !_borrowingInPositionIsPositive(positionId);
-    }
-                    
     // get maker's address based on order id
     function getMaker(uint256 _orderId)
         public view
@@ -873,17 +941,17 @@ contract Book is IBook {
     }
 
     // total assets borrowed by other users from _user in base or quote token
-    function getUserTotalBorrowedAssets(
+    function getUserTotalBorrow(
         address _user,
         bool _inQuoteToken
     )
         public view
-        returns (uint256 totalBorrowedAssets)
+        returns (uint256 totalBorrow)
     {
         uint256[MAX_ORDERS] memory orderIds = users[_user].depositIds;
-        totalBorrowedAssets = 0;
+        totalBorrow = 0;
         for (uint256 i = 0; i < MAX_ORDERS; i++) {
-            totalBorrowedAssets += _getOrderBorrowedAssets(orderIds[i], _inQuoteToken);
+            totalBorrow += _getOrderBorrowedAssets(orderIds[i], _inQuoteToken);
         }
     }
 
@@ -902,46 +970,6 @@ contract Book is IBook {
         }
     }
 
-    // borrower's total collateral needed to secure his debt in the quote or base token
-    // if needed collateral is in quote token, borrowed order is a sell order
-    // Ex: Alice deposits 3 ETH to sell at 2100; Bob borrows 2 ETH and needs 2*2100 = 4200 USDC as collateral
-
-    function getBorrowerNeededCollateral(
-        address _borrower,
-        bool _inQuoteToken
-    )
-        public view
-        returns (uint256 totalNeededCollateral)
-    {
-        totalNeededCollateral = 0;
-        uint256[MAX_BORROWINGS] memory borrowedIds = users[_borrower].borrowFromIds;
-        for (uint256 i = 0; i < MAX_BORROWINGS; i++) {
-            Order memory order = orders[borrowedIds[i]]; // order id which assets are borrowed
-            if (order.isBuyOrder != _inQuoteToken) {
-                uint256 positionId = _getPositionId(borrowedIds[i], _borrower);
-                if (positionId != 0) {
-                    uint256 collateral = convert(positions[positionId].borrowedAssets, order.price, order.isBuyOrder);
-                    totalNeededCollateral += collateral;
-                }
-            }
-        }
-    }
-
-    // get user's excess collateral in the quote or base token
-    // excess collateral = total deposits - collateral assets - borrowed assets
-
-    function getUserExcessCollateral(
-        address _user,
-        bool _inQuoteToken
-    )
-        public view
-        returns (uint256 excessCollateral) {
-        excessCollateral =
-            getUserTotalDeposit(_user, _inQuoteToken) -
-            getUserTotalBorrowedAssets(_user, _inQuoteToken) -
-            getBorrowerNeededCollateral(_user, _inQuoteToken);
-    }
-
     // get quantity of assets lent by order
     function getAssetsLentByOrder(uint256 _orderId)
         public view
@@ -954,15 +982,21 @@ contract Book is IBook {
         }
     }
 
-    function takable(
+    // check that take() is profitable
+    // if buy order, price feed must be lower than limit price
+    // if sell order, price feed must be higher than limit price
+    
+    function profitable(
         uint256 _orderId
     )
         public view
-        // orderHasAssets(_orderId)
         returns (bool)
     {
-        if (orders[_orderId].isBuyOrder) return (orders[_orderId].price >= price);
-        else return (orders[_orderId].price <= price);
+        bool isBuyOrder = orders[_orderId].isBuyOrder;
+        uint256 price = orders[_orderId].price;
+        
+        if (isBuyOrder) return (priceFeed <= price);
+        else return (priceFeed >= price);
     }
     
     // get quantity of assets available in order: order quantity - assets lent - minimum deposit
@@ -978,16 +1012,93 @@ contract Book is IBook {
         returns (bool)
     {
         uint256 lentAssets = getAssetsLentByOrder(_orderId);
-        uint256 minDep = minDeposit(orders[_orderId].isBuyOrder);
+        uint256 minSupply = minDeposit(orders[_orderId].isBuyOrder);
+        require(orders[_orderId].quantity >= lentAssets, "Excess collateral is negative 01");
         uint256 availableAssets = orders[_orderId].quantity > lentAssets ? 
             orders[_orderId].quantity - lentAssets : 0;     
         // if removal/borrowing/taking is not full (less than available assets), min deposit applies
         if (_outQuantity > availableAssets ||
-            _outQuantity < availableAssets && _outQuantity + minDep > availableAssets)
+            _outQuantity < availableAssets && _outQuantity + minSupply > availableAssets)
         return false;
         else return true;
     }
 
+
+    //////////********* Internal View functions *********/////////
+
+    // compute interest rate since start of borrowing position between t and T
+    // exp(TWIR_T - TWIR_t) - 1 using a Taylor approximation
+
+    function accruedInterestRate(
+        uint256 _positionId,
+        bool _inQuoteToken
+    )
+        internal view
+        returns (uint256 accruedInterestRate_)
+    {
+        require(getTimeWeightedRate(_inQuoteToken) >= positions[_positionId].timeWeightedRate, "interest rate negative");
+        accruedInterestRate_ = (getTimeWeightedRate(_inQuoteToken) - positions[_positionId].timeWeightedRate).wTaylorCompounded();
+    }
+
+    function _interestLoad(uint256 _positionId)
+        internal view
+        returns (uint256 interestLoad_)
+    {
+        bool inQuoteToken = orders[positions[_positionId].orderId].isBuyOrder;
+        uint256 interestRate = accruedInterestRate(_positionId, inQuoteToken);
+        interestLoad_ = interestRate.wMulUp(positions[_positionId].borrowedAssets);
+    }
+    
+    function _revertIfOrderHasZeroAssets(uint256 _orderId)
+        internal view
+    {
+        require(_orderHasAssets(_orderId), "Order has zero assets");
+    }
+
+    function _orderHasAssets(uint256 _orderId)
+        internal view
+        returns (bool)
+    {
+        return (orders[_orderId].quantity > 0);
+    }
+
+    function _onlyMaker(uint256 orderId)
+        internal view
+    {
+        require(getMaker(orderId) == msg.sender, "Only maker can remove order");
+    }
+
+    function _onlyBorrower(uint256 _positionId)
+        internal view
+    {
+        require(getBorrower(_positionId) == msg.sender, "Only borrower can repay position");
+    }
+
+    function _revertIfPositionDoesntExist(uint256 _positionId)
+        internal view
+    {
+        require(_borrowIsPositive(_positionId), "Borrowing position does not exist");
+    }
+
+    function _borrowIsPositive(uint256 _positionId)
+        internal view
+        returns (bool)
+    {
+        return (positions[_positionId].borrowedAssets > 0);
+    }
+
+    // get position id from positionIds array in orders and check that borrow is zero
+    function _userHasZeroBorrowingFromOrder (
+        uint256 _orderId,
+        address _user
+    )
+        internal view
+        returns (bool)
+    {
+        uint256 positionId = getPositionId(_orderId, _user);
+        return !_borrowIsPositive(positionId);
+    }
+                    
     // // get quantity of assets available in order: order quantity - assets lent
     // function nonBorrowedAssetsInOrder(uint256 _orderId)
     //     public view
@@ -1047,7 +1158,6 @@ contract Book is IBook {
         bool _isBuyOrder
     )
         internal view
-        isPositive(_price)
         returns (uint256 orderId)
     {
         orderId = 0;
@@ -1065,7 +1175,7 @@ contract Book is IBook {
 
     // get positionId from positionIds array in orders, returns 0 if not found
 
-    function _getPositionId(
+    function getPositionId(
         uint256 _orderId,
         address _borrower
     )
@@ -1084,7 +1194,7 @@ contract Book is IBook {
         }
     }
 
-    //////////********* Functions used in tests */
+    //////////********* Functions used in tests *///////
 
     // Add manual getter for positionIds in Order, used in setup.sol for tests
     function getOrderPositionIds(uint256 _orderId)
@@ -1127,13 +1237,15 @@ contract Book is IBook {
     function convert(
         uint256 _quantity,
         uint256 _price,
-        bool _inQuoteToken // type of the asset to convert to (quote or base token)
+        bool _inQuoteToken, // type of the asset to convert to (quote or base token)
+        bool _roundUp // round up or down
     )
         internal pure
         isPositive(_price)
         returns (uint256 convertedQuantity)
     {
-        convertedQuantity = _inQuoteToken ? _quantity.wDivDown(_price) : _quantity.wMulDown(_price);
+        if (_roundUp) convertedQuantity = _inQuoteToken ? _quantity.wDivUp(_price) : _quantity.wMulUp(_price);
+        else convertedQuantity = _inQuoteToken ? _quantity.wDivDown(_price) : _quantity.wMulDown(_price);
     }
 
     function minDeposit(bool _isBuyOrder)

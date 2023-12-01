@@ -192,11 +192,11 @@ contract TestRepay is Setup {
         depositBuyOrder(Alice, 2000, 90);
         depositSellOrder(Bob, 30, 110);
         borrow(Bob, Alice_Order, 900);
-        uint256 lenderExcessCollateral = book.getUserExcessCollateral(Alice, InQuoteToken);
-        uint256 borrowerExcessCollateral = book.getUserExcessCollateral(Bob, InBaseToken);
+        uint256 lenderExcessCollateral = book._getExcessCollateral(Alice, InQuoteToken);
+        uint256 borrowerExcessCollateral = book._getExcessCollateral(Bob, InBaseToken);
         repay(Bob, Bob_Position, 450);
-        assertEq(book.getUserExcessCollateral(Alice, InQuoteToken), lenderExcessCollateral + 450 * WAD);
-        assertEq(book.getUserExcessCollateral(Bob, InBaseToken), borrowerExcessCollateral + 5 * WAD);
+        assertEq(book._getExcessCollateral(Alice, InQuoteToken), lenderExcessCollateral + 450 * WAD);
+        assertEq(book._getExcessCollateral(Bob, InBaseToken), borrowerExcessCollateral + 5 * WAD);
         checkOrderQuantity(Alice_Order, 2000);
         checkOrderQuantity(Bob_Order, 30);
     }
@@ -206,11 +206,11 @@ contract TestRepay is Setup {
         depositSellOrder(Alice, 20, 110);
         depositBuyOrder(Bob, 3000, 90);
         borrow(Bob, Alice_Order, 10);
-        uint256 lenderExcessCollateral = book.getUserExcessCollateral(Alice, InBaseToken);
-        uint256 borrowerExcessCollateral = book.getUserExcessCollateral(Bob, InQuoteToken);
+        uint256 lenderExcessCollateral = book._getExcessCollateral(Alice, InBaseToken);
+        uint256 borrowerExcessCollateral = book._getExcessCollateral(Bob, InQuoteToken);
         repay(Bob, Bob_Position, 7);
-        assertEq(book.getUserExcessCollateral(Alice, InBaseToken), lenderExcessCollateral + 7 * WAD);
-        assertEq(book.getUserExcessCollateral(Bob, InQuoteToken), borrowerExcessCollateral + 770 * WAD);
+        assertEq(book._getExcessCollateral(Alice, InBaseToken), lenderExcessCollateral + 7 * WAD);
+        assertEq(book._getExcessCollateral(Bob, InQuoteToken), borrowerExcessCollateral + 770 * WAD);
         checkOrderQuantity(Alice_Order, 20);
         checkOrderQuantity(Bob_Order, 3000);
     }

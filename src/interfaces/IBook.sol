@@ -9,7 +9,6 @@ interface IBook {
     /// @param _price price of the buy or sell order
     /// @param _isBuyOrder true for buy orders, false for sell orders
 
-    
     function deposit(uint256 _quantity, uint256 _price, bool _isBuyOrder) external;
 
     /// @notice lets user partially or fully remove her order from the book
@@ -35,47 +34,74 @@ interface IBook {
 
     /// @notice Let users take limit orders, regardless orders' assets are borrowed or not
     /// taking, even 0, liquidates:
-    /// - all positions borrowing from the order (assets are transferred to maker)
+    /// - all positions borrowing from the order
     /// - maker's own positions for 100% of the taken order which assets are collateral (transferred to contract)
+    /// net assets are transferred to maker
     /// @param _takenOrderId id of the order to be taken
     /// @param _takenQuantity quantity of assets taken from the order
 
     function take(uint256 _takenOrderId, uint256 _takenQuantity) external;
 
-    // Events
+// 
+    // borrower's excess collateral must be zero or negative
+    // only maker can liquidate position from his own order
+
+
+    /// @notice If order is profitable, call take() with 0 capital, which liquidates all positions
+    /// Else, _liquidate one borrowing position which excess collateral is zero or negative
+    /// If _liquidate, borrow is reduced for 100% of the position 
+    /// borrower's collateral is seized for 100% of the position at cureent price (price feed)
+    /// collateral assets are transferred to maker with a 2% fee
+    /// @param _positionId id of the liquidated position
+
+    function liquidate(uint256 _positionId) external;
+
+    //** EVENTS */
 
     event Deposit(
         address maker,
         uint256 quantity,
         uint256 price,
-        bool isBuyOrder
+        bool isBuyOrder,
+        uint256 orderId
     );
 
     event Withdraw(
         address maker,
         uint256 quantity,
         uint256 price,
-        bool isBuyOrder
+        bool isBuyOrder,
+        uint256 orderId
     );
 
-    event Take(
-        address taker,
-        address maker,
-        uint256 quantity,
-        uint256 price,
-        bool isBuyOrder
-    );
     event Borrow(
         address borrower,
-        uint256 orderId,
+        uint256 positionId,
         uint256 quantity,
         bool isBuyOrder
     );
 
     event Repay(
         address borrower,
-        uint256 orderId,
+        uint256 positionId,
         uint256 quantity,
         bool isBuyOrder
     );
+
+    event Take(
+        address taker,
+        uint256 orderId,
+        address maker,
+        uint256 quantity,
+        uint256 price,
+        bool isBuyOrder
+    );
+
+    event Liquidate(
+        address maker,
+        uint256 _positionId,
+        uint256 seizedCollateral,
+        bool inQuoteToken
+    );
+
 }

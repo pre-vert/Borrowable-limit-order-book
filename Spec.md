@@ -185,7 +185,7 @@ When a borrower repays or closes his loan, or he's liquidated at date $T$, the p
 - calculate $DR_t = TWIR_T - TWIR_t = (n_{t+1} - n_t) IR_t + ... + (n_T - n_{T-1}) IR_{T-1}$
 - compute interest rate $e^{DR_t} - 1$ thanks to Taylor approximation.
 
-### Decrease borrowing
+#### Decrease borrowing
 
 Bob borrows 2000 at 10%. One year later, he pays back 1000:
 
@@ -194,7 +194,7 @@ Bob borrows 2000 at 10%. One year later, he pays back 1000:
 - pays 1000 from 2200
 - debt is now 1200
 
-### Increase borrowing
+#### Increase borrowing
 
 Bob borrows 2000 at 10%. One year later, he borrows 1000 more:
 
@@ -203,7 +203,7 @@ Bob borrows 2000 at 10%. One year later, he borrows 1000 more:
 - 1000 is added to 2200
 - debt is now 2200
 
-### Liqudation
+#### Liqudation
 
 Bob borrows 2000 at 10%. One year later, his position is liquidated:
 
@@ -211,10 +211,19 @@ Bob borrows 2000 at 10%. One year later, his position is liquidated:
 - debt is now 2200
 - his collateral is seized for 2200/p
 
-### Partial closing
+#### Partial closing
 
 Bob borrows 2000 at 10%. One year later, his own limit order which serves as collatera is taken. His position is reduced by 1000 
 
 - interest rate is added to his loan which becomes 2200
 - debt is now 2200
 - part of the collateral taken is seized for 1000/p to reduce his debt by 1000
+
+### Interest-based liquidation
+
+see [white paper](llob_wp.pdf) for details
+
+- check that the order is not profitable, if so call take() instead of liquidate()
+- check liquidate() is called by maker
+- check borrower's excess collateral is zero or negative
+- pull price feed to calculate how much collateral to seize and transfer to maker
