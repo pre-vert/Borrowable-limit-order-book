@@ -119,25 +119,25 @@ contract TestBorrow is Setup {
     function test_BorrowBuyOrderExcessCollateral() public {
         depositBuyOrder(Alice, 2000, 90);
         depositSellOrder(Bob, 30, 110);
-        uint256 lenderExcessCollateral = book.getUserExcessCollateral(Alice, InQuoteToken);
-        uint256 borrowerExcessCollateral = book.getUserExcessCollateral(Bob, InBaseToken);
+        uint256 lenderExcessCollateral = book._getExcessCollateral(Alice, InQuoteToken);
+        uint256 borrowerExcessCollateral = book._getExcessCollateral(Bob, InBaseToken);
         borrow(Bob, Alice_Order, 900);
-        assertEq(book.getUserExcessCollateral(Alice, InQuoteToken), lenderExcessCollateral - 900 * WAD);
-        assertEq(book.getUserExcessCollateral(Bob, InBaseToken), borrowerExcessCollateral - 10 * WAD);
+        assertEq(book._getExcessCollateral(Alice, InQuoteToken), lenderExcessCollateral - 900 * WAD);
+        assertEq(book._getExcessCollateral(Bob, InBaseToken), borrowerExcessCollateral - 10 * WAD);
     }
 
     // Lender and borrower excess collaterals in base and quote token are correct
     function test_BorrowSellOrderExcessCollateral() public {
         depositSellOrder(Alice, 20, 110);
         depositBuyOrder(Bob, 3000, 90);
-        uint256 lenderExcessCollateral = book.getUserExcessCollateral(Alice, InBaseToken);
-        uint256 borrowerExcessCollateral = book.getUserExcessCollateral(Bob, InQuoteToken);
+        uint256 lenderExcessCollateral = book._getExcessCollateral(Alice, InBaseToken);
+        uint256 borrowerExcessCollateral = book._getExcessCollateral(Bob, InQuoteToken);
         borrow(Bob, Alice_Order, 10);
-        assertEq(book.getUserExcessCollateral(Alice, InBaseToken), lenderExcessCollateral - 10 * WAD);
-        assertEq(book.getUserExcessCollateral(Bob, InQuoteToken), borrowerExcessCollateral - 10*110 * WAD);
+        assertEq(book._getExcessCollateral(Alice, InBaseToken), lenderExcessCollateral - 10 * WAD);
+        assertEq(book._getExcessCollateral(Bob, InQuoteToken), borrowerExcessCollateral - 10*110 * WAD);
     }
 
-    // Bob borrows from Alice's sell order, borrowFromIds arrary correctly updates
+    // Bob borrows from Alice's sell order, borrowFromIds array correctly updates
     function test_BorrowFromIdInUsers() public {
         depositSellOrder(Alice, 20, 110);
         depositBuyOrder(Bob, 3000, 90);
@@ -154,6 +154,7 @@ contract TestBorrow is Setup {
         borrow(Bob, Alice_Order, 10);
         borrow(Bob, Alice_Order, 5);
         checkBorrowingQuantity(1, 15);
+        checkBorrowingQuantity(2, 0);
         checkUserBorrowId(Bob, 0, Alice_Order);
         checkUserBorrowId(Bob, 1, No_Order);
     }

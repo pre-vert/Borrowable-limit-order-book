@@ -23,12 +23,19 @@
   - add _updateInterestRate() (in progress)
   - more tests (TestInterestRate.t.sol)
 
-### What's new in V0.2 ..
+### What's new in V0.2
 
 
 - implement interest rate model (see [Spec.md](Spec.md)):
   - utilization rates (UR) and interest rates (IR) in function of UR on both sides is updated every action (deposit, repay, take, borrow and repay)
   - borrower's IR is computed then added to borrowed quantity when the amount changes either because borrow is increased, decreased or partially liquidated
-- more tests (essentially in TestLiquidate.t.sol and TestInterest.t.sol)
+- more tests
 - code optimization
 - remains to code: see [Todo.md](Todo.md)
+
+### What's new in V1.0
+
+- Complete Interest rate model (see [Spec.md](Spec.md)):
+  - implement liquidation based on compound interest rate
+  - more tests of the IRM in TestLiquidate.t.sol and TestInterestRate.t.sol
+- code optimization
