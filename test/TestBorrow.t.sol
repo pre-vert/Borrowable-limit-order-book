@@ -257,4 +257,46 @@ contract TestBorrow is Setup {
         checkBorrowingQuantity(1, 1800);
     }
 
+    // users can't borrow non-borrowable buy orders
+    function test_CantBorrowNonBorrowableBuyOrder() public {
+        depositBuyOrder(Alice, 3000, 90);
+        depositSellOrder(Bob, 30, 110);
+        makeOrderNonBorrowable(Alice, Alice_Order);
+        vm.expectRevert("Order non borrowable");
+        borrow(Bob, Alice_Order, 1000);
+        // makeOrderBorrowable(Alice, Alice_Order);
+        // checkOrderIsBorrowable(Alice_Order);
+    }
+
+    // users can't borrow non-borrowable sell orders
+    function test_CantBorrowNonBorrowableSellOrder() public {
+        depositSellOrder(Alice, 30, 100);
+        depositBuyOrder(Bob, 3000, 90);
+        makeOrderNonBorrowable(Alice, Alice_Order);
+        vm.expectRevert("Order non borrowable");
+        borrow(Bob, Alice_Order, 10);
+    }
+
+    // users can't borrow borrowed buy orders after repayment
+    function test_CantBorrowNonBorrowableBuyOrderAfterRepay() public {
+        depositBuyOrder(Alice, 3000, 90);
+        depositSellOrder(Bob, 30, 110);
+        borrow(Bob, Alice_Order, 900);
+        makeOrderNonBorrowable(Alice, Alice_Order);
+        repay(Bob, Alice_Order, 900);
+        vm.expectRevert("Order non borrowable");
+        borrow(Bob, Alice_Order, 1000);
+    }
+
+    // users can't borrow borrowed buy orders after repayment
+    function test_CantBorrowNonBorrowableSellOrderAfterRepay() public {
+        depositSellOrder(Alice, 30, 100);
+        depositBuyOrder(Bob, 3000, 90);
+        borrow(Bob, Alice_Order, 10);
+        repay(Bob, Alice_Order, 10);
+        makeOrderNonBorrowable(Alice, Alice_Order);
+        vm.expectRevert("Order non borrowable");
+        borrow(Bob, Alice_Order, 10);
+    }
+
 }
