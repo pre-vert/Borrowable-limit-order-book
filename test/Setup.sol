@@ -18,9 +18,8 @@ contract Setup is StdCheats, Test {
     bool constant public SellOrder = false;
     bool constant public InQuoteToken = true;
     bool constant public InBaseToken = false;
-    // uint256 constant public Alpha = book.ALPHA();
-    // uint256 constant public Beta = book.BETA();
-    // uint256 constant public Gamma = book.GAMMA();
+    bool constant public IsBorrowable = true;
+    bool constant public IsNonBorrowable = false;
 
     uint256 constant public AccountNumber = 4;
     uint256 constant public ReceivedQuoteToken = 10000 * WAD;
@@ -84,12 +83,12 @@ contract Setup is StdCheats, Test {
 
     function depositBuyOrder(address _user, uint256 _quantity, uint256 _price) public {
         vm.prank(_user);
-        book.deposit(_quantity * WAD, _price * WAD, BuyOrder);
+        book.deposit(_quantity * WAD, _price * WAD, BuyOrder, IsBorrowable);
     }
 
     function depositSellOrder(address _user, uint256 _quantity, uint256 _price) public {
         vm.prank(_user);
-        book.deposit(_quantity * WAD, _price * WAD, SellOrder);
+        book.deposit(_quantity * WAD, _price * WAD, SellOrder, IsBorrowable);
     }
 
     function withdraw(address _user, uint256 _orderId, uint256 _quantity) public {
@@ -123,7 +122,7 @@ contract Setup is StdCheats, Test {
 
     // check assets in order == _quantity
     function checkOrderQuantity(uint256 _orderId, uint256 _quantity) public {
-        (,, uint256 quantity,) = book.orders(_orderId);
+        (,, uint256 quantity,,) = book.orders(_orderId);
         assertEq(quantity, _quantity * WAD);
         console.log("order quantity: ", quantity / WAD);
     }
@@ -160,6 +159,26 @@ contract Setup is StdCheats, Test {
             console.log("Utilization rate in sell order market (1e04): ", book.getUtilizationRate(_isBuyOrder) * 1e4 / WAD);
             console.log("Annualized rate in sell order market (1e05): ", book.getInstantRate(_isBuyOrder) * 1e5 * YEAR / WAD);
         }
+    }
+
+    function checkOrderIsBorrowable(uint256 _orderId) public {
+        (,,,, bool isBorrowable) = book.orders(_orderId);
+        assertEq(isBorrowable, IsBorrowable);
+    }
+
+    function checkOrderIsNonBorrowable(uint256 _orderId) public {
+        (,,,, bool isBorrowable) = book.orders(_orderId);
+        assertEq(isBorrowable, IsNonBorrowable);
+    }
+
+    function makeOrderNonBorrowable(address _user, uint256 _orderId) public {
+        vm.prank(_user);
+        book.changeBorrowable(_orderId, IsNonBorrowable);
+    }
+
+    function makeOrderBorrowable(address _user, uint256 _orderId) public {
+        vm.prank(_user);
+        book.changeBorrowable(_orderId, IsBorrowable);
     }
     
 

@@ -39,3 +39,13 @@
   - implement liquidation based on compound interest rate
   - more tests of the IRM in TestLiquidate.t.sol and TestInterestRate.t.sol
 - code optimization
+
+### What's new in V1.1
+
+- Let makers make their limit orders non borrowable:
+  - Take effect immediately for the non-borrowed part of the assets
+  - after the loans being repaid for the borrowed part
+- new unit tests for changeBorrowable()
+- updated IBook.sol
+- updated LendBook ULM
+- code optimization

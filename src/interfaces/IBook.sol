@@ -9,7 +9,7 @@ interface IBook {
     /// @param _price price of the buy or sell order
     /// @param _isBuyOrder true for buy orders, false for sell orders
 
-    function deposit(uint256 _quantity, uint256 _price, bool _isBuyOrder) external;
+    function deposit(uint256 _quantity, uint256 _price, bool _isBuyOrder, bool _isBorrowable) external;
 
     /// @notice lets user partially or fully remove her order from the book
     /// Only non-borrowed assets can be removed
@@ -56,13 +56,19 @@ interface IBook {
 
     function liquidate(uint256 _positionId) external;
 
-    //** EVENTS */
+    /// @notice make order borrowable if _isBorrowable is true or non borrowable if false
+    /// @param _orderId id of the order which is made borrowable
+    
+    function changeBorrowable(uint256 _orderId, bool _isBorrowable) external;
+
+    //** EVENTS **//
 
     event Deposit(
         address maker,
         uint256 quantity,
         uint256 price,
         bool isBuyOrder,
+        bool isBorrowable,
         uint256 orderId
     );
 
@@ -99,9 +105,12 @@ interface IBook {
 
     event Liquidate(
         address maker,
-        uint256 _positionId,
-        uint256 seizedCollateral,
-        bool inQuoteToken
+        uint256 _positionId
+    );
+
+    event ChangeBorrowable(
+        uint256 _orderId,
+        bool _isBorrowable
     );
 
 }

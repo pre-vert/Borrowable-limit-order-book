@@ -62,7 +62,7 @@ contract TestRepay is Setup {
         depositBuyOrder(Alice, 2000, 90);
         depositSellOrder(Bob, 30, 110);
         borrow(Bob, Alice_Order, 1000);
-        vm.expectRevert("Quantity exceeds limit");
+        vm.expectRevert("Repay too large (14)");
         repay(Bob, Bob_Position, 1400);
         checkOrderQuantity(Alice_Order, 2000);
         checkOrderQuantity(Bob_Order, 30);
@@ -73,7 +73,7 @@ contract TestRepay is Setup {
         depositSellOrder(Alice, 20, 110);
         depositBuyOrder(Bob, 3000, 90);
         borrow(Bob, Alice_Order, 10);
-        vm.expectRevert("Quantity exceeds limit");
+        vm.expectRevert("Repay too large (14)");
         repay(Bob, Bob_Position, 15);
         checkOrderQuantity(Alice_Order, 20);
         checkOrderQuantity(Bob_Order, 3000);

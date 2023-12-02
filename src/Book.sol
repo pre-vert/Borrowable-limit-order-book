@@ -18,7 +18,7 @@ contract Book is IBook {
     using SafeERC20 for IERC20;
 
     /// @notice provides core public functions (deposit, withdraw, take, borrow, repay, liquidate)
-    /// + internal functions (closeAllPositions, closePosition, liquidate, reduceUserBorrow, ...) + view functions
+    /// + internal functions (_closeAllPositions, _closePosition, _liquidate, _reduceUserBorrow, ...) + view functions
     
     IERC20 public quoteToken;
     IERC20 public baseToken;
@@ -40,6 +40,7 @@ contract Book is IBook {
         bool isBuyOrder; // true for buy orders, false for sell orders
         uint256 quantity; // assets deposited (quoteToken for buy orders, baseToken for sell orders)
         uint256 price; // price of the order
+        bool isBorrowable; // true if order can be borrowed from
         uint256[MAX_POSITIONS] positionIds; // stores positions id in mapping positions who borrow from order
     }
 
@@ -94,6 +95,11 @@ contract Book is IBook {
         _;
     }
 
+    modifier isBorrowable(uint256 _orderId) {
+        _revertIfNonBorrowable(_orderId);
+        _;
+    }
+
     modifier onlyMaker(uint256 _orderId) {
         _onlyMaker(_orderId);
         _;
@@ -108,7 +114,8 @@ contract Book is IBook {
     function deposit(
         uint256 _quantity,
         uint256 _price,
-        bool _isBuyOrder
+        bool _isBuyOrder,
+        bool _isBorrowable
     )
         external
         isPositive(_quantity)
@@ -120,9 +127,9 @@ contract Book is IBook {
             _increaseOrderBy(orderId, _quantity);
         } else {
             // minimum amount deposited
-            revertIfSuperiorTo(minDeposit(_isBuyOrder), _quantity);
+            revertIfSuperiorTo(minDeposit(_isBuyOrder), _quantity, "Deposit too small (10)");
             // add order to orders, output the id of the new order
-            uint256 newOrderId = _addOrderToOrders(msg.sender, _isBuyOrder, _quantity, _price);
+            uint256 newOrderId = _addOrderToOrders(msg.sender, _isBuyOrder, _quantity, _price, _isBorrowable);
             // add new orderId in depositIds array in users
             _addOrderIdInDepositIdsInUsers(newOrderId, msg.sender);  
             orderId = newOrderId;          
@@ -130,7 +137,7 @@ contract Book is IBook {
         _incrementTimeWeightedRates();
         _increaseTotalAssetsBy(_quantity, _isBuyOrder);
         _transferFrom(msg.sender, _quantity, _isBuyOrder);
-        emit Deposit(msg.sender, _quantity, _price, _isBuyOrder, orderId);
+        emit Deposit(msg.sender, _quantity, _price, _isBuyOrder, _isBorrowable, orderId);
     }
 
     /// @inheritdoc IBook
@@ -152,7 +159,7 @@ contract Book is IBook {
         bool inQuoteToken = removedOrder.isBuyOrder;
 
         _incrementTimeWeightedRates(); // necessary to update excess collateral
-        revertIfSuperiorTo(_removedQuantity, _getExcessCollateral(removedOrder.maker, inQuoteToken));
+        revertIfSuperiorTo(_removedQuantity, _getExcessCollateral(removedOrder.maker, inQuoteToken), "EC too small (11)");
 
         // reduce quantity in order, possibly to zero
         _reduceOrderBy(_removedOrderId, _removedQuantity);
@@ -170,6 +177,7 @@ contract Book is IBook {
         external
         orderHasAssets(_borrowedOrderId)
         isPositive(_borrowedQuantity)
+        isBorrowable(_borrowedOrderId)
     {
         Order memory borrowedOrder = orders[_borrowedOrderId];
 
@@ -180,11 +188,11 @@ contract Book is IBook {
 
         // check available assets are not used as collateral by maker and can be borrowed, update TWIR first
         _incrementTimeWeightedRates();
-        revertIfSuperiorTo(_borrowedQuantity, _getExcessCollateral(borrowedOrder.maker, inQuoteToken));
+        revertIfSuperiorTo(_borrowedQuantity, _getExcessCollateral(borrowedOrder.maker, inQuoteToken), "EC too small (12)");
 
         // check borrowed amount is collateralized enough by borrower's own orders
         uint256 neededCollateral = convert(_borrowedQuantity, borrowedOrder.price, inQuoteToken, ROUNDUP);
-        revertIfSuperiorTo(neededCollateral, _getExcessCollateral(msg.sender, !inQuoteToken));   
+        revertIfSuperiorTo(neededCollateral, _getExcessCollateral(msg.sender, !inQuoteToken), "EC too small (13)");   
 
         // check if borrower already borrows from order, if not, add orderId to borrowFromIds array, revert if max position reached
         _addOrderIdInBorrowFromIdsInUsers(msg.sender, _borrowedOrderId);
@@ -219,7 +227,7 @@ contract Book is IBook {
         // add interest rate to borrowed quantity, update TWIR_t to TWIR_T to reset interest rate to zero
         _addInterestRateTo(_positionId);
 
-        revertIfSuperiorTo(_repaidQuantity, positions[_positionId].borrowedAssets);
+        revertIfSuperiorTo(_repaidQuantity, positions[_positionId].borrowedAssets, "Repay too large (14)");
 
         // decrease borrowedAssets in positions, possibly to zero
         _reduceBorrowBy(_positionId, _repaidQuantity);
@@ -306,14 +314,23 @@ contract Book is IBook {
         
         // if taking is profitable, liquidate all positions, not only the undercollateralized one
         if (profitable(orderId)) {
-            console.log("take here");
             take(orderId, 0);
         } else {
             // only maker can pull the trigger
             _onlyMaker(orderId);
-            console.log("liquidate here");
             _liquidate(_positionId);
+            emit Liquidate(msg.sender, _positionId);
         }
+    }
+
+    /// @inheritdoc IBook
+    function changeBorrowable(uint256 _orderId, bool _isBorrowable)
+        external
+        onlyMaker(_orderId)
+    {
+        if (_isBorrowable) orders[_orderId].isBorrowable = true;
+        else orders[_orderId].isBorrowable = false;
+        emit ChangeBorrowable(_orderId, _isBorrowable);
     }
 
     ///////******* Internal functions *******///////
@@ -345,6 +362,7 @@ contract Book is IBook {
         }
     }
 
+    // When an order is taken, all positions which borrow from it are closed
     // close one borrowing position for quantity _borrowToWriteOff:
     // - write off debt for this quantity
     // - seize collateral for the exact amount liquidated at exchange rate _price
@@ -407,6 +425,7 @@ contract Book is IBook {
         seizedCollateral_ = collateralToSeize - remainingCollateralToSeize;
     }
 
+    // when an order is taken, the assets that the maker obtains serve first to pay back the max of maker's own positions
     // reduce maker's borrowing positions possibly as high as BudgetToRepayLoans
     // Ex: Bob deposits a sell order as collateral to borrow Alice's buy order
     // if Bob's sell order is taken first, his borrowing position from Alice is reduced, possibly to zero
@@ -482,9 +501,7 @@ contract Book is IBook {
         bool inQuoteToken = borrowedOrder.isBuyOrder;
         
         // increment time-weighted rates with IR before liquidate (necessary for up-to-date excess collateral)
-        console.log("hereeeeeeeeeeeeeeeeeeee BEFORE");
         _incrementTimeWeightedRates();
-        console.log("hereeeeeeeeeeeeeeeeeeee AFTER");
 
         require(_getExcessCollateral(position.borrower, !inQuoteToken) == 0,
             "Borrower's excess collateral is positive");
@@ -495,7 +512,6 @@ contract Book is IBook {
 
         // seize collateral equivalent to borrowed quantity + interest rate + fee
         uint256 seizedCollateral = _closePosition(_positionId, positions[_positionId].borrowedAssets, priceFeed);
-        console.log("seizedCollateral: ", seizedCollateral / WAD);
 
         // Liquidation means less assets deposited (seized collateral) and less assets borrowed (written off debt)
         if (seizedCollateral > 0) {
@@ -506,7 +522,6 @@ contract Book is IBook {
             // transfer seized collateral to maker
             _transferTo(borrowedOrder.maker, seizedCollateral, !inQuoteToken);
         }
-        emit Liquidate(borrowedOrder.maker, _positionId, seizedCollateral, inQuoteToken);
     }
 
     // tranfer ERC20 from contract to user/taker/borrower
@@ -542,7 +557,8 @@ contract Book is IBook {
         address _maker,
         bool _isBuyOrder,
         uint256 _quantity,
-        uint256 _price
+        uint256 _price,
+        bool _isBorrowable
     )
         internal 
         returns (uint256 orderId)
@@ -553,6 +569,7 @@ contract Book is IBook {
             isBuyOrder: _isBuyOrder,
             quantity: _quantity,
             price: _price,
+            isBorrowable: _isBorrowable,
             positionIds: positionIds
         });
         orders[lastOrderId] = newOrder;
@@ -782,8 +799,6 @@ contract Book is IBook {
     function _incrementTimeWeightedRates()
         internal
     {
-        console.log("block.timestamp: ", block.timestamp);
-        console.log("lastTimeStamp: ", lastTimeStamp);
         uint256 elapsed = block.timestamp - lastTimeStamp;
         if (elapsed == 0) return;
         quoteTimeWeightedRate += elapsed * getInstantRate(true);
@@ -1087,6 +1102,19 @@ contract Book is IBook {
         return (positions[_positionId].borrowedAssets > 0);
     }
 
+    function _revertIfNonBorrowable(uint256 _orderId)
+        internal view
+    {
+        require(_orderIsBorrowable(_orderId), "Order non borrowable");
+    }
+
+    function _orderIsBorrowable(uint256 _orderId)
+        internal view
+        returns (bool)
+    {
+        return orders[_orderId].isBorrowable;
+    }
+
     // get position id from positionIds array in orders and check that borrow is zero
     function _userHasZeroBorrowingFromOrder (
         uint256 _orderId,
@@ -1257,12 +1285,13 @@ contract Book is IBook {
     
     function revertIfSuperiorTo(
         uint256 _quantity,
-        uint256 _limit
+        uint256 _limit,
+        string memory _errorCode
     )
         internal pure
         isPositive(_limit)
     {
-        require(_quantity <= _limit, "Quantity exceeds limit");
+        require(_quantity <= _limit, _errorCode);
     }
 
     function revertIfNonPositive(uint256 _var)

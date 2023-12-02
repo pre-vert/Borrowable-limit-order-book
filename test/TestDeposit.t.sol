@@ -10,20 +10,22 @@ contract TestDeposit is Setup {
     // if new limit order, create order in orders
     function test_DepositBuyOrder() public {
         depositBuyOrder(Alice, 2000, 90);
-        (address maker, bool isBuyOrder, uint256 quantity, uint256 price) = book.orders(1);
+        (address maker, bool isBuyOrder, uint256 quantity, uint256 price, bool isBorrowable) = book.orders(1);
         assertEq(maker, Alice);
         assertEq(quantity, 2000 * WAD);
         assertEq(price, 90 * WAD);
         assertEq(isBuyOrder, BuyOrder);
+        assertEq(isBorrowable, IsBorrowable);
     }
 
     function test_DepositSellOrder() public {
         depositSellOrder(Bob, 20, 110);
-        (address maker, bool isBuyOrder, uint256 quantity, uint256 price) = book.orders(1);
+        (address maker, bool isBuyOrder, uint256 quantity, uint256 price, bool isBorrowable) = book.orders(1);
         assertEq(maker, Bob);
         assertEq(quantity, 20 * WAD);
         assertEq(price, 110 * WAD);
         assertEq(isBuyOrder, SellOrder);
+        assertEq(isBorrowable, IsBorrowable);
         assertEq(book.countOrdersOfUser(Bob), 1);
         assertEq(book.countOrdersOfUser(Bob), 1);
     }
@@ -73,13 +75,13 @@ contract TestDeposit is Setup {
 
     // When deposit is less than min deposit, revert
     function test_RevertBuyOrderIfZeroDeposit() public {
-        vm.expectRevert("Quantity exceeds limit"); // confusing error message
+        vm.expectRevert("Deposit too small (10)"); // confusing error message
         depositBuyOrder(Alice, 99, 90);
         checkOrderQuantity(Alice_Order, 0);
     }
 
     function test_RevertSellOrderIfZeroDeposit() public {
-        vm.expectRevert("Quantity exceeds limit");
+        vm.expectRevert("Deposit too small (10)");
         depositSellOrder(Alice, 1, 110);
         checkOrderQuantity(Alice_Order, 0);
     }
@@ -101,8 +103,8 @@ contract TestDeposit is Setup {
     function test_AggregateIdenticalBuyOrder() public {
         depositBuyOrder(Alice, 3000, 110);
         depositBuyOrder(Alice, 2000, 110);
-        (,, uint256 quantity1,) = book.orders(1);
-        (,, uint256 quantity2,) = book.orders(2);
+        (,, uint256 quantity1,,) = book.orders(1);
+        (,, uint256 quantity2,,) = book.orders(2);
         assertEq(quantity1, (3000 + 2000) * WAD);
         assertEq(quantity2, 0);
         assertEq(book.countOrdersOfUser(Alice), 1);
@@ -113,8 +115,8 @@ contract TestDeposit is Setup {
     function test_AggregateIdenticalSellOrder() public {
         depositSellOrder(Alice, 30, 90);
         depositSellOrder(Alice, 20, 90);
-        (,, uint256 quantity1,) = book.orders(1);
-        (,, uint256 quantity2,) = book.orders(2);
+        (,, uint256 quantity1,,) = book.orders(1);
+        (,, uint256 quantity2,,) = book.orders(2);
         assertEq(quantity1, 50 * WAD);
         assertEq(quantity2, 0);
         assertEq(book.countOrdersOfUser(Alice), 1);
@@ -186,5 +188,37 @@ contract TestDeposit is Setup {
         depositSellOrder(Alice, 30, 90);
         vm.expectRevert("Max number of orders reached for user");
         depositBuyOrder(Alice, 4000, 120);
+    }
+
+    // user switches from borrowable buy order to non borrowable
+    function test_SwitchBuyToNonBorrowable() public {
+        depositBuyOrder(Alice, 3000, 110);
+        checkOrderIsBorrowable(Alice_Order);
+        makeOrderNonBorrowable(Alice, Alice_Order);
+        checkOrderIsNonBorrowable(Alice_Order);
+    }
+
+    // user switches from non borrowable buy order to borrowable
+    function test_SwitchBuyToBorrowable() public {
+        depositBuyOrder(Alice, 3000, 110);
+        makeOrderNonBorrowable(Alice, Alice_Order);
+        makeOrderBorrowable(Alice, Alice_Order);
+        checkOrderIsBorrowable(Alice_Order);
+    }
+
+    // user switches from borrowable sell orderto non borrowable
+    function test_SwitchSellToNonBorrowable() public {
+        depositSellOrder(Alice, 30, 100);
+        checkOrderIsBorrowable(Alice_Order);
+        makeOrderNonBorrowable(Alice, Alice_Order);
+        checkOrderIsNonBorrowable(Alice_Order);
+    }
+
+    // user switches from non borrowable sell order to borrowable
+    function test_SwitchSellToBorrowable() public {
+        depositSellOrder(Alice, 30, 110);
+        makeOrderNonBorrowable(Alice, Alice_Order);
+        makeOrderBorrowable(Alice, Alice_Order);
+        checkOrderIsBorrowable(Alice_Order);
     }
 }
