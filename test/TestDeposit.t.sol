@@ -10,20 +10,34 @@ contract TestDeposit is Setup {
     // if new limit order, create order in orders
     function test_DepositBuyOrder() public {
         depositBuyOrder(Alice, 2000, 90);
-        (address maker, bool isBuyOrder, uint256 quantity, uint256 price, bool isBorrowable) = book.orders(1);
+        (address maker,
+        bool isBuyOrder,
+        uint256 quantity,
+        uint256 price, 
+        uint256 pairedPrice,
+        bool isBorrowable)
+        = book.orders(1);
         assertEq(maker, Alice);
         assertEq(quantity, 2000 * WAD);
         assertEq(price, 90 * WAD);
+        assertEq(pairedPrice, price + price / 10);
         assertEq(isBuyOrder, BuyOrder);
         assertEq(isBorrowable, IsBorrowable);
     }
 
     function test_DepositSellOrder() public {
         depositSellOrder(Bob, 20, 110);
-        (address maker, bool isBuyOrder, uint256 quantity, uint256 price, bool isBorrowable) = book.orders(1);
+        (address maker,
+        bool isBuyOrder,
+        uint256 quantity,
+        uint256 price,
+        uint256 pairedPrice,
+        bool isBorrowable)
+        = book.orders(1);
         assertEq(maker, Bob);
         assertEq(quantity, 20 * WAD);
         assertEq(price, 110 * WAD);
+        assertEq(pairedPrice, price - price / 10);
         assertEq(isBuyOrder, SellOrder);
         assertEq(isBorrowable, IsBorrowable);
         assertEq(book.countOrdersOfUser(Bob), 1);
@@ -101,10 +115,10 @@ contract TestDeposit is Setup {
 
     // When an identical order exists, increase deposit of that order
     function test_AggregateIdenticalBuyOrder() public {
-        depositBuyOrder(Alice, 3000, 110);
-        depositBuyOrder(Alice, 2000, 110);
-        (,, uint256 quantity1,,) = book.orders(1);
-        (,, uint256 quantity2,,) = book.orders(2);
+        depositBuyOrder(Alice, 3000, 90);
+        depositBuyOrder(Alice, 2000, 90);
+        (,, uint256 quantity1,,,) = book.orders(1);
+        (,, uint256 quantity2,,,) = book.orders(2);
         assertEq(quantity1, (3000 + 2000) * WAD);
         assertEq(quantity2, 0);
         assertEq(book.countOrdersOfUser(Alice), 1);
@@ -113,10 +127,10 @@ contract TestDeposit is Setup {
     }
 
     function test_AggregateIdenticalSellOrder() public {
-        depositSellOrder(Alice, 30, 90);
-        depositSellOrder(Alice, 20, 90);
-        (,, uint256 quantity1,,) = book.orders(1);
-        (,, uint256 quantity2,,) = book.orders(2);
+        depositSellOrder(Alice, 30, 110);
+        depositSellOrder(Alice, 20, 110);
+        (,, uint256 quantity1,,,) = book.orders(1);
+        (,, uint256 quantity2,,,) = book.orders(2);
         assertEq(quantity1, 50 * WAD);
         assertEq(quantity2, 0);
         assertEq(book.countOrdersOfUser(Alice), 1);
@@ -125,16 +139,17 @@ contract TestDeposit is Setup {
     
     // revert if 0 quantity via increaseDeposit() if same limit price
     function test_IncreaseBuyOrderZeroQuantity() public {
-        depositBuyOrder(Alice, 3000, 110);
+        depositBuyOrder(Alice, 3000, 90);
         vm.expectRevert("Must be positive");
-        depositBuyOrder(Alice, 0, 110);
+        depositBuyOrder(Alice, 0, 90);
         checkOrderQuantity(Alice_Order, 3000);
     }
 
     function test_IncreaseSellOrderZeroQuantity() public {
-        depositSellOrder(Alice, 30, 90);
+        depositSellOrder(Alice, 30, 110);
+        setPriceFeed(80);
         vm.expectRevert("Must be positive");
-        depositSellOrder(Alice, 0, 90);
+        depositSellOrder(Alice, 0, 110);
         checkOrderQuantity(Alice_Order, 30);
     }
 
@@ -161,8 +176,8 @@ contract TestDeposit is Setup {
 
     // add new order if same order but different maker
     function test_AddSameBuyOrderDifferentMaker() public {
-        depositBuyOrder(Alice, 3000, 110);
-        depositBuyOrder(Bob, 2000, 110);
+        depositBuyOrder(Alice, 3000, 90);
+        depositBuyOrder(Bob, 2000, 90);
         checkOrderQuantity(1, 3000);
         checkOrderQuantity(2, 2000);
         assertEq(book.countOrdersOfUser(Alice), 1);
@@ -174,25 +189,25 @@ contract TestDeposit is Setup {
     // add order id in depositIds in users
     function test_AddDepositIdInUsers() public {
         checkUserDepositId(Alice, 0, 0);
-        depositBuyOrder(Alice, 3000, 110);
+        depositBuyOrder(Alice, 3000, 90);
         checkUserDepositId(Alice, 0, Alice_Order);
         checkUserDepositId(Alice, 1, 0);
-        depositBuyOrder(Alice, 2000, 120);
+        depositBuyOrder(Alice, 2000, 95);
         checkUserDepositId(Alice, 0, Alice_Order);
         checkUserDepositId(Alice, 1, Alice_Order + 1);
     }
 
     // user posts more than max number of orders
     function test_OrdersForUserExceedLimit() public {
-        depositBuyOrder(Alice, 3000, 110);
-        depositSellOrder(Alice, 30, 90);
+        depositBuyOrder(Alice, 3000, 90);
+        depositSellOrder(Alice, 30, 110);
         vm.expectRevert("Max number of orders reached for user");
-        depositBuyOrder(Alice, 4000, 120);
+        depositBuyOrder(Alice, 4000, 80);
     }
 
     // user switches from borrowable buy order to non borrowable
     function test_SwitchBuyToNonBorrowable() public {
-        depositBuyOrder(Alice, 3000, 110);
+        depositBuyOrder(Alice, 3000, 90);
         checkOrderIsBorrowable(Alice_Order);
         makeOrderNonBorrowable(Alice, Alice_Order);
         checkOrderIsNonBorrowable(Alice_Order);
@@ -200,7 +215,7 @@ contract TestDeposit is Setup {
 
     // user switches from non borrowable buy order to borrowable
     function test_SwitchBuyToBorrowable() public {
-        depositBuyOrder(Alice, 3000, 110);
+        depositBuyOrder(Alice, 3000, 90);
         makeOrderNonBorrowable(Alice, Alice_Order);
         makeOrderBorrowable(Alice, Alice_Order);
         checkOrderIsBorrowable(Alice_Order);
@@ -208,7 +223,7 @@ contract TestDeposit is Setup {
 
     // user switches from borrowable sell orderto non borrowable
     function test_SwitchSellToNonBorrowable() public {
-        depositSellOrder(Alice, 30, 100);
+        depositSellOrder(Alice, 30, 110);
         checkOrderIsBorrowable(Alice_Order);
         makeOrderNonBorrowable(Alice, Alice_Order);
         checkOrderIsNonBorrowable(Alice_Order);

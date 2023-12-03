@@ -9,6 +9,7 @@ contract TestClose is Setup {
 
     // liquidate one position after taking a buy order, correctly adjusts balances
     function test_LiquidatePositionFromBuyOrder() public {
+        setPriceFeed(105);
         depositBuyOrder(Alice, 2000, 100);
         depositSellOrder(Bob, 30, 110);
         borrow(Bob, Alice_Order, 1000);
@@ -20,6 +21,7 @@ contract TestClose is Setup {
         uint256 takerBaseBalance = baseToken.balanceOf(Carol);
         uint256 lenderBaseBalance = baseToken.balanceOf(Alice);
         uint256 borrowerBaseBalance = baseToken.balanceOf(Bob);
+        setPriceFeed(95);
         take(Carol, Alice_Order, 500);
         assertEq(quoteToken.balanceOf(OrderBook), bookQuoteBalance - 500 * WAD);
         assertEq(quoteToken.balanceOf(Alice), lenderQuoteBalance);
@@ -35,6 +37,7 @@ contract TestClose is Setup {
 
     // liquidate one position after taking a sell order, correctly adjusts balances
     function test_LiquidatePositionFromSellOrder() public {
+        setPriceFeed(95);
         depositSellOrder(Alice, 30, 100);
         depositBuyOrder(Bob, 5000, 90);
         borrow(Bob, Alice_Order, 20);
@@ -46,6 +49,7 @@ contract TestClose is Setup {
         uint256 lenderquoteBalance = quoteToken.balanceOf(Alice);
         uint256 borrowerquoteBalance = quoteToken.balanceOf(Bob);
         uint256 takerquoteBalance = quoteToken.balanceOf(Carol);
+        setPriceFeed(105);
         take(Carol, Alice_Order, 5);
         assertEq(baseToken.balanceOf(OrderBook), bookbaseBalance - 5 * WAD);
         assertEq(baseToken.balanceOf(Alice), lenderbaseBalance);
@@ -61,6 +65,7 @@ contract TestClose is Setup {
 
     // liquidate one position after taking a buy order for zero quantity, correctly adjusts balances
     function test_LiquidatePositionFromBuyOrderWithZero() public {
+        setPriceFeed(105);
         depositBuyOrder(Alice, 2000, 100);
         depositSellOrder(Bob, 30, 110);
         borrow(Bob, Alice_Order, 1000);
@@ -72,6 +77,7 @@ contract TestClose is Setup {
         uint256 lenderBaseBalance = baseToken.balanceOf(Alice);
         uint256 borrowerBaseBalance = baseToken.balanceOf(Bob);
         uint256 takerBaseBalance = baseToken.balanceOf(Carol);
+        setPriceFeed(95);
         take(Carol, Alice_Order, 0);
         assertEq(quoteToken.balanceOf(OrderBook), bookQuoteBalance);
         assertEq(quoteToken.balanceOf(Alice), lenderQuoteBalance);
@@ -87,6 +93,7 @@ contract TestClose is Setup {
     
     // liquidate two positions after taking a buy order, correctly adjusts balances
     function test_LiquidateTwoPositionsFromBuyOrder() public {
+        setPriceFeed(105);
         depositBuyOrder(Alice, 2000, 100);
         depositSellOrder(Bob, 30, 110);
         depositSellOrder(Carol, 40, 120);
@@ -102,6 +109,7 @@ contract TestClose is Setup {
         uint256 borrower1BaseBalance = baseToken.balanceOf(Bob);
         uint256 borrower2BaseBalance = baseToken.balanceOf(Carol);
         uint256 takerBaseBalance = baseToken.balanceOf(Dave);
+        setPriceFeed(95);
         take(Dave, Alice_Order, 1000);
         assertEq(quoteToken.balanceOf(OrderBook), bookQuoteBalance - 1000 * WAD);
         assertEq(quoteToken.balanceOf(Alice), lenderQuoteBalance);
@@ -120,6 +128,7 @@ contract TestClose is Setup {
 
     // liquidate two positions after taking a sell order, balances
     function test_LiquidateTwoPositionsFromSellOrder() public {
+        setPriceFeed(95);
         depositSellOrder(Alice, 20, 100);
         depositBuyOrder(Bob, 3000, 90);
         depositBuyOrder(Carol, 4000, 80);
@@ -135,6 +144,7 @@ contract TestClose is Setup {
         uint256 borrower1QuoteBalance = quoteToken.balanceOf(Bob);
         uint256 borrower2QuoteBalance = quoteToken.balanceOf(Carol);
         uint256 takerQuoteBalance = quoteToken.balanceOf(Dave);
+        setPriceFeed(105);
         take(Dave, Alice_Order, 5);
         assertEq(baseToken.balanceOf(OrderBook), bookBaseBalance - 5 * WAD);
         assertEq(baseToken.balanceOf(Alice), lenderBaseBalance);
@@ -153,6 +163,7 @@ contract TestClose is Setup {
 
     // Close borrowing position after taking a collateral buy order, correctly adjusts balances
     function test_ClosePositionFromBuyOrder() public {
+        setPriceFeed(95);
         depositBuyOrder(Alice, 2000, 90);
         depositSellOrder(Bob, 10, 100);
         borrow(Bob, Alice_Order, 900);
@@ -179,6 +190,7 @@ contract TestClose is Setup {
 
     // Close two borrowing positions after taking a collateral buy order, correctly adjusts balances
     function test_TakeOrderWithTwoPositionsFromBuyOrder() public {
+        setPriceFeed(95);
         depositBuyOrder(Alice, 1800, 90);
         depositBuyOrder(Alice, 1600, 80);
         depositSellOrder(Bob, 25, 100);
@@ -192,6 +204,7 @@ contract TestClose is Setup {
         uint256 borrowerQuoteBalance = quoteToken.balanceOf(Bob);
         uint256 lenderQuoteBalance = quoteToken.balanceOf(Alice);
         uint256 takerQuoteBalance = quoteToken.balanceOf(Carol);
+        setPriceFeed(105);
         take(Carol, Bob_Order + 1, 5);
         assertEq(baseToken.balanceOf(OrderBook), bookBaseBalance - 5 * WAD);
         assertEq(baseToken.balanceOf(Bob), borrowerBaseBalance);
@@ -210,6 +223,7 @@ contract TestClose is Setup {
 
     // Close two borrowing positions after taking a collateral buy order, correctly adjusts balances
     function test_CloseTwoPositionsFromBuyOrder() public {
+        setPriceFeed(95);
         depositBuyOrder(Alice, 1800, 90);
         depositBuyOrder(Alice, 1600, 80);
         depositSellOrder(Bob, 25, 100);
@@ -223,6 +237,7 @@ contract TestClose is Setup {
         uint256 borrowerQuoteBalance = quoteToken.balanceOf(Bob);
         uint256 lenderQuoteBalance = quoteToken.balanceOf(Alice);
         uint256 takerQuoteBalance = quoteToken.balanceOf(Carol);
+        setPriceFeed(105);
         take(Carol, Bob_Order + 1, 25);
         assertEq(baseToken.balanceOf(OrderBook), bookBaseBalance - 25 * WAD);
         assertEq(baseToken.balanceOf(Bob), borrowerBaseBalance);
@@ -246,6 +261,7 @@ contract TestClose is Setup {
     function test_CloseOneOverTwoPositionsFromBuyOrder() public {
         depositBuyOrder(Alice, 1800, 90);
         depositBuyOrder(Alice, 1600, 80);
+        setPriceFeed(95);
         depositSellOrder(Bob, 25, 100);
         borrow(Bob, Alice_Order, 900);
         borrow(Bob, Alice_Order + 1, 800);
@@ -257,6 +273,7 @@ contract TestClose is Setup {
         uint256 borrowerQuoteBalance = quoteToken.balanceOf(Bob);
         uint256 lenderQuoteBalance = quoteToken.balanceOf(Alice);
         uint256 takerQuoteBalance = quoteToken.balanceOf(Carol);
+        setPriceFeed(105);
         take(Carol, Bob_Order + 1, 15);
         assertEq(baseToken.balanceOf(OrderBook), bookBaseBalance - 15 * WAD);
         assertEq(baseToken.balanceOf(Bob), borrowerBaseBalance);
@@ -280,6 +297,7 @@ contract TestClose is Setup {
     // [2] is transferred 20 * 100 - 900 = 1100 quote tokens
 
     function test_ClosePositionsFromTwoSides() public {
+        setPriceFeed(95);
         depositBuyOrder(Alice, 2700, 90);
         depositSellOrder(Bob, 20, 100);
         depositBuyOrder(Carol, 3200, 80);
@@ -295,6 +313,7 @@ contract TestClose is Setup {
         uint256 user2QuoteBalance = quoteToken.balanceOf(Bob);
         uint256 borrowerQuoteBalance = quoteToken.balanceOf(Carol);
         uint256 takerQuoteBalance = quoteToken.balanceOf(Dave);
+        setPriceFeed(105);
         take(Dave, Bob_Order, 10);
         assertEq(baseToken.balanceOf(OrderBook), bookBaseBalance - 10 * WAD);
         assertEq(baseToken.balanceOf(Alice), lenderBaseBalance);
@@ -312,6 +331,7 @@ contract TestClose is Setup {
     }
 
     function test_ClosePositionsFromTwoSidesWithZeroTaken() public {
+        setPriceFeed(95);
         depositBuyOrder(Alice, 2700, 90);
         depositSellOrder(Bob, 20, 100);
         depositBuyOrder(Carol, 3200, 80);
@@ -327,6 +347,7 @@ contract TestClose is Setup {
         uint256 user2QuoteBalance = quoteToken.balanceOf(Bob);
         uint256 borrowerQuoteBalance = quoteToken.balanceOf(Carol);
         uint256 takerQuoteBalance = quoteToken.balanceOf(Dave);
+        setPriceFeed(105);
         take(Dave, Bob_Order, 0);
         assertEq(baseToken.balanceOf(OrderBook), bookBaseBalance);
         assertEq(baseToken.balanceOf(Alice), lenderBaseBalance);
@@ -352,6 +373,7 @@ contract TestClose is Setup {
     // Book gives taker 540 quote tokens and Alice 10 base tokens
 
     function test_MakerCrossBorrowsHerOrdersThenLiquidated() public {
+        setPriceFeed(95);
         depositBuyOrder(Alice, 3600, 90);
         depositSellOrder(Alice, 60, 100);
         borrow(Alice, Alice_Order, 900);
@@ -379,6 +401,7 @@ contract TestClose is Setup {
     // no deleveraging => she receives 30 in exchange of 1800 quote tokens
 
     function test_MakerLoopBorrowsHerOrdersThenLiquidated() public {
+        setPriceFeed(95);
         depositBuyOrder(Alice, 4500, 90);
         depositSellOrder(Alice, 60, 100);
         borrow(Alice, Alice_Order, 1800);

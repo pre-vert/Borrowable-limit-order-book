@@ -71,6 +71,7 @@ contract TestTake is Setup {
 
     // taking fails if taking borrowed buy order is non profitable 
     function test_TakingFailsIfNonProfitableBuyOrder() public {
+        setPriceFeed(95);
         depositBuyOrder(Alice, 2000, 90);
         depositSellOrder(Bob, 20, 100);
         borrow(Bob, Alice_Order, 1000);
@@ -81,6 +82,7 @@ contract TestTake is Setup {
 
     // taking fails if taking borrowed sell order is non profitable 
     function test_TakingFailsIfNonProfitableSellOrder() public {
+        setPriceFeed(105);
         depositSellOrder(Alice, 20, 110);
         depositBuyOrder(Bob, 2000, 100);
         borrow(Bob, Alice_Order, 10);

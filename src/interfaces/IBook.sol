@@ -7,9 +7,10 @@ interface IBook {
     /// @dev Update ERC20 balances
     /// @param _quantity The quantity of assets deposited (quoteToken for buy orders, baseToken for sell orders)
     /// @param _price price of the buy or sell order
+    /// @param _price price of the buy or sell paired order
     /// @param _isBuyOrder true for buy orders, false for sell orders
 
-    function deposit(uint256 _quantity, uint256 _price, bool _isBuyOrder, bool _isBorrowable) external;
+    function deposit(uint256 _quantity, uint256 _price, uint256 _pairedPrice, bool _isBuyOrder, bool _isBorrowable) external;
 
     /// @notice lets user partially or fully remove her order from the book
     /// Only non-borrowed assets can be removed
@@ -56,6 +57,17 @@ interface IBook {
 
     function liquidate(uint256 _positionId) external;
 
+    /// @notice let maker change limit price of an order
+    /// @param _orderId id of the order which price is changed
+    
+    function changeLimitPrice(uint256 _orderId, uint256 _price) external;
+
+    /// @notice let maker change paired price of an order
+    /// _pairedPrice can be 0, in this case, is set to limit price +/- 10%
+    /// @param _orderId id of the order which paired price is changed
+    
+    function changePairedPrice(uint256 _orderId, uint256 _pairedPrice) external;
+
     /// @notice make order borrowable if _isBorrowable is true or non borrowable if false
     /// @param _orderId id of the order which is made borrowable
     
@@ -67,6 +79,7 @@ interface IBook {
         address maker,
         uint256 quantity,
         uint256 price,
+        uint256 pairedPrice,
         bool isBuyOrder,
         bool isBorrowable,
         uint256 orderId
@@ -106,6 +119,16 @@ interface IBook {
     event Liquidate(
         address maker,
         uint256 _positionId
+    );
+
+    event ChangeLimitPrice(
+        uint256 _orderId,
+        uint256 _price
+    );
+
+    event ChangePairedPrice(
+        uint256 _orderId,
+        uint256 _pairedPrice
     );
 
     event ChangeBorrowable(

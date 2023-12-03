@@ -17,7 +17,7 @@ contract Book is IBook {
     using MathLib for uint256;
     using SafeERC20 for IERC20;
 
-    /// @notice provides core public functions (deposit, withdraw, take, borrow, repay, liquidate)
+    /// @notice provides core public functions (deposit, withdraw, take, borrow, repay, changePrice, liquidate, ...)
     /// + internal functions (_closeAllPositions, _closePosition, _liquidate, _reduceUserBorrow, ...) + view functions
     
     IERC20 public quoteToken;
@@ -40,6 +40,7 @@ contract Book is IBook {
         bool isBuyOrder; // true for buy orders, false for sell orders
         uint256 quantity; // assets deposited (quoteToken for buy orders, baseToken for sell orders)
         uint256 price; // price of the order
+        uint256 pairedPrice; // price of the paired order
         bool isBorrowable; // true if order can be borrowed from
         uint256[MAX_POSITIONS] positionIds; // stores positions id in mapping positions who borrow from order
     }
@@ -114,6 +115,7 @@ contract Book is IBook {
     function deposit(
         uint256 _quantity,
         uint256 _price,
+        uint256 _pairedPrice,
         bool _isBuyOrder,
         bool _isBorrowable
     )
@@ -121,15 +123,20 @@ contract Book is IBook {
         isPositive(_quantity)
         isPositive(_price)
     {
+        // revert if limit and paired price are in wrong order
+        // if paired price information not filled, set equal to price +/-10%
+        if (_pairedPrice > 0) require(consistent(_price, _pairedPrice, _isBuyOrder), "Inconsistent prices");
+        else _pairedPrice = _isBuyOrder ? _price + _price.mulDivUp(1, 10) : _price - _price.mulDivUp(1, 11);
+        
         // check if an identical order exists already, if so increase deposit, else create
-        uint256 orderId = _getOrderIdInDepositIdsInUsers(msg.sender, _price, _isBuyOrder);
+        uint256 orderId = _getOrderIdInDepositIdsInUsers(msg.sender, _price, _pairedPrice, _isBuyOrder);
         if (orderId != 0) {
             _increaseOrderBy(orderId, _quantity);
         } else {
             // minimum amount deposited
             revertIfSuperiorTo(minDeposit(_isBuyOrder), _quantity, "Deposit too small (10)");
             // add order to orders, output the id of the new order
-            uint256 newOrderId = _addOrderToOrders(msg.sender, _isBuyOrder, _quantity, _price, _isBorrowable);
+            uint256 newOrderId = _addOrderToOrders(msg.sender, _isBuyOrder, _quantity, _price, _pairedPrice, _isBorrowable);
             // add new orderId in depositIds array in users
             _addOrderIdInDepositIdsInUsers(newOrderId, msg.sender);  
             orderId = newOrderId;          
@@ -137,7 +144,7 @@ contract Book is IBook {
         _incrementTimeWeightedRates();
         _increaseTotalAssetsBy(_quantity, _isBuyOrder);
         _transferFrom(msg.sender, _quantity, _isBuyOrder);
-        emit Deposit(msg.sender, _quantity, _price, _isBuyOrder, _isBorrowable, orderId);
+        emit Deposit(msg.sender, _quantity, _price, _pairedPrice, _isBuyOrder, _isBorrowable, orderId);
     }
 
     /// @inheritdoc IBook
@@ -249,7 +256,8 @@ contract Book is IBook {
         bool isBuyOrder = takenOrder.isBuyOrder;
 
         // if the order is borowed, taking is allowed for profitable trades only
-        if (getAssetsLentByOrder(_takenOrderId) > 0) require(profitable(_takenOrderId), "Trade must be profitable");
+        if (getAssetsLentByOrder(_takenOrderId) > 0)
+            require(profitable(takenOrder.price, isBuyOrder), "Trade must be profitable");
         
         // taking is allowed for non-borrowed assets, possibly net of minimum deposit if taking is partial
         require(outable(_takenOrderId, _takenQuantity), "Too much assets taken");
@@ -313,7 +321,7 @@ contract Book is IBook {
         uint256 orderId = positions[_positionId].orderId;
         
         // if taking is profitable, liquidate all positions, not only the undercollateralized one
-        if (profitable(orderId)) {
+        if (profitable(orders[orderId].price, orders[orderId].isBuyOrder)) {
             take(orderId, 0);
         } else {
             // only maker can pull the trigger
@@ -321,6 +329,34 @@ contract Book is IBook {
             _liquidate(_positionId);
             emit Liquidate(msg.sender, _positionId);
         }
+    }
+
+    /// @inheritdoc IBook
+    function changeLimitPrice(uint256 _orderId, uint256 _price)
+        external
+        isPositive(_price)
+        onlyMaker(_orderId)
+    {
+        Order memory order = orders[_orderId];
+        require(consistent(_price, order.pairedPrice, order.isBuyOrder), "Inconsistent prices");
+        require(getAssetsLentByOrder(_orderId) == 0, "Order must not be borrowed from");
+        orders[_orderId].price = _price;
+        emit ChangeLimitPrice(_orderId, _price);
+    }
+
+    /// @inheritdoc IBook
+    function changePairedPrice(uint256 _orderId, uint256 _pairedPrice)
+        external
+        isPositive(_pairedPrice)
+        onlyMaker(_orderId)
+    {
+        Order memory order = orders[_orderId];
+        console.log("Limit price", order.price);
+        console.log("Paired price Before", order.pairedPrice);
+        require(consistent(order.price, _pairedPrice, order.isBuyOrder), "Inconsistent prices");
+        orders[_orderId].pairedPrice = _pairedPrice;
+        console.log("Paired price After", orders[_orderId].pairedPrice);
+        emit ChangePairedPrice(_orderId, _pairedPrice);
     }
 
     /// @inheritdoc IBook
@@ -558,6 +594,7 @@ contract Book is IBook {
         bool _isBuyOrder,
         uint256 _quantity,
         uint256 _price,
+        uint256 _pairedPrice,
         bool _isBorrowable
     )
         internal 
@@ -569,6 +606,7 @@ contract Book is IBook {
             isBuyOrder: _isBuyOrder,
             quantity: _quantity,
             price: _price,
+            pairedPrice: _pairedPrice,
             isBorrowable: _isBorrowable,
             positionIds: positionIds
         });
@@ -996,22 +1034,21 @@ contract Book is IBook {
             totalLentAssets += positions[positionIds[i]].borrowedAssets;
         }
     }
-
-    // check that take() is profitable
+    
+    // check that taking the order is profitable
     // if buy order, price feed must be lower than limit price
     // if sell order, price feed must be higher than limit price
     
     function profitable(
-        uint256 _orderId
+        uint256 _price,
+        bool _isBuyOrder
     )
         public view
         returns (bool)
     {
-        bool isBuyOrder = orders[_orderId].isBuyOrder;
-        uint256 price = orders[_orderId].price;
         
-        if (isBuyOrder) return (priceFeed <= price);
-        else return (priceFeed >= price);
+        if (_isBuyOrder) return (priceFeed <= _price);
+        else return (priceFeed >= _price);
     }
     
     // get quantity of assets available in order: order quantity - assets lent - minimum deposit
@@ -1080,7 +1117,7 @@ contract Book is IBook {
     function _onlyMaker(uint256 orderId)
         internal view
     {
-        require(getMaker(orderId) == msg.sender, "Only maker can remove order");
+        require(getMaker(orderId) == msg.sender, "Only maker can modify order");
     }
 
     function _onlyBorrower(uint256 _positionId)
@@ -1183,6 +1220,7 @@ contract Book is IBook {
     function _getOrderIdInDepositIdsInUsers(
         address _user,
         uint256 _price,
+        uint256 _pairedPrice,
         bool _isBuyOrder
     )
         internal view
@@ -1193,6 +1231,7 @@ contract Book is IBook {
         for (uint256 i = 0; i < MAX_ORDERS; i++) {
             if (
                 orders[depositIds[i]].price == _price &&
+                orders[depositIds[i]].pairedPrice == _pairedPrice &&
                 orders[depositIds[i]].isBuyOrder == _isBuyOrder
             ) {
                 orderId = depositIds[i];
@@ -1222,7 +1261,7 @@ contract Book is IBook {
         }
     }
 
-    //////////********* Functions used in tests *///////
+    /////**** Functions used in tests ****//////
 
     // Add manual getter for positionIds in Order, used in setup.sol for tests
     function getOrderPositionIds(uint256 _orderId)
@@ -1261,6 +1300,23 @@ contract Book is IBook {
     }
 
     //////////********* Pure functions *********/////////
+    
+    // check that order has consistent limit prices
+    // if buy order, limit price must be lower than limit paired price
+    // if sell order, limit price must be higher than limit paired price
+    
+    function consistent(
+        uint256 _price,
+        uint256 _pairedPrice,
+        bool _isBuyOrder
+    )
+        public pure
+        returns (bool)
+    {
+        
+        if (_isBuyOrder) return (_pairedPrice >= _price);
+        else return (_pairedPrice <= _price);
+    }
     
     function convert(
         uint256 _quantity,

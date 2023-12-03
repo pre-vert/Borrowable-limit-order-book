@@ -42,7 +42,7 @@ contract TestWithdraw is Setup {
     // withdraw fails if remover of buy order is not maker
     function test_RemoveBuyOrderFailsIfNotMaker() public {
         depositBuyOrder(Alice, 2000, 90);
-        vm.expectRevert("Only maker can remove order");
+        vm.expectRevert("Only maker can modify order");
         withdraw(Bob, Alice_Order, 2000);
         checkOrderQuantity(Alice_Order, 2000);
     }
@@ -50,7 +50,7 @@ contract TestWithdraw is Setup {
     // withdraw fails if remover of sell order is not maker
     function test_RemoveSellOrderFailsIfNotMaker() public {
         depositSellOrder(Alice, 20, 110);
-        vm.expectRevert("Only maker can remove order");
+        vm.expectRevert("Only maker can modify order");
         withdraw(Bob, Alice_Order, 20);
         checkOrderQuantity(Alice_Order, 20);
     }
@@ -121,6 +121,7 @@ contract TestWithdraw is Setup {
     }
 
     function test_RedepositAfterRemoveDepositIdInUsers() public {
+        setPriceFeed(120);
         depositBuyOrder(Alice, 3000, 110);
         withdraw(Alice, Alice_Order, 3000);
         checkUserDepositId(Alice, 0, Alice_Order);
