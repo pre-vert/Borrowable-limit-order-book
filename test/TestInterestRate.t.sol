@@ -185,6 +185,7 @@ contract TestInterestRate is Setup {
     // borrow buy order
     function test_TotalBorrowIncreaseAfterBorrowBuyOrder() public {
         vm.warp(DAY);
+        setPriceFeed(110);
         depositBuyOrder(Alice, 6000, 100);
         vm.warp(2 * DAY);
         depositSellOrder(Bob, 60, 120);
@@ -213,9 +214,10 @@ contract TestInterestRate is Setup {
     // Total borrow increase after borrow sell order
     function test_TotalBorrowIncreaseAfterBorrowSellOrder() public {
         vm.warp(DAY);
-        depositSellOrder(Alice, 20, 100);
+        setPriceFeed(110);
+        depositSellOrder(Alice, 20, 120);
         vm.warp(2 * DAY);
-        depositBuyOrder(Bob, 6000, 120);
+        depositBuyOrder(Bob, 6000, 100);
         uint256 totalQuoteAssets = book.totalQuoteAssets();
         uint256 totalBaseAssets = book.totalBaseAssets();
         uint256 totalQuoteBorrow = book.totalQuoteBorrow();
@@ -240,6 +242,7 @@ contract TestInterestRate is Setup {
 
     // repay buy order
     function test_TotalBorrowDecreaseAfterRepayBuyOrder() public {
+        setPriceFeed(110);
         vm.warp(DAY);
         depositBuyOrder(Alice, 6000, 100);
         vm.warp(2 * DAY);
@@ -270,10 +273,11 @@ contract TestInterestRate is Setup {
 
     // Total borrow decrease after repay sell order
     function test_TotalBorrowDecreaseAfterRepaySellOrder() public {
+        setPriceFeed(115);
         vm.warp(DAY);
-        depositSellOrder(Alice, 20, 100);
+        depositSellOrder(Alice, 20, 120);
         vm.warp(2 * DAY);
-        depositBuyOrder(Bob, 6000, 120);
+        depositBuyOrder(Bob, 6000, 110);
         vm.warp(4 * DAY);
         borrow(Bob, Alice_Order, 15);
         uint256 totalQuoteAssets = book.totalQuoteAssets();
@@ -300,6 +304,7 @@ contract TestInterestRate is Setup {
     
     function test_MultipleActionsTrackingIRM() public {
         vm.warp(0); // setting starting timestamp to 0
+        setPriceFeed(110);
         checkInstantRate(BuyOrder);
         checkInstantRate(SellOrder);
         vm.warp(DAY);
@@ -322,6 +327,7 @@ contract TestInterestRate is Setup {
         repay(Bob, Bob_Position, 1000);
         checkInstantRate(BuyOrder);
         checkInstantRate(SellOrder);
+        setPriceFeed(90);
         vm.warp(370 * DAY);
         take(Carol, Alice_Order, 1000);
     }

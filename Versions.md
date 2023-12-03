@@ -25,7 +25,6 @@
 
 ### What's new in V0.2
 
-
 - implement interest rate model (see [Spec.md](Spec.md)):
   - utilization rates (UR) and interest rates (IR) in function of UR on both sides is updated every action (deposit, repay, take, borrow and repay)
   - borrower's IR is computed then added to borrowed quantity when the amount changes either because borrow is increased, decreased or partially liquidated
@@ -46,6 +45,14 @@
   - Take effect immediately for the non-borrowed part of the assets
   - after the loans being repaid for the borrowed part
 - new unit tests for changeBorrowable()
-- updated IBook.sol
+- updated IBook.sol and Spec.md
 - updated LendBook ULM
 - code optimization
+
+### What's new in V1.2
+
+- Let makers change:
+  - the limit price of their non-borrowed orders (changeLimitPrice())
+  - the paired price of their orders (changePairedPrice())
+- new unit tests associated with the two methods
+- updated IBook

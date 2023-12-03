@@ -103,6 +103,7 @@ contract TestRepay is Setup {
 
     // ok if borrower then repayer of buy order is maker
     function test_RepayBuyOrderOkIfMaker() public {
+        setPriceFeed(105);
         depositBuyOrder(Alice, 2000, 100);
         depositSellOrder(Alice, 30, 110);
         borrow(Alice, Alice_Order, 1000);
@@ -115,6 +116,7 @@ contract TestRepay is Setup {
 
     // ok if borrower then repayer of sell order is maker
     function test_RepaySellOrderOkIfMaker() public {
+        setPriceFeed(95);
         depositSellOrder(Alice, 20, 100);
         depositBuyOrder(Alice, 3000, 90);
         borrow(Alice, Alice_Order, 20);
@@ -141,6 +143,7 @@ contract TestRepay is Setup {
 
     // fails if borrower repay non-borrowed sell order
     function test_RepayNonBorrowedSellOrder() public {
+        setPriceFeed(105);
         depositSellOrder(Alice, 20, 110);
         depositBuyOrder(Bob, 5000, 100);
         borrow(Bob, Alice_Order, 10);

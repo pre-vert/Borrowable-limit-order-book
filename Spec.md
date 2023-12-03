@@ -45,11 +45,14 @@ Represents a buy or sell order placed in the system.
   - `isBuyOrder: bool`: A flag to determine if the order is a buy (`true`) or sell (`false`).
   - `quantity: uint256`: The number of assets specified in the order.
   - `price: uint256`: The price set for the order.
+  - `pairedPrice: uint256`: The price set for the paired order.
+  - `isBorrowable: bool`: Whether the order can be borrowed.
   - `positionIds: uint256[]`: An array that lists the IDs of positions that have borrowed from this particular order.
 - **Methods**:
   - `deposit()`: To place an order.
   - `withdraw()`: To withdraw assets from an order.
   - `take()`: To take or fulfill an order.
+  - `changeBorrowable()`: Switch order between borrowable and non borrowable.
 
 #### 3. **Position**
 Represents the assets borrowed from a specific order.
@@ -62,6 +65,7 @@ Represents the assets borrowed from a specific order.
 - **Methods**:
   - `borrow()`: To initiate borrowing against an order.
   - `repay()`: To repay the borrowed assets.
+  - `liquidate()`: Liquidate a position becoming insolvent.
 
 ### Relationships:
 
@@ -158,12 +162,7 @@ Deposit more assets $X$ in the order book or repaying a position, or other borro
 
 ### Calculation
 
-The interest rates in the buy and sell markets are set according to a linear function of utilization rates:
-\[
-r_t = \alpha + (\beta + \gamma) \text{UR}_t + \gamma \text{UR}_t^*	
-\]
-
-with $\text{UR}_t^*$ the utilization rate of the opposite market.
+The interest rates in the buy and sell markets are set according to a linear function of utilization rates: $r_t = \alpha + (\beta + \gamma) \text{UR}_t + \gamma \text{UR}_t^*$, with $\text{UR}_t^*$ the utilization rate of the opposite market.
 
 ### Steps
 
@@ -171,14 +170,14 @@ When a user deposits, withdraws, borrows, repays or liquidates a loan, the proto
 
 - call _incrementTimeWeightedRates()
   - pull current block.timestamp $n_t$ (in seconds) and computes elapsed time $n_t - n_{t-1}$ since last update
-  - increment time-weighted rates since origin $TWIR_t = n_1 IR_0 + (n_2 - n_1) IR_1 + ... + (n_t - n_{t-1}) IR_{t-1}$
+  - increment time-weighted rates since origin $\text{TWIR}_t = n_1 IR_0 + (n_2 - n_1) IR_1 + ... + (n_t - n_{t-1}) IR_{t-1}$
   - use $IR_{t-1}$ based on UR valid between $t-1$ and $t$, according to the linear formula
 - update total deposits and total borrowings in the affected market
   - $UR_t$ and $UR_t^*$ will be used to determine $IR_t$ in the next iteration
 
 In addition, when a user borrows from a limit order, the protocol:
 
-- store the updated $TWIR_t$ in borrowing position struct
+- store the updated $\text{TWIR}_t$ in borrowing position struct
 
 When a borrower repays or closes his loan, or he's liquidated at date $T$, the protocol:
 
@@ -190,7 +189,7 @@ When a borrower repays or closes his loan, or he's liquidated at date $T$, the p
 Bob borrows 2000 at 10%. One year later, he pays back 1000:
 
 - interest rate is added to his loan which becomes 2200
-- TWIR$_t$ of his borrowing position is updated to TWIR$_T$
+- $\text{TWIR}_t$ of his borrowing position is updated to TWIR$_T$
 - pays 1000 from 2200
 - debt is now 1200
 
@@ -199,7 +198,7 @@ Bob borrows 2000 at 10%. One year later, he pays back 1000:
 Bob borrows 2000 at 10%. One year later, he borrows 1000 more:
 
 - interest rate is added to his loan which becomes 2200
-- TWIR$_t$ of his borrowing position is updated to TWIR$_T$
+- $\text{TWIR}_t$ of his borrowing position is updated to $\text{TWIR}_T$
 - 1000 is added to 2200
 - debt is now 2200
 
@@ -221,9 +220,21 @@ Bob borrows 2000 at 10%. One year later, his own limit order which serves as col
 
 ### Interest-based liquidation
 
-see [white paper](llob_wp.pdf) for details
+Positions can be liquidated when the price hasn't crossed the limit price if the accumulated interest rate exhausts borrower's excess collateral, see [white paper](llob_wp.pdf) for details
 
 - check that the order is not profitable, if so call take() instead of liquidate()
 - check liquidate() is called by maker
 - check borrower's excess collateral is zero or negative
 - pull price feed to calculate how much collateral to seize and transfer to maker
+
+## Self-replacing orders
+
+Orders which assets are taken are automatically replaced on the other side of the book.
+
+The new limit price is chosen by the maker and by default is set + 10% if the order is a buy order and - 9% if a sell order. The paired price is necessarily higher (lower) than the current limit price if the order is a buy order (sell order).
+
+For orders which assets are not borrowed, the replacement applies to the part of the assets taken. If orders have part of their assets borrowed, the associated collateral is replaced in the paired order, after all borrowing positions have been liquidated.
+
+A (non) borrowable order filled and replaced on the other side of the book is still (non) borrowable.
+
+Consider the case of someone who has a borrowing position B in token X collateralized by an order A in token Y. If order A is filled, position B is first closed before any token X received in exchange of Y from the filling can be replaced in the other side of the book.

@@ -161,6 +161,7 @@ contract TestBorrow is Setup {
 
     // Alice borrows from Alice's and Bob's sell order, borrowFromIds arrary correctly updates
     function test_BorrowTwiceFromTwoOrders() public {
+        setPriceFeed(95);
         depositSellOrder(Alice, 30, 110);
         depositSellOrder(Bob, 20, 100);
         depositBuyOrder(Carol, 6000, 90);
@@ -176,6 +177,7 @@ contract TestBorrow is Setup {
 
     // fail if user has more than max number of positions
     function test_PositionsForUserExceedLimit() public {
+        setPriceFeed(95);
         depositSellOrder(Alice, 30, 110);
         depositSellOrder(Bob, 20, 100);
         depositSellOrder(Carol, 40, 120);
@@ -191,6 +193,7 @@ contract TestBorrow is Setup {
 
     // fail if order has more than max number of positions
     function test_PositionsForOrderExceedLimit() public {
+        setPriceFeed(95);
         depositBuyOrder(Alice, 6000, 90);
         depositSellOrder(Bob, 20, 100);
         depositSellOrder(Carol, 40, 120);
@@ -220,6 +223,7 @@ contract TestBorrow is Setup {
 
     // maker cross-borrows her own orders correctly adjusts balances
     function test_MakerCrossBorrowsHerOrdersCheckBalances() public {
+        setPriceFeed(95);
         depositBuyOrder(Alice, 3600, 90);
         depositSellOrder(Alice, 60, 100);
         uint256 bookQuoteBalance = quoteToken.balanceOf(OrderBook);
@@ -240,6 +244,7 @@ contract TestBorrow is Setup {
 
     // maker loop-borrows her own orders correctly adjusts balances
     function test_MakerLoopBorrowsHerOrdersCheckBalances() public {
+        setPriceFeed(95);
         depositBuyOrder(Alice, 4500, 90);
         depositSellOrder(Alice, 60, 100);
         uint256 bookQuoteBalance = quoteToken.balanceOf(OrderBook);
@@ -270,6 +275,7 @@ contract TestBorrow is Setup {
 
     // users can't borrow non-borrowable sell orders
     function test_CantBorrowNonBorrowableSellOrder() public {
+        setPriceFeed(95);
         depositSellOrder(Alice, 30, 100);
         depositBuyOrder(Bob, 3000, 90);
         makeOrderNonBorrowable(Alice, Alice_Order);
@@ -290,6 +296,7 @@ contract TestBorrow is Setup {
 
     // users can't borrow borrowed buy orders after repayment
     function test_CantBorrowNonBorrowableSellOrderAfterRepay() public {
+        setPriceFeed(95);
         depositSellOrder(Alice, 30, 100);
         depositBuyOrder(Bob, 3000, 90);
         borrow(Bob, Alice_Order, 10);
