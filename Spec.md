@@ -93,9 +93,23 @@ See [white paper](llob_wp.pdf) for explanations.
 
 ## Minimal deposit size and a minimal non-borrowable assets for orders
 
-We want arbitragers to have minimal incentives to take an order when the limit price is crossed. This is not the case if 100\% of the order's assets are borrowed. A minimal part of the assets must be non-borrowable, and as a consequence, a minmal deposit size is necessary.
+We want arbitragers to have minimal incentives to take an order when the limit price is crossed. Available assets to take are deposited assets minus borrowed assets. Available assets should always be at least equal to minmal deposit. Reducing available assets in an order can be done three ways, each under different conditions:
 
-Example: in the ETH USDC market, a buy order must have at least 100 USDC available for a taker. If the minimal deposit is 100 USDC, the borrowable part of the order is y - 100 with y >= 100 USDC the deposited assests.
+withdraw:
+- Has order lent assets?
+  - No: is withdraw full?
+    - Yes: no condition
+    - No: remaining assets >= minimum deposit
+  - Yes: remaining assets >= minimum deposit
+
+borrow:
+- remaining assets >= minimum deposit
+  
+take:
+- Are all available assets taken?
+  - Yes: no condition
+  - No: remaining assets >= minimum deposit
+
 
 ## Excess collateral
 

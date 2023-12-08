@@ -33,13 +33,21 @@ contract Setup is StdCheats, Test {
     uint256 constant Alice_Position = 1;
     uint256 constant Bob_Position = 1;
     uint256 constant Carol_Position = 2;
+    uint256 constant DepositQT = 1800;
+    uint256 constant DepositBT = 20;
+    uint256 constant TakeQT = 900;
+    uint256 constant TakeBT = 10;
+    uint256 constant LowPrice = 90;
+    uint256 constant UltraLowPrice = 80;
+    uint256 constant HighPrice = 110;
+    uint256 constant UltraHighPrice = 120;
 
     address OrderBook;
     address Alice;
     address Bob;
     address Carol;
     address Dave;
-    address PoorGuy;
+    //address PoorGuy;
 
     mapping(uint256 => address) public acc;
 
@@ -62,7 +70,7 @@ contract Setup is StdCheats, Test {
         Bob = acc[2];
         Carol = acc[3];
         Dave = acc[4];
-        PoorGuy = acc[_accountNumber + 1];
+        // PoorGuy = acc[_accountNumber + 1];
     }
 
     function _receiveTokens(uint256 _userId, uint256 _quoteTokens, uint256 _baseTokens) internal {
@@ -145,6 +153,12 @@ contract Setup is StdCheats, Test {
 
     function setPriceFeed(uint256 _price) public {
         book.setPriceFeed(_price * WAD);
+    }
+
+    // check maker of order
+    function checkOrderMaker(uint256 _orderId, address _maker) public {
+        (address maker,,,,,) = book.orders(_orderId);
+        assertEq(maker, _maker);
     }
 
     // check assets in order == _quantity

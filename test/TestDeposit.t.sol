@@ -7,7 +7,7 @@ import {MathLib, WAD} from "../lib/MathLib.sol";
 
 contract TestDeposit is Setup {
 
-    // if new limit order, create order in orders
+    // if new limit order, create order in mapping orders
     function test_DepositBuyOrder() public {
         depositBuyOrder(Alice, 2000, 90);
         (address maker,
@@ -44,7 +44,7 @@ contract TestDeposit is Setup {
         assertEq(book.countOrdersOfUser(Bob), 1);
     }
 
-    // Transfer tokens to contract, correctly adjustsbalances
+    // Transfer tokens to contract, correctly adjusts balances
     function test_DepositBuyOrderCheckBalances() public {
         uint256 OrderBookBalance = quoteToken.balanceOf(OrderBook);
         uint256 userBalance = quoteToken.balanceOf(Alice);
@@ -89,13 +89,13 @@ contract TestDeposit is Setup {
 
     // When deposit is less than min deposit, revert
     function test_RevertBuyOrderIfZeroDeposit() public {
-        vm.expectRevert("Deposit too small (10)"); // confusing error message
+        vm.expectRevert("Deposit too small"); // confusing error message
         depositBuyOrder(Alice, 99, 90);
         checkOrderQuantity(Alice_Order, 0);
     }
 
     function test_RevertSellOrderIfZeroDeposit() public {
-        vm.expectRevert("Deposit too small (10)");
+        vm.expectRevert("Deposit too small");
         depositSellOrder(Alice, 1, 110);
         checkOrderQuantity(Alice_Order, 0);
     }
@@ -117,10 +117,6 @@ contract TestDeposit is Setup {
     function test_AggregateIdenticalBuyOrder() public {
         depositBuyOrder(Alice, 3000, 90);
         depositBuyOrder(Alice, 2000, 90);
-        (,, uint256 quantity1,,,) = book.orders(1);
-        (,, uint256 quantity2,,,) = book.orders(2);
-        assertEq(quantity1, (3000 + 2000) * WAD);
-        assertEq(quantity2, 0);
         assertEq(book.countOrdersOfUser(Alice), 1);
         checkOrderQuantity(Alice_Order, 5000);
         checkOrderQuantity(Alice_Order + 1, 0);
@@ -201,7 +197,8 @@ contract TestDeposit is Setup {
     function test_OrdersForUserExceedLimit() public {
         depositBuyOrder(Alice, 3000, 90);
         depositSellOrder(Alice, 30, 110);
-        vm.expectRevert("Max number of orders reached for user");
+        depositBuyOrder(Alice, 1000, 95);
+        vm.expectRevert("Max orders reached");
         depositBuyOrder(Alice, 4000, 80);
     }
 
@@ -221,7 +218,7 @@ contract TestDeposit is Setup {
         checkOrderIsBorrowable(Alice_Order);
     }
 
-    // user switches from borrowable sell orderto non borrowable
+    // user switches from borrowable sell order to non borrowable
     function test_SwitchSellToNonBorrowable() public {
         depositSellOrder(Alice, 30, 110);
         checkOrderIsBorrowable(Alice_Order);
@@ -235,5 +232,63 @@ contract TestDeposit is Setup {
         makeOrderNonBorrowable(Alice, Alice_Order);
         makeOrderBorrowable(Alice, Alice_Order);
         checkOrderIsBorrowable(Alice_Order);
+    }
+
+    // filling a consistent paired price in buy order is ok
+    function test_BuyOrderConsistentPairedPriceIsOk() public {
+        depositBuyOrderWithPairedPrice(Alice, 1000, 90, 110);
+        checkOrderPrice(Alice_Order, 90);
+        checkOrderPairedPrice(Alice_Order, 110);
+    }
+
+    // filling a consistent paired price in sell order is ok
+    function test_SellOrderConsistentPairedPriceIsOk() public {
+        depositSellOrderWithPairedPrice(Alice, 10, 110, 90);
+        checkOrderPrice(Alice_Order, 110);
+        checkOrderPairedPrice(Alice_Order, 90);
+    }
+    
+    // Check that filling 0 in paired price while depositing sets buy order's paired price to limit price + 10%
+    function test_SetBuyOrderPairedPriceToZeroOk() public {
+        depositBuyOrderWithPairedPrice(Alice, 1000, 90, 0);
+        checkOrderPairedPrice(Alice_Order, 90 + 90 / 10);
+    }
+
+    // Check that filling 0 in paired price while depositing sets buy order's paired price to limit price - 10%
+    function test_SetSellOrderPairedPriceToZeroOk() public {
+        depositSellOrderWithPairedPrice(Alice, 10, 110, 0);
+        checkOrderPairedPrice(Alice_Order, 110 - 110/11);
+    }
+
+    // filling an inconsistent paired price in buy order reverts
+    function test_RevertBuyOrderInconsistentPairedPrice() public {
+        vm.expectRevert("Inconsistent prices");
+        depositBuyOrderWithPairedPrice(Alice, 1000, 90, 80);
+    }
+
+    // filling an inconsistent paired price in sell order reverts
+    function test_RevertSellOrderInconsistentPairedPrice() public {
+        vm.expectRevert("Inconsistent prices");
+        depositSellOrderWithPairedPrice(Alice, 10, 110, 120);
+    }
+
+    // Paired price in buy order is used in paired limit order after taking
+    function test_BuyOrderPairedPricereportsOk() public {
+        depositBuyOrderWithPairedPrice(Alice, 1800, 90, 110);
+        setPriceFeed(70);
+        take(Bob, Alice_Order, 1800);
+        checkOrderPrice(Alice_Order + 1, 110);
+        checkOrderPairedPrice(Alice_Order + 1, 90);
+        checkOrderQuantity(Alice_Order + 1, 1800 / 90);
+    }
+
+    // Paired price in sell order is used in paired limit order after taking
+    function test_SellOrderPairedPricereportsOk() public {
+        depositSellOrderWithPairedPrice(Alice, 20, 110, 90);
+        setPriceFeed(120);
+        take(Bob, Alice_Order, 20);
+        checkOrderPrice(Alice_Order + 1, 90);
+        checkOrderPairedPrice(Alice_Order + 1, 110);
+        checkOrderQuantity(Alice_Order + 1, 20 * 110);
     }
 }
