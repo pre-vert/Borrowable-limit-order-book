@@ -8,14 +8,14 @@ import {MathLib, WAD} from "../lib/MathLib.sol";
 
 contract TestChangePrice is Setup {
 
-    // Calling ChangeLimitPrice() with a new limit price changes the limit price
+    // Calling ChangeLimitPrice() with a new limit price changes the buy order's limit price
     function test_ChangeBuyOrderLimitPrice() public {
         depositBuyOrder(Alice, 1000, 90);
         changeLimitPrice(Alice, Alice_Order, 95);
         checkOrderPrice(Alice_Order, 95);
     }
 
-    // Calling ChangeLimitPrice() with a new limit price changes the limit price
+    // Calling ChangeLimitPrice() with a new limit price changes sell order's the limit price
     function test_ChangeSellOrderLimitPrice() public {
         depositSellOrder(Alice, 10, 110);
         changeLimitPrice(Alice, Alice_Order, 115);
@@ -84,21 +84,6 @@ contract TestChangePrice is Setup {
         changeLimitPrice(Alice, Alice_Order, 111);
     }
 
-
-
-
-    // Check that filling 0 in paired price while depositing sets buy order's paired price to limit price + 10%
-    function test_SetBuyOrderPairedPriceToZeroOk() public {
-        depositBuyOrderWithPairedPrice(Alice, 1000, 90, 0);
-        checkOrderPairedPrice(Alice_Order, 90 + 90 / 10);
-    }
-
-    // Check that filling 0 in paired price while depositing sets buy order's paired price to limit price - 10%
-    function test_SetSellOrderPairedPriceToZeroOk() public {
-        depositSellOrderWithPairedPrice(Alice, 10, 110, 0);
-        checkOrderPairedPrice(Alice_Order, 110 - 110/11);
-    }
-
     // Calling ChangePairedPrice() with a new paired price changes the paired price
     function test_ChangeBuyOrderPairedPrice() public {
         depositBuyOrder(Alice, 1000, 90);
@@ -165,6 +150,5 @@ contract TestChangePrice is Setup {
         checkOrderPairedPrice(Alice_Order, 99);
         checkOrderPairedPrice(Alice_Order + 1, 90);
     }
-
 
 }

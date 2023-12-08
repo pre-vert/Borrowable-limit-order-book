@@ -12,9 +12,9 @@ contract TestRepay is Setup {
         depositBuyOrder(Alice, 2000, 90);
         depositSellOrder(Bob, 30, 110);
         borrow(Bob, 1, 1000);
-        vm.expectRevert("Borrowing position does not exist");
+        vm.expectRevert("Position doesn't exist");
         repay(Bob, Carol_Position, 10);
-        vm.expectRevert("Borrowing position does not exist");
+        vm.expectRevert("Position doesn't exist");
         repay(Bob, Carol_Position, 0);
         checkOrderQuantity(Alice_Order, 2000);
         checkOrderQuantity(Bob_Order, 30);
@@ -26,9 +26,9 @@ contract TestRepay is Setup {
         depositSellOrder(Alice, 20, 110);
         depositBuyOrder(Bob, 3000, 90);
         borrow(Bob, Alice_Order, 10);
-        vm.expectRevert("Borrowing position does not exist");
+        vm.expectRevert("Position doesn't exist");
         repay(Bob, Carol_Position, 10);
-        vm.expectRevert("Borrowing position does not exist");
+        vm.expectRevert("Position doesn't exist");
         repay(Bob, Carol_Position, 0);
         checkOrderQuantity(1, 20);
         checkOrderQuantity(2, 3000);
@@ -62,7 +62,7 @@ contract TestRepay is Setup {
         depositBuyOrder(Alice, 2000, 90);
         depositSellOrder(Bob, 30, 110);
         borrow(Bob, Alice_Order, 1000);
-        vm.expectRevert("Repay too large (14)");
+        vm.expectRevert("Repay too much");
         repay(Bob, Bob_Position, 1400);
         checkOrderQuantity(Alice_Order, 2000);
         checkOrderQuantity(Bob_Order, 30);
@@ -73,7 +73,7 @@ contract TestRepay is Setup {
         depositSellOrder(Alice, 20, 110);
         depositBuyOrder(Bob, 3000, 90);
         borrow(Bob, Alice_Order, 10);
-        vm.expectRevert("Repay too large (14)");
+        vm.expectRevert("Repay too much");
         repay(Bob, Bob_Position, 15);
         checkOrderQuantity(Alice_Order, 20);
         checkOrderQuantity(Bob_Order, 3000);
@@ -114,17 +114,17 @@ contract TestRepay is Setup {
         checkBorrowingQuantity(Bob_Position, 500);
     }
 
-    // ok if borrower then repayer of sell order is maker
+    // ok if borrower and repayer of sell order is maker
     function test_RepaySellOrderOkIfMaker() public {
         setPriceFeed(95);
-        depositSellOrder(Alice, 20, 100);
-        depositBuyOrder(Alice, 3000, 90);
-        borrow(Alice, Alice_Order, 20);
-        checkBorrowingQuantity(Alice_Position, 20); 
-        repay(Alice, Alice_Position, 10);
-        checkOrderQuantity(Alice_Order, 20);
-        checkOrderQuantity(Alice_Order + 1, 3000);
-        checkBorrowingQuantity(Alice_Position, 10); 
+        depositSellOrder(Alice, DepositBT, 100);
+        depositBuyOrder(Alice, DepositQT, 90);
+        borrow(Alice, Alice_Order, DepositBT / 2);
+        checkBorrowingQuantity(Alice_Position, DepositBT / 2); 
+        repay(Alice, Alice_Position, DepositBT / 2);
+        checkOrderQuantity(Alice_Order, DepositBT);
+        checkOrderQuantity(Alice_Order + 1, DepositQT);
+        checkBorrowingQuantity(Alice_Position, 0); 
     }
 
     // fails if borrower repay non-borrowed buy order
@@ -133,7 +133,7 @@ contract TestRepay is Setup {
         depositSellOrder(Bob, 50, 110);
         borrow(Bob, Alice_Order, 1000);
         depositBuyOrder(Carol, 3000, 80);
-        vm.expectRevert("Borrowing position does not exist");
+        vm.expectRevert("Position doesn't exist");
         repay(Bob, Carol_Position, 500);
         checkOrderQuantity(Alice_Order, 2000);
         checkOrderQuantity(Bob_Order, 50);
@@ -148,7 +148,7 @@ contract TestRepay is Setup {
         depositBuyOrder(Bob, 5000, 100);
         borrow(Bob, Alice_Order, 10);
         depositSellOrder(Carol, 30, 120);
-        vm.expectRevert("Borrowing position does not exist");
+        vm.expectRevert("Position doesn't exist");
         repay(Bob, Carol_Position, 5);
         checkOrderQuantity(Alice_Order, 20);
         checkOrderQuantity(Bob_Order, 5000);
@@ -174,7 +174,7 @@ contract TestRepay is Setup {
     }
 
     // repay sell order correctly adjusts external balances
-    function test_BorowSellOrderCheckBalances() public {
+    function test_RepaySellOrderCheckBalances() public {
         depositSellOrder(Alice, 20, 110);
         depositBuyOrder(Bob, 3000, 90);
         borrow(Bob, Alice_Order, 10);

@@ -56,3 +56,9 @@
   - the paired price of their orders (changePairedPrice())
 - new unit tests associated with the two methods
 - updated IBook
+
+### What's new in V2.0
+
+- self-replacing limit orders implemented
+- associated unit tests
+- optimize IBook.sol

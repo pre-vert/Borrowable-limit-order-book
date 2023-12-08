@@ -79,18 +79,26 @@ contract TestWithdraw is Setup {
 
     // withdrawable quantity from buy order is correct
     function test_RemoveBuyOrderOutable() public {
-        depositBuyOrder(Alice, 2000, 90);
-        assertEq(book.outable(1, 2000 * WAD), true);
-        assertEq(book.outable(1, 1900 * WAD), true);
-        assertEq(book.outable(1, 1901 * WAD), false);
+        uint256 minDeposit = book.minDeposit(BuyOrder);
+        depositBuyOrder(Alice, DepositQT, LowPrice);
+        withdraw(Alice, Alice_Order, DepositQT);
+        depositBuyOrder(Alice, DepositQT, LowPrice);
+        vm.expectRevert("Remove too much 1");
+        withdraw(Alice, Alice_Order, DepositQT - minDeposit / WAD);
+        depositBuyOrder(Alice, DepositQT, LowPrice);
+        withdraw(Alice, Alice_Order, DepositQT + 1 - minDeposit / WAD);
     }
 
     // withdrawable quantity from sell order is correct
     function test_RemoveSellOrderOutable() public {
-        depositSellOrder(Alice, 20, 110);
-        assertEq(book.outable(1, 20 * WAD), true);
-        assertEq(book.outable(1, 19 * WAD), false);
-        assertEq(book.outable(1, 18 * WAD), true);
+        uint256 minDeposit = book.minDeposit(SellOrder);
+        depositSellOrder(Alice, DepositBT, HighPrice);
+        withdraw(Alice, Alice_Order, DepositBT);
+        depositSellOrder(Alice, DepositBT, HighPrice);
+        vm.expectRevert("Remove too much 1");
+        withdraw(Alice, Alice_Order, DepositBT - minDeposit / WAD);
+        depositSellOrder(Alice, DepositBT, HighPrice);
+        withdraw(Alice, Alice_Order, DepositBT + 1 - minDeposit / WAD);
     }
 
     // Depositor excess collateral is correct
@@ -110,14 +118,13 @@ contract TestWithdraw is Setup {
 
     // add new order if same order but different maker
     function test_RedepositAfterRemoveBuyOrder() public {
-        depositBuyOrder(Alice, 3000, 90);
-        withdraw(Alice, Alice_Order, 3000);
+        depositBuyOrder(Alice, DepositQT, 90);
+        withdraw(Alice, Alice_Order, DepositQT);
         checkOrderQuantity(Alice_Order, 0);
-        depositBuyOrder(Bob, 5000, 90);
+        depositBuyOrder(Bob, DepositQT, 90);
         checkOrderQuantity(Alice_Order, 0);
-        checkOrderQuantity(Bob_Order, 5000);
-        depositBuyOrder(Alice, 4000, 90);
-        checkOrderQuantity(Alice_Order, 4000);
+        depositBuyOrder(Alice, 2 * DepositQT, 90);
+        checkOrderQuantity(Alice_Order, 2 * DepositQT);
     }
 
     function test_RedepositAfterRemoveDepositIdInUsers() public {

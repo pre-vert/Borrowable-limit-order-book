@@ -12,7 +12,7 @@ contract TestLiquidate is Setup {
         depositSellOrder(Bob, 100, 200);
         borrow(Bob, Alice_Order, 5000);
         setPriceFeed(100);
-        vm.expectRevert("Borrowing position does not exist");
+        vm.expectRevert("Position doesn't exist");
         liquidate(Alice, Carol_Position);
     }
 
@@ -21,7 +21,7 @@ contract TestLiquidate is Setup {
         depositBuyOrder(Bob, 10000, 50);
         borrow(Bob, Alice_Order, 50);
         setPriceFeed(100);
-        vm.expectRevert("Borrowing position does not exist");
+        vm.expectRevert("Position doesn't exist");
         liquidate(Alice, Carol_Position);
     }
 
@@ -65,9 +65,10 @@ contract TestLiquidate is Setup {
         liquidate(Alice, Bob_Position);
     }
 
-    // Liquidate position calls take() if buy order is profitable
-    // Alice's buy order is taken for 0 by herself: all positions are fully liquidated for 0 fee
-    // Bob's and Carol's collateral is transferred to Alice's wallet for (3000 + 2000)/50 = 100 base tokens
+    // Alice is willing to liquidate Bob but calls take() since her buy order is profitable
+    // This is as if Alice takes her own buy order for 0
+    // Bob and Carol's positions are liquidated for 60 + 40 = 100 BT
+    // which are used to create a new sell order for Alice
 
     function test_LiquidateBuyIsTakeIfProfitable() public {
         depositBuyOrder(Alice, 6000, 50);
@@ -86,16 +87,24 @@ contract TestLiquidate is Setup {
         setPriceFeed(40);
         liquidate(Alice, Bob_Position);
         assertEq(quoteToken.balanceOf(OrderBook), contractQuoteBalance);
-        assertEq(baseToken.balanceOf(OrderBook), contractBaseBalance - 100 * WAD);
+        assertEq(baseToken.balanceOf(OrderBook), contractBaseBalance); // - 100 * WAD);
         assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance);
-        assertEq(baseToken.balanceOf(Alice), makerBaseBalance + 100 * WAD);
+        assertEq(baseToken.balanceOf(Alice), makerBaseBalance); // + 100 * WAD);
         assertEq(quoteToken.balanceOf(Bob), borrowerQuoteBalance);
         assertEq(baseToken.balanceOf(Bob), borrowerBaseBalance);
         assertEq(quoteToken.balanceOf(Carol), borrower2QuoteBalance);
         assertEq(baseToken.balanceOf(Carol), borrower2BaseBalance);
+        checkOrderQuantity(Alice_Order, 6000 - 3000 - 2000);
+        checkOrderQuantity(Bob_Order, 60 - 60);
+        checkOrderQuantity(Carol_Order, 50 - 40);
+        checkOrderQuantity(Alice_Order + 3, 100);
     }
 
-    // Liquidate position calls take() if sell order is profitable
+    // Alice is willing to liquidate Carol but calls take() since her buy order is profitable
+    // This is as if Alice takes her own buy order for 0
+    // Bob and Carol's positions are liquidated for 6000 + 8000 = 14,000 QT
+    // which are used to create a new buy order for Alice
+
     function test_LiquidateSellIsTakeIfProfitable() public {
         depositSellOrder(Alice, 100, 200);
         depositBuyOrder(Bob, 9000, 50);
@@ -112,14 +121,18 @@ contract TestLiquidate is Setup {
         uint256 borrower2BaseBalance = baseToken.balanceOf(Carol);
         setPriceFeed(210);
         liquidate(Alice, Carol_Position);
-        assertEq(quoteToken.balanceOf(OrderBook), contractQuoteBalance - (8000 + 6000) * WAD);
+        assertEq(quoteToken.balanceOf(OrderBook), contractQuoteBalance); // - (8000 + 6000) * WAD);
         assertEq(baseToken.balanceOf(OrderBook), contractBaseBalance);
-        assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance + (8000 + 6000) * WAD);
+        assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance); // + (8000 + 6000) * WAD);
         assertEq(baseToken.balanceOf(Alice), makerBaseBalance);
         assertEq(quoteToken.balanceOf(Bob), borrowerQuoteBalance);
         assertEq(baseToken.balanceOf(Bob), borrowerBaseBalance);
         assertEq(quoteToken.balanceOf(Carol), borrower2QuoteBalance);
         assertEq(baseToken.balanceOf(Carol), borrower2BaseBalance);
+        checkOrderQuantity(Alice_Order, 100 - 30 - 40);
+        checkOrderQuantity(Bob_Order, 9000 - 6000);
+        checkOrderQuantity(Carol_Order, 8000 - 8000);
+        checkOrderQuantity(Alice_Order + 3, 14000);
     }
 
     // liquidate borrow buy order:
