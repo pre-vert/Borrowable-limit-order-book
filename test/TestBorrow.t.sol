@@ -86,8 +86,6 @@ contract TestBorrow is Setup {
     // borrow sell order correctly adjusts external balances
     function test_BorowSellOrderCheckBalances() public {
         uint256 borrowedQuantity = DepositBT - 2 * book.minDeposit(SellOrder) / WAD;
-        console.log("DepositBT: ", DepositBT);
-        console.log("borrowedQuantity: ", borrowedQuantity);
         depositSellOrder(Alice, DepositBT, 110);
         depositBuyOrder(Bob, DepositQT, 90);
         uint256 bookBalance = baseToken.balanceOf(OrderBook);

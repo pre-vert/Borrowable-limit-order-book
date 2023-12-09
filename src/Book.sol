@@ -88,7 +88,7 @@ contract Book is IBook {
     }
 
     modifier positionExists(uint256 _positionId) {
-        require(_borrowIsPositive(_positionId), "Position doesn't exist");
+        require(_borrowIsPositive(_positionId), "Position does not exist");
         _;
     }
 
@@ -188,9 +188,7 @@ contract Book is IBook {
 
         // cannot borrow more than available assets, net of minimum deposit
         bool flag = _borrowable(_borrowedOrderId, _borrowedQuantity);
-        console.log("flag before", flag);
         require(flag, "Borrow too much 0");
-        console.log("flag after", flag);
 
         // check available assets are not used as collateral by maker and can be borrowed, update TWIR first
         _incrementTimeWeightedRates();
@@ -207,7 +205,7 @@ contract Book is IBook {
         // output the id of the new or updated borrowing position
         uint256 positionId = _addPositionToPositions(msg.sender, _borrowedOrderId, _borrowedQuantity);
 
-        // add new positionId in positionIds array in orders, check first that position doesn't already exist
+        // add new positionId in positionIds array in orders, check first that position does not already exist
         // reverts if max number of positions is reached
         _AddPositionIdToPositionIdsInOrders(positionId, _borrowedOrderId);
 
@@ -254,13 +252,9 @@ contract Book is IBook {
         Order memory takenOrder = orders[_takenOrderId];
         bool isBuyOrder = takenOrder.isBuyOrder;
         uint256 lentAssets = getAssetsLentByOrder(_takenOrderId);
-
-        console.log("here 453");
         
         // if order is borrowed, taking is allowed for profitable trades only
         if (lentAssets > 0) require(profitable(takenOrder.price, isBuyOrder), "Trade must be profitable");
-        
-        console.log("takenQuantity: %s", _takenQuantity);
 
         // taking is allowed for non-borrowed assets, possibly net of minimum deposit if taking is partial
         require(_takable(_takenOrderId, _takenQuantity, lentAssets, minDeposit(isBuyOrder)), "Take too much");
@@ -272,8 +266,6 @@ contract Book is IBook {
         // Ex: Bob deposits 2 ETH in a sell order to borrow 4000 from Alice's buy order (p = 2000)
         // Alice's buy order is taken, Bob's collateral is seized for 4000/p = 2 ETH  
         uint256 seizedCollateral = _closeAllPositions(_takenOrderId);
-
-        console.log("here 454");
         
         // Liquidation means les assets deposited (seized collateral) and less assets borrowed (written off debt)
         uint256 writtenOffDebt = 0;
@@ -292,8 +284,6 @@ contract Book is IBook {
         // Alice's buy order is taken for X \in (0, 2100) USDC in exchange of X/p ETH
         // Her borrowing in ETH is reduced by min(X/p, 1) 
         // Taking a collateral order writes off the debt first (exit strategy)
-
-        console.log("here 455");
         
         uint256 reducedBorrow = 0;
         if (_takenQuantity + writtenOffDebt > 0) {
@@ -309,8 +299,6 @@ contract Book is IBook {
         // quantity given by taker in exchange of _takenQuantity (can be zero)
         uint256 exchangedQuantity = convert(_takenQuantity, takenOrder.price, isBuyOrder, ROUNDUP);
         
-        console.log("here 456");
-        
         // check if an identical order exists already, if so increase deposit, else create
         uint256 pairedOrderId = _getOrderIdInDepositIdsInUsers(
             takenOrder.maker,
@@ -319,14 +307,10 @@ contract Book is IBook {
             !takenOrder.isBuyOrder);
         uint256 netTransfer = _substract(exchangedQuantity + seizedCollateral, reducedBorrow, "err 000", RECOVER);
         
-        console.log("here 457");
-        console.log("netTransfer", netTransfer / WAD);
-        
         if (netTransfer > 0) {
             // if the paired order must be created and minimum amount deposited is not met, send to maker back
             // else create or increase paired order
             if (pairedOrderId == 0 && netTransfer < minDeposit(!isBuyOrder)) {
-                console.log("458");
                 _transferTo(takenOrder.maker, netTransfer, !isBuyOrder);
             } else {
                 _placeOrder(
@@ -340,10 +324,7 @@ contract Book is IBook {
                 );
             }            
         }
-        console.log("here 458");
-
-        console.log("_takenQuantity", _takenQuantity / WAD);
-        console.log("exchangedQuantity", exchangedQuantity / WAD);
+        
         if (_takenQuantity > 0) { 
             _transferTo(msg.sender, _takenQuantity, isBuyOrder);
             _transferFrom(msg.sender, exchangedQuantity, !isBuyOrder);
@@ -690,16 +671,9 @@ contract Book is IBook {
     )
         internal
     {
-        // if (_getDepositIdsRowInUsers(_maker, _orderId) != ABSENT) return;
-
-        console.log("_orderId", _orderId);
-
         bool fillRow = false;
         for (uint256 i = 0; i < MAX_ORDERS; i++) {
-            console.log("i : ", i);
             uint256 orderId = users[_maker].depositIds[i];
-            console.log("orderId : ", orderId);
-            console.log("!_orderHasAssets(orderId)", !_orderHasAssets(orderId));
             if (orderId == 0 || !_orderHasAssets(orderId)) {
                 users[_maker].depositIds[i] = _orderId;
                 fillRow = true;
@@ -1147,14 +1121,6 @@ contract Book is IBook {
         uint256 availableAssets = _substract(depositedAssets, lentAssets, "err 009", RECOVER);
         uint256 minSupply = minDeposit(orders[_orderId].isBuyOrder); 
 
-        console.log("depositedAssets: ", depositedAssets / WAD);
-        console.log("lentAssets: ", lentAssets / WAD);
-        console.log("availableAssets: ", availableAssets / WAD);
-        console.log("minSupply: ", minSupply / WAD);
-        console.log("borrowed quantity: ", _quantity);
-        console.log("borrowed quantity: ", _quantity / WAD);
-        console.log("_quantity + minSupply", (_quantity + minSupply) / WAD);
-
         if (_quantity + minSupply <= availableAssets) return true;
         else return false;
     }
@@ -1171,8 +1137,6 @@ contract Book is IBook {
     {
         uint256 depositedAssets = orders[_orderId].quantity;
         uint256 availableAssets = _substract(depositedAssets, _lentAssets, "err 010", RECOVER);
-
-        console.log("_quantity == availableAssets", _quantity == availableAssets);
 
         if (_quantity == availableAssets || _quantity + _minDeposit <= availableAssets) return true;
         else return false;
