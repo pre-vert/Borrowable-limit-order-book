@@ -12,7 +12,7 @@ contract TestLiquidate is Setup {
         depositSellOrder(Bob, 100, 200);
         borrow(Bob, Alice_Order, 5000);
         setPriceFeed(100);
-        vm.expectRevert("Position doesn't exist");
+        vm.expectRevert("Position does not exist");
         liquidate(Alice, Carol_Position);
     }
 
@@ -21,7 +21,7 @@ contract TestLiquidate is Setup {
         depositBuyOrder(Bob, 10000, 50);
         borrow(Bob, Alice_Order, 50);
         setPriceFeed(100);
-        vm.expectRevert("Position doesn't exist");
+        vm.expectRevert("Position does not exist");
         liquidate(Alice, Carol_Position);
     }
 
