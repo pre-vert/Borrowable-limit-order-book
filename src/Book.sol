@@ -34,7 +34,7 @@ contract Book is IBook {
     uint256 public constant GAMMA = 10 * WAD / 1000; // IRM parameter =  0.010
     uint256 public constant FEE = 20 * WAD / 1000; // interest-based liquidation fee for maker =  0.020 (2%)
     uint256 public constant YEAR = 365 days; // number of seconds in one year
-    bool private constant RECOVER = true;
+    bool private constant RECOVER = true; // how negative uint256 following substraction are handled
 
     struct Order {
         address maker; // address of the maker
@@ -267,15 +267,15 @@ contract Book is IBook {
         // Alice's buy order is taken, Bob's collateral is seized for 4000/p = 2 ETH  
         uint256 seizedCollateral = _closeAllPositions(_takenOrderId);
         
-        // Liquidation means les assets deposited (seized collateral) and less assets borrowed (written off debt)
-        uint256 writtenOffDebt = 0;
+        // Liquidation means les assets deposited (seized collateral) and less assets borrowed (canceled debt)
+        uint256 canceledDebt = 0;
         if (seizedCollateral > 0) {
             // total deposits from borrowers' side are reduced by 2 ETH
             _decreaseTotalAssetsBy(seizedCollateral, !isBuyOrder);
-            // if 2 ETH are seized, 2*p = 4000 USDC of debt are written off
-            writtenOffDebt = convert(seizedCollateral, takenOrder.price, !isBuyOrder, !ROUNDUP);
+            // if 2 ETH are seized, 2*p = 4000 USDC of debt are canceled
+            canceledDebt = convert(seizedCollateral, takenOrder.price, !isBuyOrder, !ROUNDUP);
             // total borrow is reduced by 4000 USDC
-            _decreaseTotalBorrowBy(writtenOffDebt, isBuyOrder);
+            _decreaseTotalBorrowBy(canceledDebt, isBuyOrder);
         }
 
         // assets taken could collateralize maker's own borrowing positions
@@ -286,14 +286,14 @@ contract Book is IBook {
         // Taking a collateral order writes off the debt first (exit strategy)
         
         uint256 reducedBorrow = 0;
-        if (_takenQuantity + writtenOffDebt > 0) {
-            uint256 budgetToRepayLoans = convert(_takenQuantity + writtenOffDebt, takenOrder.price, isBuyOrder, !ROUNDUP);
+        if (_takenQuantity + canceledDebt > 0) {
+            uint256 budgetToRepayLoans = convert(_takenQuantity + canceledDebt, takenOrder.price, isBuyOrder, !ROUNDUP);
             reducedBorrow = _reduceUserBorrow(takenOrder.maker, budgetToRepayLoans, isBuyOrder);
             _decreaseTotalBorrowBy(reducedBorrow, !isBuyOrder);
             // Alice's buy order is reduced by amount taken + 2 * p USDC
-            _reduceOrderBy(_takenOrderId, _takenQuantity + writtenOffDebt);
+            _reduceOrderBy(_takenOrderId, _takenQuantity + canceledDebt);
             // total deposits from maker's side are reduced by taken quantity + 2*p USDC
-            _decreaseTotalAssetsBy(_takenQuantity + writtenOffDebt, isBuyOrder);
+            _decreaseTotalAssetsBy(_takenQuantity + canceledDebt, isBuyOrder);
         }
 
         // quantity given by taker in exchange of _takenQuantity (can be zero)
@@ -324,7 +324,7 @@ contract Book is IBook {
                 );
             }            
         }
-        
+
         if (_takenQuantity > 0) { 
             _transferTo(msg.sender, _takenQuantity, isBuyOrder);
             _transferFrom(msg.sender, exchangedQuantity, !isBuyOrder);
@@ -388,7 +388,9 @@ contract Book is IBook {
 
     ///////******* Internal functions *******///////
     
-    // place order on the book, update internal balances, update TWIR
+    // place liquidty on the book, create a new order or increase existing one
+    // update internal balances, update TWIR and increase total assets
+    // called by deposit() at the initiative of user or take() for self-replacing order
     
     function _placeOrder(
         address _maker,
@@ -400,7 +402,6 @@ contract Book is IBook {
         uint256 _orderId
     )
         internal
-        // returns (uint256 orderId)
     {
         if (_orderId != 0) {
             _increaseOrderBy(_orderId, _quantity);
@@ -417,13 +418,15 @@ contract Book is IBook {
             // add new orderId in depositIds array in users
             _addOrderIdInDepositIdsInUsers(newOrderId, _maker);        
         }
+        // update TWIR and increase total assets
         _incrementTimeWeightedRates();
         _increaseTotalAssetsBy(_quantity, _isBuyOrder);
     }
     
     // close **all** borrowing positions after taking an order, even if taking is partial or 0
+    // call _closePosition for every position to close
     // doesn't perform external transfers
-    // _fromOrderId: order from which borrowing positions must be cleared
+    // _fromOrderId: order id from which borrowing positions must be cleared
 
     function _closeAllPositions(uint256 _fromOrderId)
         internal
@@ -436,7 +439,7 @@ contract Book is IBook {
         for (uint256 i = 0; i < MAX_POSITIONS; i++) {
             uint256 positionId = positionIds[i];
             if(_borrowIsPositive(positionId)) {
-                // add interest rate to borrowed quantity
+                // first, add interest rate to borrowed quantity
                 _increaseBorrowBy(positionId, _interestLoad(positionId));
                 uint256 seizedCollateral = _closePosition(
                     positionId,
@@ -449,20 +452,20 @@ contract Book is IBook {
     }
 
     // When an order is taken, all positions which borrow from it are closed
-    // close one borrowing position for quantity _borrowToWriteOff:
-    // - write off debt for this quantity
-    // - seize collateral for the exact amount liquidated at exchange rate _price
-    // as multiple orders may collateralize the closed position:
+    // close one borrowing position for quantity _borrowToCancel:
+    // - cancel debt for this quantity
+    // - seize collateral for the exact amount liquidated at exchange rate _price, order's limit price
+    // as multiple orders may collateralize a closed position:
     //  - iterate on collateral orders made by borrower in the opposite currency
-    //  - seize collateral orders as they come, stop when borrower's debt is fully written off
+    //  - seize collateral orders as they come, stop when borrower's debt is fully canceled
     //  - change internal balances
-    // interest rate has been added to position before the call
-    // doesn't execute final external transfer of assets
-    // outputs actually seized collateral considering that interest-based liquidations could have not occurred
+    // interest rate has been added to position before callling _closePosition
+    // outputs actually seized collateral which can be less than expected amount
+    // if maker failed to trigger an interest-based liquidation 
 
     function _closePosition(
         uint256 _positionId,
-        uint256 _borrowToWriteOff,
+        uint256 _borrowToCancel,
         uint256 _price
     )
         internal
@@ -474,7 +477,7 @@ contract Book is IBook {
         // collateral to seize the other side of the book given borrowed quantity
         // ex: Bob deposits 1 ETH in 2 sell orders to borrow 4000 from Alice's buy order (p = 2000)
         // Alice's buy order is taken => seized Bob's collateral is 4000/p = 2 ETH spread over 2 orders
-        uint256 collateralToSeize = convert(_borrowToWriteOff, _price, inQuoteToken, ROUNDUP);
+        uint256 collateralToSeize = convert(_borrowToCancel, _price, inQuoteToken, ROUNDUP);
 
         uint256 remainingCollateralToSeize = collateralToSeize;
 
@@ -501,7 +504,7 @@ contract Book is IBook {
                 } else {
                     // borrower's order is fully seized, reduce order quantity to zero
                     _reduceOrderBy(orderId, orderQuantity);
-                    // write off debt for the same amount as collateral seized
+                    // cancel debt for the same amount as collateral seized
                     positions[_positionId].borrowedAssets = 0;
                     remainingCollateralToSeize -= orderQuantity;
                 }
@@ -511,14 +514,15 @@ contract Book is IBook {
         seizedCollateral_ = collateralToSeize - remainingCollateralToSeize;
     }
 
-    // when an order is taken, the assets that the maker obtains serve first to pay back the max of maker's own positions
+    // when an order is taken, the assets that the maker obtains serve in priority to pay back maker's own positions
     // reduce maker's borrowing positions possibly as high as BudgetToRepayLoans
     // Ex: Bob deposits a sell order as collateral to borrow Alice's buy order
-    // if Bob's sell order is taken first, his borrowing position from Alice is reduced, possibly to zero
-    // as multiple positions may be collateralized by the taken order:
-    //  - iterate on borrowing positions
-    //  - close positions as they come, stops when no more positions or budget is exhausted
-    //  - change internal balances
+    // if Bob's sell order is taken first, his borrowing position from Alice is reduced first, possibly to zero
+    // as multiple positions may be collateralized by a taken order:
+    // - iterate on borrowing positions
+    // - close positions as they come by calling _closeMakerPosition()
+    // - stop when all positions have been closed or budget is exhausted
+    // - change internal balances
     
     function _reduceUserBorrow(
         address _borrower,
@@ -547,7 +551,7 @@ contract Book is IBook {
         }
     }
 
-    // reduce user's borrow from one order, partially or fully
+    // reduce maker's borrow from one order, partially or fully
     // _budget: remaining assets from taken position available to partially or fully repay the position
 
     function _closeMakerPosition(
@@ -578,7 +582,7 @@ contract Book is IBook {
 
     // liquidate borrowing positions from users which excess collateral is zero or negative
     // borrower's excess collateral must be zero or negative
-    // only maker can liquidate position from his own order
+    // only maker can liquidate positions borrowing from her order
 
     function _liquidate(uint256 _positionId) internal
     {
@@ -598,11 +602,11 @@ contract Book is IBook {
         // seize collateral equivalent to borrowed quantity + interest rate + fee
         uint256 seizedCollateral = _closePosition(_positionId, positions[_positionId].borrowedAssets, priceFeed);
 
-        // Liquidation means less assets deposited (seized collateral) and less assets borrowed (written off debt)
+        // Liquidation means less assets deposited (seized collateral) and less assets borrowed (canceled debt)
         if (seizedCollateral > 0) {
             // total deposits from borrowers' side are reduced by 2 ETH
             _decreaseTotalAssetsBy(seizedCollateral, !inQuoteToken);
-            // if 2 ETH are seized, 2*p = 4000 USDC of debt are written off
+            // if 2 ETH are seized, 2*p = 4000 USDC of debt are canceled
             _decreaseTotalBorrowBy(convert(seizedCollateral, borrowedOrder.price, !inQuoteToken, !ROUNDUP), inQuoteToken);
             // transfer seized collateral to maker
             _transferTo(borrowedOrder.maker, seizedCollateral, !inQuoteToken);
@@ -635,9 +639,7 @@ contract Book is IBook {
         else baseToken.safeTransferFrom(_from, address(this), _quantity);
     }
 
-    // add order to Order
-    // returns id of the new order
-
+    // add order to Order, returns id of the new order
     function _addOrderToOrders(
         address _maker,
         bool _isBuyOrder,
@@ -650,15 +652,15 @@ contract Book is IBook {
         returns (uint256 orderId)
     {
         uint256[MAX_POSITIONS] memory positionIds;
-        Order memory newOrder = Order({
-            maker: _maker,
-            isBuyOrder: _isBuyOrder,
-            quantity: _quantity,
-            price: _price,
-            pairedPrice: _pairedPrice,
-            isBorrowable: _isBorrowable,
-            positionIds: positionIds
-        });
+        Order memory newOrder = Order(
+            _maker,
+            _isBuyOrder,
+            _quantity,
+            _price,
+            _pairedPrice,
+            _isBorrowable,
+            positionIds
+        );
         orders[lastOrderId] = newOrder;
         orderId = lastOrderId;
         lastOrderId++;
@@ -692,8 +694,6 @@ contract Book is IBook {
     )
         internal
     {
-        //if (_getBorrowFromIdsRowInUsers(_borrower, _orderId) != ABSENT) return;
-
         bool fillRow = false;
         for (uint256 i = 0; i < MAX_BORROWS; i++)
         {
@@ -728,12 +728,12 @@ contract Book is IBook {
             _addInterestRateTo(positionId_);
             _increaseBorrowBy(positionId_, _borrowedQuantity);
         } else {
-            Position memory newPosition = Position({
-                borrower: _borrower,
-                orderId: _orderId,
-                borrowedAssets: _borrowedQuantity,
-                timeWeightedRate: getTimeWeightedRate(inQuoteToken)
-            });
+            Position memory newPosition = Position(
+                _borrower,
+                _orderId,
+                _borrowedQuantity,
+                getTimeWeightedRate(inQuoteToken)
+            );
             positions[lastPositionId] = newPosition;
             positionId_ = lastPositionId;
             lastPositionId++;
@@ -742,7 +742,6 @@ contract Book is IBook {
     }
 
     // increase borrowedAssets in position, special attention to excessCollateral
-
     function _increaseBorrowBy(
         uint256 _positionId,
         uint256 _quantity
@@ -797,9 +796,7 @@ contract Book is IBook {
         orders[_orderId].quantity += _quantity;
     }
 
-    // reduce quantity offered in order, emptied = deleted
-    // reduced quantity =< order quantity has been check before the call
-
+    // reduce quantity offered in order, emptied is equivalent to deleted
     function _reduceOrderBy(
         uint256 _orderId,
         uint256 _quantity
@@ -854,19 +851,25 @@ contract Book is IBook {
         else totalBaseBorrow = _substract(totalBaseBorrow, _quantity, "err 007", RECOVER);
     }
 
+    // handle substraction between two quantities
+    // if reslt is negative, _recover = true, sets result to zero, emits an error code but does'nt break the flow 
+
     function _substract(
         uint256 _a,
         uint256 _b,
-        string memory errCode,
-        bool recover
+        string memory _errCode,
+        bool _recover
     )
         internal view
         returns (uint256)
     {
         if (_a >= _b) {return _a - _b;}
         else {
-            if (recover) {console.log("Error code: ", errCode); return 0;}
-            else {revert(errCode);}
+            if (_recover) {
+                console.log("Error code: ", _errCode); 
+                return 0;
+            }
+            else {revert(_errCode);}
         }
     }
 

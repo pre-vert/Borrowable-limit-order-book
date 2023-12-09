@@ -110,6 +110,11 @@ take:
   - Yes: no condition
   - No: remaining assets >= minimum deposit
 
+## Price feed
+
+A price feed is pulled when:
+- a borrowed order is taken to check that the order is not taken at a loss
+- a borrower is liquidated
 
 ## Excess collateral
 
@@ -216,14 +221,6 @@ Bob borrows 2000 at 10%. One year later, he borrows 1000 more:
 - 1000 is added to 2200
 - debt is now 2200
 
-#### Liqudation
-
-Bob borrows 2000 at 10%. One year later, his position is liquidated:
-
-- interest rate is added to his loan which becomes 2200
-- debt is now 2200
-- his collateral is seized for 2200/p
-
 #### Partial closing
 
 Bob borrows 2000 at 10%. One year later, his own limit order which serves as collatera is taken. His position is reduced by 1000 
@@ -234,7 +231,17 @@ Bob borrows 2000 at 10%. One year later, his own limit order which serves as col
 
 ### Interest-based liquidation
 
-Positions can be liquidated when the price hasn't crossed the limit price if the accumulated interest rate exhausts borrower's excess collateral, see [white paper](llob_wp.pdf) for details
+Borrowing positions is closed out when the limit order from which assets are borrowed is taken, but also when the borrower runs out of collateral to pay a growing interest rate. See [white paper](llob_wp.pdf) for details.
+
+When all remaining collateral is exhausted by the interest rate, the maker/lender can seize the collateral and collect a 2% fee.
+
+Example: Bob borrows 2000 at 10%. One year later, his position is liquidated:
+
+- interest rate is added to his loan which becomes 2200
+- debt is now 2200
+- his collateral is seized for 2200/p
+
+Steps:
 
 - check that the order is not profitable, if so call take() instead of liquidate()
 - check liquidate() is called by maker
@@ -247,8 +254,26 @@ Orders which assets are taken are automatically replaced on the other side of th
 
 The new limit price is chosen by the maker and by default is set + 10% if the order is a buy order and - 9% if a sell order. The paired price is necessarily higher (lower) than the current limit price if the order is a buy order (sell order).
 
+When a user makes a new order, she specifies 2 limit prices: current limit price and a new attribute uint256 _pairedPrice. When order is taken, liquidity receives by maker (from taking and liquidations) after deduction of liquidty used to close maker's own position, is automatically reposted in a new order, the other side of the book and for which limit price is previous paired price and paired price is previous limit price.
+
+Example: Alice deposits 3800 USDC and places a buy order at 1900 USDC. She specifies a dual limit price at 2000 USDC. Once filled at 1900, the converted assets (2 ETH) are automatically reposted in a sell order at 2000 USDC. If the price reverts to 2000 and her sell order is taken, her profit is 4000 - 3800 = 200 USDC. The USDC are automatically reposted in a buy order at 1900.
+
 For orders which assets are not borrowed, the replacement applies to the part of the assets taken. If orders have part of their assets borrowed, the associated collateral is replaced in the paired order, after all borrowing positions have been liquidated.
 
 A (non) borrowable order filled and replaced on the other side of the book is still (non) borrowable.
 
 Consider the case of someone who has a borrowing position B in token X collateralized by an order A in token Y. If order A is filled, position B is first closed before any token X received in exchange of Y from the filling can be replaced in the other side of the book.
+
+## Change limit price
+
+Allows Maker to change the limit price of their order
+
+If the order is borrowed, the change takes effect after the borrowing is paid back. Only allows replacing further away from current price.
+
+## Non borrowable orders
+
+ Users are given the choice to make their orders non borrowable
+
+Makers can choose to make their order non borrowable when the order is placed or at any time during the life of the order. If the order is made non-borrowable while its assets are borrowed, the order becomes non-borowable after the borrowing is repaid.
+
+

@@ -2,61 +2,25 @@
 
 ## 1. Things to do
 
-### 1.1 Implement price feed
+### 1.1 Implement excess collateral protection against sudden interesrt-based liquidation
 
-A price feed is pulled when:
-- a borrowed order is taken to check that the order is not taken at a loss
-- a borrower is liquidated
-
-### 1.2 Implement interest rate-based liquidation
-
-Borrowing positions are closed out when the limit oder from which assets are borrowed is taken, with one exception: when the borrower runs out of collateral to pay a growing interest load.
-
-When all remaining collateral is exhausted by the interest load, the maker/lender can seize the collateral and collect a 1% fee.
-
-### 1.3 Self-replacing orders
-
-Self-replacing orders are orders which, once filled, are automatically reposted in the order book at a limit price specified by the maker.
-
-Example: Alice deposits 3800 USDC and places a buy order at 1900 USDC. She specifies a dual limit price at 2000 USDC. Once filled at 1900, the converted assets (2 ETH) are automatically reposted in a sell order at 2000 USDC. If the price reverts to 2000 and her sell order is taken, her profit is 4000 - 3800 = 200 USDC. The USDC are automatically reposted in a buy order at 1900.
-
-When a user makes a new order, she specifies 2 limit prices.
-
-- add a new attribute uint256 _dualPrice to orders
-- when an order is taken, check if a dual price is specified and, if so, repost the assets accordingly.
+### 1.2 Term spread
 
 ## 2. Lower priority
 
-### 2.1 Change limit price
-
-Implement changeLimitPrice(_orderId, _newPrice):
-- allows Maker to change the limit price of their order
-- if the order is borrowed, the change takes effect after the borrowing is paid back
-- only allows replacing further from current price.
-
-### 2.2 Connect to a lending layer for a minimal return
+### 2.1 Connect to a lending layer for a minimal return
 
 Assets not borrowed, either because they don't mactch a loan demand or serve as collateral are deposited in a risk-free base layer, like Aave or Morpho Blue, to earn a minimal return.
 
-### 2.3 Give users the choice to make their orders non borrowable
-
-Makers can choose to make their order non borrowable when the order is placed or at any time during the life of the order.
-
-If the order is made non-borrowable while its assets are borrowed, the order becomes non-borowable after the borrowing is repaid.
-
-### 2.4 Implement custom errors
-
-https://soliditylang.org/blog/2021/04/21/custom-errors/
-
-### 2.5 Debt substituion
+### 2.2 Debt substituion
 
 Suppose Alice and Carol both place a buy order at the same limit price 2000 for 1 ETH. Bob deposits 1 ETH and borrows 2000 USDC from Alice's order. Normally, Alice cannot remove her 2000 USDC. However, there exists three complementary ways to set Alice's order free.
 
-#### 2.5.1 Borrower hops to another limit order
+#### 2.2.1 Borrower hops to another limit order
 
 Bob switches his debt from Alice to Clair.
 
-##### 2.5.2 Offsetting: Maker whose assets are borrowed borrows herself from another position ()
+##### 2.2.2 Offsetting: Maker whose assets are borrowed borrows herself from another position ()
 
 Offsetting is the action for a lender at limit/liquidation price $p$ to borrow assets at the same limit price $p$, which is equivalent to removing assets from an order which is borrowed.
 
@@ -66,11 +30,13 @@ It is beneficial for Alice if she wants to withdraw her assets from the buy orde
 
 Rem 1: The protocol should check that Carol's interest rate is not higher than Alice's one, but this is normally not possible as the base interest rate is common to all positions and the term spread makes Clair's asset borrowable at a better term.
 
-### 2.5.3 Borrow stealing
+### 2.2.3 Borrow stealing
 
 Clair pays back Alice with her USDC and replaces Alice by taking Bob's position 
 
-It is profitable for Alice if Bob's interest rate is higher than current rate, especially if the term premium gets large
+It is profitable for Alice if Bob's interest rate is higher than current rate, especially if the term premium gets large.
+
+Contentious
 
 ## 3. Things that could be done
 
@@ -94,6 +60,10 @@ $$
 - exit_penalty temporarily reduces the interest rate and ensures that borrowers get enough time to close their position before the interest rate becomes too high
 - $R$ is a ceiling for the interest rate
 - $\alpha$ is the instantaneous increase rate
+
+### 3.3 Implement custom errors
+
+https://soliditylang.org/blog/2021/04/21/custom-errors/
 
 
 

@@ -12,9 +12,9 @@ contract TestRepay is Setup {
         depositBuyOrder(Alice, 2000, 90);
         depositSellOrder(Bob, 30, 110);
         borrow(Bob, 1, 1000);
-        vm.expectRevert("Position doesn't exist");
+        vm.expectRevert("Position does not exist");
         repay(Bob, Carol_Position, 10);
-        vm.expectRevert("Position doesn't exist");
+        vm.expectRevert("Position does not exist");
         repay(Bob, Carol_Position, 0);
         checkOrderQuantity(Alice_Order, 2000);
         checkOrderQuantity(Bob_Order, 30);
@@ -26,9 +26,9 @@ contract TestRepay is Setup {
         depositSellOrder(Alice, 20, 110);
         depositBuyOrder(Bob, 3000, 90);
         borrow(Bob, Alice_Order, 10);
-        vm.expectRevert("Position doesn't exist");
+        vm.expectRevert("Position does not exist");
         repay(Bob, Carol_Position, 10);
-        vm.expectRevert("Position doesn't exist");
+        vm.expectRevert("Position does not exist");
         repay(Bob, Carol_Position, 0);
         checkOrderQuantity(1, 20);
         checkOrderQuantity(2, 3000);
@@ -133,7 +133,7 @@ contract TestRepay is Setup {
         depositSellOrder(Bob, 50, 110);
         borrow(Bob, Alice_Order, 1000);
         depositBuyOrder(Carol, 3000, 80);
-        vm.expectRevert("Position doesn't exist");
+        vm.expectRevert("Position does not exist");
         repay(Bob, Carol_Position, 500);
         checkOrderQuantity(Alice_Order, 2000);
         checkOrderQuantity(Bob_Order, 50);
@@ -148,7 +148,7 @@ contract TestRepay is Setup {
         depositBuyOrder(Bob, 5000, 100);
         borrow(Bob, Alice_Order, 10);
         depositSellOrder(Carol, 30, 120);
-        vm.expectRevert("Position doesn't exist");
+        vm.expectRevert("Position does not exist");
         repay(Bob, Carol_Position, 5);
         checkOrderQuantity(Alice_Order, 20);
         checkOrderQuantity(Bob_Order, 5000);
