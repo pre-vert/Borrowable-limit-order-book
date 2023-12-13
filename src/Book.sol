@@ -593,7 +593,7 @@ contract Book is IBook {
         // increment time-weighted rates with IR before liquidate (necessary for up-to-date excess collateral)
         _incrementTimeWeightedRates();
 
-        require(_getExcessCollateral(position.borrower, !inQuoteToken) == 0, "Borrower's excess collateral is positive");
+        require(_getExcessCollateral(position.borrower, !inQuoteToken) == 0, "Borrower excess collateral is positive");
 
         // add fee rate to borrowed quantity (interest rate has been already added)
         uint256 totalFee = FEE.wMulUp(position.borrowedAssets);
