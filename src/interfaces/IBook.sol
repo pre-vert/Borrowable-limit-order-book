@@ -7,7 +7,7 @@ interface IBook {
     /// @dev Update ERC20 balances
     /// @param _quantity The quantity of assets deposited (quoteToken for buy orders, baseToken for sell orders)
     /// @param _price price of the buy or sell order
-    /// @param _price price of the buy or sell paired order
+    /// @param _pairedPrice price of the buy or sell paired order
     /// @param _isBuyOrder true for buy orders, false for sell orders
 
     function deposit(uint256 _quantity, uint256 _price, uint256 _pairedPrice, bool _isBuyOrder, bool _isBorrowable) external;
@@ -33,26 +33,24 @@ interface IBook {
     
     function repay(uint256 _positionId, uint256 _repaidQuantity) external;
 
-    /// @notice Let users take limit orders, regardless orders' assets are borrowed or not
-    ///         taking, even 0, liquidates:
-    ///         - all positions borrowing from the order
-    ///         - maker's own positions for 100% of the taken order which assets are collateral (transferred to contract)
-    ///         net assets are used to fund a new order on the other side of the book at a pre-specified limit price
+    /// @notice
+    /// Let users take limit orders, regardless orders' assets are borrowed or not
+    /// taking, even 0, liquidates:
+    /// - all positions borrowing from the order
+    /// - maker's own positions for 100% of the taken order which assets are collateral (transferred to contract)
+    /// net assets are used to fund a new order on the other side of the book at a pre-specified limit price
     /// @param _takenOrderId id of the order to be taken
     /// @param _takenQuantity quantity of assets taken from the order
 
     function take(uint256 _takenOrderId, uint256 _takenQuantity) external;
 
-    // borrower's excess collateral must be zero or negative
-    
-
-
-    /// @notice If order is profitable, call take() with 0 capital, which liquidates all positions
-    ///         Else, _liquidate() one borrowing position which excess collateral is zero or negative
-    ///         only maker can liquidate position from his own order
-    ///         If _liquidate, borrow is reduced for 100% of the position 
-    ///         borrower's collateral is seized for 100% of the position at current price (price feed)
-    ///         collateral assets are transferred to maker with a 2% fee
+    /// @notice
+    /// If order is profitable, calls take() with 0 capital, which liquidates all positions
+    /// Else, calls _liquidate() which closes a borrowing position which excess collateral is zero or negative
+    /// only maker can liquidate positions borrowing from her own order
+    /// borrow is reduced for 100% of the position 
+    /// borrower's collateral is seized for 100% of the position at current price (price feed)
+    /// collateral assets are transferred to maker with a 2% fee
     /// @param _positionId id of the liquidated position
 
     function liquidate(uint256 _positionId) external;
@@ -63,7 +61,7 @@ interface IBook {
     function changeLimitPrice(uint256 _orderId, uint256 _price) external;
 
     /// @notice let maker change paired price of an order
-    ///         _pairedPrice can be 0, in this case, is set to limit price +/- 10%
+    ///         _pairedPrice can be filled with 0, in this case, is set to limit price +/- 10%
     /// @param _orderId is order id which paired price is changed
     
     function changePairedPrice(uint256 _orderId, uint256 _pairedPrice) external;
