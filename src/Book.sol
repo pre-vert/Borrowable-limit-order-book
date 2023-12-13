@@ -42,7 +42,7 @@ contract Book is IBook {
         uint256 quantity; // assets deposited (quoteToken for buy orders, baseToken for sell orders)
         uint256 price; // price of the order
         uint256 pairedPrice; // price of the paired order
-        bool isBorrowable; // true if order can be borrowed from
+        bool isBorrowable; // true if order can be borrowed
         uint256[MAX_POSITIONS] positionIds; // stores positions id in mapping positions who borrow from order
     }
 
@@ -92,8 +92,8 @@ contract Book is IBook {
         _;
     }
 
-    modifier isPositive(uint256 _var) {
-        revertIfNonPositive(_var);
+    modifier moreThanZero(uint256 _var) {
+        require(_var > 0, "Must be positive");
         _;
     }
 
@@ -121,8 +121,8 @@ contract Book is IBook {
         bool _isBorrowable
     )
         external
-        isPositive(_quantity)
-        isPositive(_price)
+        moreThanZero(_quantity)
+        moreThanZero(_price)
     {
         // revert if limit and paired price are in wrong order
         // if paired price information not filled, set equal to price +/-10%
@@ -150,7 +150,7 @@ contract Book is IBook {
     )
         external
         orderHasAssets(_removedOrderId)
-        isPositive(_removedQuantity)
+        moreThanZero(_removedQuantity)
         onlyMaker(_removedOrderId)
     {
         Order memory removedOrder = orders[_removedOrderId];
@@ -180,7 +180,7 @@ contract Book is IBook {
     )
         external
         orderHasAssets(_borrowedOrderId)
-        isPositive(_borrowedQuantity)
+        moreThanZero(_borrowedQuantity)
         isBorrowable(_borrowedOrderId)
     {
         Order memory borrowedOrder = orders[_borrowedOrderId];
@@ -220,7 +220,7 @@ contract Book is IBook {
     )
         external
         positionExists(_positionId)
-        isPositive(_repaidQuantity)
+        moreThanZero(_repaidQuantity)
         onlyBorrower(_positionId)
     {
         bool inQuoteToken = orders[positions[_positionId].orderId].isBuyOrder;
@@ -254,7 +254,7 @@ contract Book is IBook {
         uint256 lentAssets = getAssetsLentByOrder(_takenOrderId);
         
         // if order is borrowed, taking is allowed for profitable trades only
-        if (lentAssets > 0) require(profitable(takenOrder.price, isBuyOrder), "Trade must be profitable");
+        if (lentAssets > 0) require(profitable(_takenOrderId), "Trade must be profitable");
 
         // taking is allowed for non-borrowed assets, possibly net of minimum deposit if taking is partial
         require(_takable(_takenOrderId, _takenQuantity, lentAssets, minDeposit(isBuyOrder)), "Take too much");
@@ -341,7 +341,7 @@ contract Book is IBook {
         uint256 orderId = positions[_positionId].orderId;
         
         // if taking is profitable, liquidate all positions, not only the undercollateralized one
-        if (profitable(orders[orderId].price, orders[orderId].isBuyOrder)) {
+        if (profitable(orderId)) {
             take(orderId, 0);
         } else {
             // only maker can pull the trigger
@@ -354,7 +354,7 @@ contract Book is IBook {
     /// @inheritdoc IBook
     function changeLimitPrice(uint256 _orderId, uint256 _price)
         external
-        isPositive(_price)
+        moreThanZero(_price)
         onlyMaker(_orderId)
     {
         Order memory order = orders[_orderId];
@@ -367,7 +367,7 @@ contract Book is IBook {
     /// @inheritdoc IBook
     function changePairedPrice(uint256 _orderId, uint256 _pairedPrice)
         external
-        isPositive(_pairedPrice)
+        moreThanZero(_pairedPrice)
         onlyMaker(_orderId)
     {
         Order memory order = orders[_orderId];
@@ -593,7 +593,7 @@ contract Book is IBook {
         // increment time-weighted rates with IR before liquidate (necessary for up-to-date excess collateral)
         _incrementTimeWeightedRates();
 
-        require(_getExcessCollateral(position.borrower, !inQuoteToken) == 0, "Borrower's excess collateral is positive");
+        require(_getExcessCollateral(position.borrower, !inQuoteToken) == 0, "Borrower excess collateral is positive");
 
         // add fee rate to borrowed quantity (interest rate has been already added)
         uint256 totalFee = FEE.wMulUp(position.borrowedAssets);
@@ -620,7 +620,7 @@ contract Book is IBook {
         bool _isBuyOrder
     )
         internal
-        isPositive(_quantity)
+        moreThanZero(_quantity)
     {
         if (_isBuyOrder) quoteToken.safeTransfer(_to, _quantity);
         else baseToken.safeTransfer(_to, _quantity);
@@ -633,7 +633,7 @@ contract Book is IBook {
         bool _isBuyOrder
     )
         internal
-        isPositive(_quantity)
+        moreThanZero(_quantity)
     {
         if (_isBuyOrder) quoteToken.safeTransferFrom(_from, address(this), _quantity);
         else baseToken.safeTransferFrom(_from, address(this), _quantity);
@@ -1082,16 +1082,14 @@ contract Book is IBook {
     // if buy order, price feed must be lower than limit price
     // if sell order, price feed must be higher than limit price
     
-    function profitable(
-        uint256 _price,
-        bool _isBuyOrder
-    )
+    function profitable(uint256 _orderId)
         public view
         returns (bool)
     {
         
-        if (_isBuyOrder) return (priceFeed <= _price);
-        else return (priceFeed >= _price);
+        uint256 limitPrice = orders[_orderId].price;
+        if (orders[_orderId].isBuyOrder) return (priceFeed <= limitPrice);
+        else return (priceFeed >= limitPrice);
     }
     
     // return false if desired quantity is not possible to withdraw
@@ -1170,12 +1168,6 @@ contract Book is IBook {
         uint256 interestRate = accruedInterestRate(_positionId, inQuoteToken);
         interestLoad_ = interestRate.wMulUp(positions[_positionId].borrowedAssets);
     }
-    
-    // function _revertIfOrderHasZeroAssets(uint256 _orderId)
-    //     internal view
-    // {
-    //     require(_orderHasAssets(_orderId), "Order has zero assets");
-    // }
 
     function _orderHasAssets(uint256 _orderId)
         internal view
@@ -1277,7 +1269,7 @@ contract Book is IBook {
         }
     }
 
-    /////**** Functions used in tests ****//////
+    /////**** Functions used in tests and in UI ****//////
 
     // Add manual getter for positionIds in Order, used in setup.sol for tests
     function getOrderPositionIds(uint256 _orderId)
@@ -1341,7 +1333,7 @@ contract Book is IBook {
         bool _roundUp // round up or down
     )
         internal pure
-        isPositive(_price)
+        moreThanZero(_price)
         returns (uint256 convertedQuantity)
     {
         if (_roundUp) convertedQuantity = _inQuoteToken ? _quantity.wDivUp(_price) : _quantity.wMulUp(_price);
@@ -1354,7 +1346,7 @@ contract Book is IBook {
         bool _isBuyOrder
     )
         internal pure
-        isPositive(_price)
+        moreThanZero(_price)
         returns (uint256)
     {
         return _isBuyOrder ? _price + _price.mulDivUp(1, 10) : _price - _price.mulDivUp(1, 11);
@@ -1365,12 +1357,6 @@ contract Book is IBook {
         returns (uint256 minAssets)
     {
         minAssets = _isBuyOrder ? MIN_DEPOSIT_QUOTE : MIN_DEPOSIT_BASE;
-    }
-    
-    function revertIfNonPositive(uint256 _var)
-        internal pure
-    {
-        require(_var > 0, "Must be positive");
     }
 
 }
