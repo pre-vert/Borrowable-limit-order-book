@@ -51,7 +51,7 @@ contract TestLiquidate is Setup {
         depositSellOrder(Bob, 81, 200);
         borrow(Bob, Alice_Order, 4000);
         setPriceFeed(100);
-        vm.expectRevert("Borrower's excess collateral is positive");
+        vm.expectRevert("Borrower excess collateral is positive");
         liquidate(Alice, Bob_Position);
     }
 
@@ -61,7 +61,7 @@ contract TestLiquidate is Setup {
         depositBuyOrder(Bob, 1001, 50);
         borrow(Bob, Alice_Order, 5);
         setPriceFeed(100);
-        vm.expectRevert("Borrower's excess collateral is positive");
+        vm.expectRevert("Borrower excess collateral is positive");
         liquidate(Alice, Bob_Position);
     }
 

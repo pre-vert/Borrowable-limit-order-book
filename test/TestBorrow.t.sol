@@ -79,7 +79,7 @@ contract TestBorrow is Setup {
     function test_FailsIfBorrowAllDeposit() public {
         depositSellOrder(Alice, 20, 110);
         depositBuyOrder(Bob, 3000, 90);
-        vm.expectRevert("Borrow too much 0");
+        vm.expectRevert("Borrow too much_0");
         borrow(Bob, Alice_Order, 20); 
     }
     
@@ -106,7 +106,7 @@ contract TestBorrow is Setup {
         depositSellOrder(Bob, DepositBT, HighPrice);
         borrow(Bob, Alice_Order, DepositQT / 2);
         repay(Bob, Alice_Order, DepositQT / 2);
-        vm.expectRevert("Borrow too much 0");
+        vm.expectRevert("Borrow too much_0");
         borrow(Bob, Alice_Order, DepositQT);
     }
 
@@ -116,7 +116,7 @@ contract TestBorrow is Setup {
         depositBuyOrder(Bob, DepositQT, LowPrice);
         borrow(Bob, Alice_Order, DepositBT / 2);
         repay(Bob, Alice_Order, DepositBT / 2);
-        vm.expectRevert("Borrow too much 0");
+        vm.expectRevert("Borrow too much_0");
         borrow(Bob, Alice_Order, DepositBT);
     }
 
@@ -182,39 +182,53 @@ contract TestBorrow is Setup {
 
     // fail if user has more than max number of positions
     function test_PositionsForUserExceedLimit() public {
-        setPriceFeed(95);
-        depositSellOrder(Alice, 30, 110);
-        depositSellOrder(Bob, 20, 100);
-        depositSellOrder(Carol, 40, 120);
-        depositBuyOrder(Dave, 10000, 90);
-        borrow(Dave, Alice_Order, 15);
-        borrow(Dave, Bob_Order, 10);
-        checkUserBorrowId(Dave, 0, Alice_Order);
-        checkUserBorrowId(Dave, 1, Bob_Order);
+        uint256 maxBorrows = book.MAX_BORROWS();
+        uint256 borrowed = DepositBT * 10 / (maxBorrows+2);
+        depositSellOrder(Alice, DepositBT*10, HighPrice);
+        for (uint256 i = 2; i <= (maxBorrows+1); i++) {
+            depositBuyOrder(acc[i], DepositQT, LowPrice);
+            borrow(Alice, i, borrowed);
+            checkBorrowingQuantity(i-1, borrowed);
+        }
+        depositBuyOrder(acc[maxBorrows+2], DepositQT, LowPrice);
         vm.expectRevert("Max positions reached for borrower");
-        borrow(Dave, Carol_Order, 5);
-        checkBorrowingQuantity(3, 0);
+        borrow(Alice, maxBorrows+1, borrowed);
     }
 
     // fail if order has more than max number of positions
     function test_PositionsForOrderExceedLimit() public {
-        setPriceFeed(95);
-        depositBuyOrder(Alice, 6000, 90);
-        depositSellOrder(Bob, 20, 100);
-        depositSellOrder(Carol, 40, 120);
-        depositSellOrder(Dave, 10, 110);
-        borrow(Bob, Alice_Order, 5);
-        borrow(Carol, Alice_Order, 10);
-        checkOrderPositionId(Alice_Order, 0, 1);
-        checkOrderPositionId(Alice_Order, 1, 2);
+        uint256 maxPositions = book.MAX_POSITIONS();
+        depositBuyOrder(Alice, ReceivedQuoteToken / WAD, LowPrice);
+        for (uint256 i = 2; i <= (maxPositions+1); i++) {
+            depositSellOrder(acc[i], DepositBT, HighPrice);
+            borrow(acc[i], Alice_Order, DepositQT / 10);
+        }
+        depositSellOrder(acc[maxPositions+2], DepositBT, HighPrice);
         vm.expectRevert("Max positions reached for order");
-        borrow(Dave, Alice_Order, 8);
-        checkBorrowingQuantity(3, 0);
+        borrow(acc[maxPositions+2], Alice_Order, DepositQT / 10);
+    }
+
+    // test liquidate a huge number of positions at once
+    // max_position 0 take() 150101 gas diff 108747/5 = 21749 (au lieu de 5843*5 = 29215)
+    // max_position 5 take() 258848 gas
+    // max_position 15 take() 317282 gas diff = 58434/10 = 5843
+    // max_position 25 take() 375742 gas diff = 117000/20 = 5850
+
+    function test_LiquidateHugeNumberOfPositionsAtOnce() public {
+        uint256 maxPosition = book.MAX_POSITIONS() - 1;
+        depositBuyOrder(Alice, ReceivedQuoteToken / WAD, LowPrice);
+        for (uint256 i = 2; i <= (maxPosition+1); i++) {
+            depositSellOrder(acc[i], DepositBT, HighPrice);
+            borrow(acc[i], Alice_Order, DepositQT / 10);
+        }
+        setPriceFeed(UltraLowPrice);
+        take(acc[maxPosition+2], Alice_Order, 0);
+        for (uint256 i = 2; i <= (maxPosition+1); i++) {
+            checkBorrowingQuantity(i, 0);
+        }
     }
 
     // borrower of buy order is maker correctly adjusts balances
-    //
-
     function test_MakerBorrowsHerBuyOrderCheckBalances() public {
         depositBuyOrder(Alice, DepositQT, LowPrice);
         depositSellOrder(Alice, DepositBT, HighPrice);

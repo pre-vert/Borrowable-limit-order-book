@@ -22,9 +22,9 @@ contract Book is IBook {
     
     IERC20 public quoteToken;
     IERC20 public baseToken;
-    uint256 constant public MAX_POSITIONS = 2; // How many positions can be borrowed from a single order
-    uint256 constant public MAX_ORDERS = 3; // How many buy and sell orders can be placed by a single address
-    uint256 constant public MAX_BORROWS = 2; // How many positions a borrower can open on both sides of the book
+    uint256 constant public MAX_POSITIONS = 15; // How many positions can borrow from a single order
+    uint256 constant public MAX_ORDERS = 15; // How many buy and sell orders can be placed by a single address
+    uint256 constant public MAX_BORROWS = 15; // How many positions a borrower can open on both sides of the book
     uint256 constant public MIN_DEPOSIT_BASE = 2 * WAD; // Minimum deposited base tokens to be received by takers
     uint256 constant public MIN_DEPOSIT_QUOTE = 100 * WAD; // Minimum deposited quote tokens to be received by takers
     uint256 constant private ABSENT = type(uint256).max; // id for non existing order or position in arrays
@@ -157,13 +157,13 @@ contract Book is IBook {
         bool inQuoteToken = removedOrder.isBuyOrder;
         
         // withdraw is allowed for non-borrowed assets, possibly net of minimum deposit if withdraw is partial
-        require(_removable(_removedOrderId, _removedQuantity), "Remove too much 1");
+        require(_removable(_removedOrderId, _removedQuantity), "Remove too much_1");
 
         // Remaining total deposits must be enough to secure maker's existing borrowing positions
         // Maker's excess collateral must remain positive after removal
 
         _incrementTimeWeightedRates(); // necessary to update excess collateral with accrued interest rate
-        require(_removedQuantity <= _getExcessCollateral(removedOrder.maker, inQuoteToken), "Remove too much 2");
+        require(_removedQuantity <= _getExcessCollateral(removedOrder.maker, inQuoteToken), "Remove too much_2");
 
         // reduce quantity in order, possibly to zero
         _reduceOrderBy(_removedOrderId, _removedQuantity);
@@ -187,22 +187,22 @@ contract Book is IBook {
         bool inQuoteToken = borrowedOrder.isBuyOrder;
 
         // cannot borrow more than available assets, net of minimum deposit
-        bool flag = _borrowable(_borrowedOrderId, _borrowedQuantity);
-        require(flag, "Borrow too much 0");
+        require(_borrowable(_borrowedOrderId, _borrowedQuantity), "Borrow too much_0");
 
-        // check available assets are not used as collateral by maker and can be borrowed, update TWIR first
+        // check available assets are not already used as collateral by maker and can be borrowed, update TWIR first
         _incrementTimeWeightedRates();
-        require(_borrowedQuantity <= _getExcessCollateral(borrowedOrder.maker, inQuoteToken), "Borrow too much 1");
+        require(_borrowedQuantity <= _getExcessCollateral(borrowedOrder.maker, inQuoteToken), "Borrow too much_1");
 
         // check borrowed amount is collateralized enough by borrower's own orders
         uint256 neededCollateral = convert(_borrowedQuantity, borrowedOrder.price, inQuoteToken, ROUNDUP);
-        require(neededCollateral <= _getExcessCollateral(msg.sender, !inQuoteToken), "Borrow too much 2");   
+        require(neededCollateral <= _getExcessCollateral(msg.sender, !inQuoteToken), "Borrow too much_2");   
 
-        // check if borrower already borrows from order, if not, add orderId to borrowFromIds array, revert if max position reached
+        // check if borrower already borrows from order, if not, add orderId to borrowFromIds array is mapping users, 
+        // revert if users has too many open positions (max position reached)
         _addOrderIdInBorrowFromIdsInUsers(msg.sender, _borrowedOrderId);
 
-        // create new or update existing borrowing position in positions
-        // output the id of the new or updated borrowing position
+        // create new or update existing borrowing position in mapping positions
+        // output the id of the new position or update existing one
         uint256 positionId = _addPositionToPositions(msg.sender, _borrowedOrderId, _borrowedQuantity);
 
         // add new positionId in positionIds array in orders, check first that position does not already exist
@@ -723,6 +723,7 @@ contract Book is IBook {
     {
         positionId_ = getPositionId(_orderId, _borrower);
         bool inQuoteToken = orders[_orderId].isBuyOrder;
+        // if position already exists
         if (positionId_ != 0) {
             // add interest rate to borrowed quantity, update TWIR_t to TWIR_T to reset interest rate to zero
             _addInterestRateTo(positionId_);
