@@ -20,9 +20,9 @@ contract Setup is StdCheats, Test {
     bool constant public InBaseToken = false;
     bool constant public IsBorrowable = true;
     bool constant public IsNonBorrowable = false;
-    uint256 constant public AccountNumber = 4;
-    uint256 constant public ReceivedQuoteToken = 10000 * WAD;
-    uint256 constant public ReceivedBaseToken = 100 * WAD;
+    uint256 constant public AccountNumber = 27;
+    uint256 constant public ReceivedQuoteToken = 20000 * WAD;
+    uint256 constant public ReceivedBaseToken = 200 * WAD;
     uint256 constant public YEAR = 365 days; // number of seconds in one year
     uint256 constant public DAY = 1 days; // number of seconds in one day
     uint256 constant No_Order = 0;
@@ -61,16 +61,13 @@ contract Setup is StdCheats, Test {
     function fundingAccounts(uint256 _accountNumber) public {
         for (uint8 i = 1; i <= _accountNumber; i++) {
             _receiveTokens(i, ReceivedQuoteToken, ReceivedBaseToken);
-            _allowTokens(i, ReceivedQuoteToken, ReceivedBaseToken);
+            _allowTokens(i, 2 * ReceivedQuoteToken, 2 * ReceivedBaseToken);
         }
-        _receiveTokens(_accountNumber + 1, ReceivedQuoteToken / 5, ReceivedBaseToken / 5);
-        _allowTokens(_accountNumber + 1, ReceivedQuoteToken, ReceivedBaseToken);
         OrderBook = address(book);
         Alice = acc[1];
         Bob = acc[2];
         Carol = acc[3];
         Dave = acc[4];
-        // PoorGuy = acc[_accountNumber + 1];
     }
 
     function _receiveTokens(uint256 _userId, uint256 _quoteTokens, uint256 _baseTokens) internal {

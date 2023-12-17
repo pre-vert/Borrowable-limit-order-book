@@ -83,7 +83,7 @@ contract TestWithdraw is Setup {
         depositBuyOrder(Alice, DepositQT, LowPrice);
         withdraw(Alice, Alice_Order, DepositQT);
         depositBuyOrder(Alice, DepositQT, LowPrice);
-        vm.expectRevert("Remove too much 1");
+        vm.expectRevert("Remove too much_1");
         withdraw(Alice, Alice_Order, DepositQT - minDeposit / WAD);
         depositBuyOrder(Alice, DepositQT, LowPrice);
         withdraw(Alice, Alice_Order, DepositQT + 1 - minDeposit / WAD);
@@ -95,7 +95,7 @@ contract TestWithdraw is Setup {
         depositSellOrder(Alice, DepositBT, HighPrice);
         withdraw(Alice, Alice_Order, DepositBT);
         depositSellOrder(Alice, DepositBT, HighPrice);
-        vm.expectRevert("Remove too much 1");
+        vm.expectRevert("Remove too much_1");
         withdraw(Alice, Alice_Order, DepositBT - minDeposit / WAD);
         depositSellOrder(Alice, DepositBT, HighPrice);
         withdraw(Alice, Alice_Order, DepositBT + 1 - minDeposit / WAD);

@@ -30,14 +30,6 @@ It is beneficial for Alice if she wants to withdraw her assets from the buy orde
 
 Rem 1: The protocol should check that Carol's interest rate is not higher than Alice's one, but this is normally not possible as the base interest rate is common to all positions and the term spread makes Clair's asset borrowable at a better term.
 
-### 2.2.3 Borrow stealing
-
-Clair pays back Alice with her USDC and replaces Alice by taking Bob's position 
-
-It is profitable for Alice if Bob's interest rate is higher than current rate, especially if the term premium gets large.
-
-Contentious
-
 ## 3. Things that could be done
 
 ### 3.1 Implement a break on interest variations
@@ -48,22 +40,7 @@ $$
 
 Espcially important at start when liquidity and borrows are low
 
-### 3.2 Lenders' soft exit
 
-To avoid situations in which lenders' assets are indefinitely stuck, lenders could soft exit the lending position by calling a method which triggers a gradually increasing interest rate:
-
-$$
-r = \max(r_0 - \text{exit_penalty} + (1 + \alpha)^t, R)
-$$
-
-- $r_0$ is the interest rate before the method is called.
-- exit_penalty temporarily reduces the interest rate and ensures that borrowers get enough time to close their position before the interest rate becomes too high
-- $R$ is a ceiling for the interest rate
-- $\alpha$ is the instantaneous increase rate
-
-### 3.3 Implement custom errors
-
-https://soliditylang.org/blog/2021/04/21/custom-errors/
 
 
 

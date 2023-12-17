@@ -195,11 +195,17 @@ contract TestDeposit is Setup {
 
     // user posts more than max number of orders
     function test_OrdersForUserExceedLimit() public {
-        depositBuyOrder(Alice, 3000, 90);
-        depositSellOrder(Alice, 30, 110);
-        depositBuyOrder(Alice, 1000, 95);
+        
+        uint256 maxOrders = book.MAX_ORDERS() - 1;
+        setPriceFeed(10 * LowPrice + 1);
+        for (uint256 i = 0; i <= maxOrders; i++) {
+            depositBuyOrder(Alice, DepositQT / 10, 10 * LowPrice / (1 + i));
+        }
+        for (uint256 i = 0; i < maxOrders; i++) {
+            checkOrderQuantity(i+1, DepositQT / 10);
+        }
         vm.expectRevert("Max orders reached");
-        depositBuyOrder(Alice, 4000, 80);
+        depositBuyOrder(Alice, DepositQT / 10, 10 * LowPrice / (1 + maxOrders + 1));
     }
 
     // user switches from borrowable buy order to non borrowable
