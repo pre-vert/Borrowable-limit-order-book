@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0
-pragma solidity ^0.8.20; 
+pragma solidity ^0.8.20;
 
 /// @title A lending order book for ERC20 tokens
 /// @author Pré-vert
@@ -14,7 +14,7 @@ import {MathLib, WAD} from "../lib/MathLib.sol";
 import {console} from "forge-std/Test.sol";
 
 contract Book is IBook {
-    using MathLib for uint256;
+    using MathLib for uint256; 
     using SafeERC20 for IERC20;
 
     /// @notice provides core public functions (deposit, withdraw, take, borrow, repay, changePrice, liquidate, ...)
