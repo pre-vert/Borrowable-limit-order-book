@@ -52,7 +52,7 @@ contract Book is IBook {
         uint256[MAX_BORROWS] borrowFromIds; // stores orders id in mapping orders from which borrower borrows
     }
 
-    // borrowing positions
+    // borrowing positions 
     struct Position {
         address borrower; // address of the borrower
         uint256 orderId; // stores orders id in mapping orders, from which assets are borrowed
