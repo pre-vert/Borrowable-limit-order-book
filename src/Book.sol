@@ -37,12 +37,12 @@ contract Book is IBook {
     bool private constant RECOVER = true; // how negative uint256 following substraction are handled
 
     struct Pool {
-        uint256[MAX_POSITIONS] positionIds; // stores positions id in mapping positions who borrow from the pool
-        uint256[MAX_ORDERS] depositIds;
-        uint256 qtDeposits; // total quote tokens deposited in the pool
-        uint256 btDeposits; // total base tokens deposited in the pool
-        uint256 qtBorrows; // total quote tokens borrowed from the pool
-        uint256 btBorrows; // total base tokens borrowed from the pool
+        //uint256[MAX_POSITIONS] positionIds;
+        //uint256[MAX_ORDERS] depositIds;
+        mapping(uint256 => uint256) depositIds;  // index => order id in the pool
+        mapping(uint256 => uint256) positionIds;  // index => position id in the pool
+        uint256 netDeposits; // assets deposited in the pool net of min deposits and locked collateral
+        uint256 totalBorrow; // total base tokens borrowed from the pool
         uint256 qtCollaterals; // total quote tokens borrowed from the pool
         uint256 btCollaterals; // total base tokens borrowed from the pool
     }
