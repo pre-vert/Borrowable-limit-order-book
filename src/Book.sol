@@ -36,14 +36,24 @@ contract Book is IBook {
     uint256 public constant YEAR = 365 days; // number of seconds in one year
     bool private constant RECOVER = true; // how negative uint256 following substraction are handled
 
+    struct Pool {
+        uint256[MAX_POSITIONS] positionIds; // stores positions id in mapping positions who borrow from the pool
+        uint256[MAX_ORDERS] depositIds;
+        uint256 qtDeposits; // total quote tokens deposited in the pool
+        uint256 btDeposits; // total base tokens deposited in the pool
+        uint256 qtBorrows; // total quote tokens borrowed from the pool
+        uint256 btBorrows; // total base tokens borrowed from the pool
+        uint256 qtCollaterals; // total quote tokens borrowed from the pool
+        uint256 btCollaterals; // total base tokens borrowed from the pool
+    }
+    
     struct Order {
         address maker; // address of the maker
-        bool isBuyOrder; // true for buy orders, false for sell orders
-        uint256 quantity; // assets deposited (quoteToken for buy orders, baseToken for sell orders)
         uint256 price; // price of the order
         uint256 pairedPrice; // price of the paired order
-        bool isBorrowable; // true if order can be borrowed
-        uint256[MAX_POSITIONS] positionIds; // stores positions id in mapping positions who borrow from order
+        uint256 quantity; // assets deposited (quoteToken for buy orders, baseToken for sell orders)
+        bool isBuyOrder; // true for buy orders, false for sell orders
+        bool isBorrowable; // true if order can be borrowed from
     }
 
     // makers and borrowers
@@ -60,23 +70,25 @@ contract Book is IBook {
         uint256 timeWeightedRate; // time-weighted average interest rate for the position
     }
 
+    mapping(uint256 price => Pool) public pools;
     mapping(uint256 orderId => Order) public orders;
     mapping(address user => User) internal users;
     mapping(uint256 positionId => Position) public positions;
 
+    uint256 public lastPoolId = 1; // first id of the last price limit in pools (0 for non existing pools)
     uint256 public lastOrderId = 1; // first id of the last order in orders (0 for non existing orders)
     uint256 public lastPositionId = 1; // id of the last position in positions (0 for non existing positions)
     uint256 public lastTimeStamp = block.timestamp; // # of periods since last time instant intrest rates have been updated
     uint256 private quoteTimeWeightedRate = 0; // time-weighted average interest rate for the buy order market (quoteToken)
     uint256 private baseTimeWeightedRate = 0; // time-weighted average interest rate for sell order market (baseToken)
 
-    uint256 public totalQuoteAssets = 0; // total quote assets deposited in buy order market
-    uint256 public totalQuoteBorrow = 0; // total quote assets borrowed in buy order market
-    uint256 public totalBaseAssets = 0; // total base assets deposited in sell order market
-    uint256 public totalBaseBorrow = 0; // total base assets borrowed in sell order market
+    // uint256 public totalQuoteAssets = 0; // total quote assets deposited in buy order market
+    // uint256 public totalQuoteBorrow = 0; // total quote assets borrowed in buy order market
+    // uint256 public totalBaseAssets = 0; // total base assets deposited in sell order market
+    // uint256 public totalBaseBorrow = 0; // total base assets borrowed in sell order market
 
     uint256 public priceFeed = 100 * WAD;
-
+ 
     constructor(address _quoteToken, address _baseToken) {
         quoteToken = IERC20(_quoteToken);
         baseToken = IERC20(_baseToken);
