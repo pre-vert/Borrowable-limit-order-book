@@ -41,10 +41,17 @@ library MathLib {
     /// @dev The sum of the first three non-zero terms of a Taylor expansion of e^(nx) - 1,
     /// to approximate a continuous compound interest rate.
     
-    function wTaylorCompounded(uint256 timeWeightedRateDiff) internal pure returns (uint256) {
+    function wTaylorCompoundedDown(uint256 timeWeightedRateDiff) internal pure returns (uint256) {
         uint256 firstTerm = timeWeightedRateDiff;
         uint256 secondTerm = mulDivDown(firstTerm, firstTerm, 2 * WAD);
         uint256 thirdTerm = mulDivDown(secondTerm, firstTerm, 3 * WAD);
+        return firstTerm + secondTerm + thirdTerm;
+    }
+
+    function wTaylorCompoundedUp(uint256 timeWeightedRateDiff) internal pure returns (uint256) {
+        uint256 firstTerm = timeWeightedRateDiff;
+        uint256 secondTerm = mulDivUp(firstTerm, firstTerm, 2 * WAD);
+        uint256 thirdTerm = mulDivUp(secondTerm, firstTerm, 3 * WAD);
         return firstTerm + secondTerm + thirdTerm;
     }
 

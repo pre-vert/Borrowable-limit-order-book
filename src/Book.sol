@@ -18,16 +18,19 @@ contract Book is IBook {
     using SafeERC20 for IERC20;
 
     /// @notice provides core public functions (deposit, withdraw, take, borrow, repay, changePrice, liquidate, ...)
-    /// + internal functions (_closeAllPositions, _closePosition, _liquidate, _reduceUserBorrow, ...) + view functions
+    /// + internal functions (_closeNPositions, _closePosition, _liquidate, _repayUserDebt, ...) + view functions
     
     IERC20 public quoteToken;
     IERC20 public baseToken;
-    uint256 constant public MAX_POSITIONS = 15; // How many positions can borrow from a single order
-    uint256 constant public MAX_ORDERS = 15; // How many buy and sell orders can be placed by a single address
-    uint256 constant public MAX_BORROWS = 15; // How many positions a borrower can open on both sides of the book
+    uint256 constant public MAX_ORDERS = 5; // How many orders can a user place in different pools
+    uint256 constant public MAX_POSITIONS = 5; // How many positions can a user open in different pools
+    uint256 constant public MAX_OPERATIONS = 2; // How many max liquidated positions for every min deposit taken
+    uint256 constant public MAX_GAS = 2000000; // 
     uint256 constant public MIN_DEPOSIT_BASE = 2 * WAD; // Minimum deposited base tokens to be received by takers
     uint256 constant public MIN_DEPOSIT_QUOTE = 100 * WAD; // Minimum deposited quote tokens to be received by takers
+    uint256 constant public PRICE_STEP = 11 * WAD / 10; // Price step for placing orders = 1.1
     uint256 constant private ABSENT = type(uint256).max; // id for non existing order or position in arrays
+    bool constant private TO_POSITION = true; // applies to position or or order
     bool constant private ROUNDUP = true; // round up in conversions
     uint256 public constant ALPHA = 5 * WAD / 1000; // IRM parameter = 0.005
     uint256 public constant BETA = 15 * WAD / 1000; // IRM parameter = 0.015
@@ -35,63 +38,62 @@ contract Book is IBook {
     uint256 public constant FEE = 20 * WAD / 1000; // interest-based liquidation fee for maker =  0.020 (2%)
     uint256 public constant YEAR = 365 days; // number of seconds in one year
     bool private constant RECOVER = true; // how negative uint256 following substraction are handled
+    enum PoolIn {quote, base, none}
 
     struct Pool {
-        //uint256[MAX_POSITIONS] positionIds;
-        //uint256[MAX_ORDERS] depositIds;
-        mapping(uint256 => uint256) depositIds;  // index => order id in the pool
+        mapping(uint256 => uint256) orderIds;  // index => order id in the pool
         mapping(uint256 => uint256) positionIds;  // index => position id in the pool
-        uint256 netDeposits; // assets deposited in the pool net of min deposits and locked collateral
-        uint256 totalBorrow; // total base tokens borrowed from the pool
-        uint256 qtCollaterals; // total quote tokens borrowed from the pool
-        uint256 btCollaterals; // total base tokens borrowed from the pool
+        uint256 deposits; // assets deposited in the pool
+        uint256 nonBorrowables; // min deposits, non borrowable assets and locked collateral
+        uint256 borrows; // assets borrowed from the pool
+        uint256 lastTimeStamp; // # of periods since last time instant interest rate has been updated in the pool
+        uint256 timeWeightedRate; // time-weighted average interest rate since inception of the pool, applied to borrows
+        uint256 timeUrWeightedRate; // time-weighted and UR-weighted average interest rate since inception of the pool, applied to deposits
+        uint256 topOrder; // row index of orderId on the top of orderIds mapping
+        uint256 bottomOrder; // row index of last orderId deleted from orderIds mapping
+        uint256 topPosition; // row index of positionId on the top of positionIds mapping
+        uint256 bottomPosition; // row index of last positionId deleted from positionIds mapping
+    }
+    
+    // orders and borrows by users
+    struct User {
+        uint256[MAX_ORDERS] depositIds; // orders id in mapping orders
+        uint256[MAX_POSITIONS] borrowIds; // positions id in mapping positions
     }
     
     struct Order {
-        address maker; // address of the maker
-        uint256 price; // price of the order
-        uint256 pairedPrice; // price of the paired order
+        int24 poolId; // pool id of order
+        address maker; // address of maker
+        int24 pairedPoolId; // pool id of paired order
         uint256 quantity; // assets deposited (quoteToken for buy orders, baseToken for sell orders)
+        uint256 orderWeightedRate; // time-weighted and UR-weighted average interest rate for the supply since deposit
         bool isBuyOrder; // true for buy orders, false for sell orders
-        bool isBorrowable; // true if order can be borrowed from
-    }
-
-    // makers and borrowers
-    struct User {
-        uint256[MAX_ORDERS] depositIds; // stores orders id in mapping orders in which borrower deposits
-        uint256[MAX_BORROWS] borrowFromIds; // stores orders id in mapping orders from which borrower borrows
+        bool isBorrowable; // true if order's assets can be borrowed
     }
 
     // borrowing positions
     struct Position {
+        int24 poolId; // pool id in mapping orders, from which assets are borrowed
         address borrower; // address of the borrower
-        uint256 orderId; // stores orders id in mapping orders, from which assets are borrowed
         uint256 borrowedAssets; // quantity of assets borrowed (quoteToken for buy orders, baseToken for sell orders)
-        uint256 timeWeightedRate; // time-weighted average interest rate for the position
+        uint256 positionWeightedRate; // time-weighted average interest rate for the position since its creation
+        bool inQuote; // asset's type
     }
 
-    mapping(uint256 price => Pool) public pools;
+    mapping(int24 poolId => Pool) public pools;  // int24: integers between -8,388,608 and 8,388,607
     mapping(uint256 orderId => Order) public orders;
     mapping(address user => User) internal users;
     mapping(uint256 positionId => Position) public positions;
+    mapping(int24 poolId => uint256) public limitPrice;
 
-    uint256 public lastPoolId = 1; // first id of the last price limit in pools (0 for non existing pools)
-    uint256 public lastOrderId = 1; // first id of the last order in orders (0 for non existing orders)
-    uint256 public lastPositionId = 1; // id of the last position in positions (0 for non existing positions)
-    uint256 public lastTimeStamp = block.timestamp; // # of periods since last time instant intrest rates have been updated
-    uint256 private quoteTimeWeightedRate = 0; // time-weighted average interest rate for the buy order market (quoteToken)
-    uint256 private baseTimeWeightedRate = 0; // time-weighted average interest rate for sell order market (baseToken)
-
-    // uint256 public totalQuoteAssets = 0; // total quote assets deposited in buy order market
-    // uint256 public totalQuoteBorrow = 0; // total quote assets borrowed in buy order market
-    // uint256 public totalBaseAssets = 0; // total base assets deposited in sell order market
-    // uint256 public totalBaseBorrow = 0; // total base assets borrowed in sell order market
-
-    uint256 public priceFeed = 100 * WAD;
+    uint256 public lastOrderId = 1; // initial order id (0 for non existing orders)
+    uint256 public lastPositionId = 1; // initial position id (0 for non existing positions)
+    uint256 public priceFeed;
  
-    constructor(address _quoteToken, address _baseToken) {
+    constructor(address _quoteToken, address _baseToken, uint256 _startingLimitPrice) {
         quoteToken = IERC20(_quoteToken);
         baseToken = IERC20(_baseToken);
+        limitPrice[0] = _startingLimitPrice; // initial limit price for the first pool
     }
 
     modifier orderHasAssets(uint256 _orderId) {
@@ -99,8 +101,18 @@ contract Book is IBook {
         _;
     }
 
-    modifier positionExists(uint256 _positionId) {
-        require(_borrowIsPositive(_positionId), "Position does not exist");
+    modifier poolHasAssets(int24 _poolId) {
+        require(_poolHasAssets(_poolId), "Pool has zero assets");
+        _;
+    }
+
+    modifier poolHasOrders(int24 _poolId) {
+        require(_poolHasOrders(_poolId), "Pool has no orders");
+        _;
+    }
+
+    modifier positionHasBorrowedAssets(uint256 _positionId) {
+        require(_hasBorrowedAssets(_positionId), "Position has not assets");
         _;
     }
 
@@ -123,190 +135,280 @@ contract Book is IBook {
         _onlyBorrower(_positionId);
         _;
     }
+    
 
     /// @inheritdoc IBook
     function deposit(
         uint256 _quantity,
-        uint256 _price,
-        uint256 _pairedPrice,
+        int24 _poolId,
+        int24 _pairedPoolId,
         bool _isBuyOrder,
         bool _isBorrowable
     )
         external
         moreThanZero(_quantity)
-        moreThanZero(_price)
     {
-        // revert if limit and paired price are in wrong order
-        // if paired price information not filled, set equal to price +/-10%
-
-        if (_pairedPrice > 0) require(consistent(_price, _pairedPrice, _isBuyOrder), "Inconsistent prices");
-        else _pairedPrice = defaultPairedPrice(_price, _isBuyOrder);
+        PoolIn poolType = _poolType(_poolId); // in quote or base tokens, or none if the pool is empty
+        bool profit = profitable(_poolId); // whether filling orders from pool is profitable for takers
         
-        // check if an identical order exists already, if so increase deposit, else create
-        uint256 orderId = _getOrderIdInDepositIdsInUsers(msg.sender, _price, _pairedPrice, _isBuyOrder);
+        // deposit becomes take if profitable, which may liquidate positions
+        if (!_sameType(_isBuyOrder, poolType) && profit) take(_poolId, _quantity);
 
-        // minimum amount deposited
-        if (orderId == 0) require(_quantity >= minDeposit(_isBuyOrder), "Deposit too small");
+        // deposit only if (1) order's and pool's asset type match and (2) order can't be immediately taken
+        else if (_sameType(_isBuyOrder, poolType) && !profit) {
+            uint256 orderId = _deposit(_quantity, _poolId, _pairedPoolId, _isBuyOrder, _isBorrowable);
+            emit Deposit(msg.sender, _poolId, orderId, _quantity, limitPrice[_poolId], _pairedPoolId, limitPrice[_pairedPoolId], _isBuyOrder, _isBorrowable);
+        }
 
-        // create a new order or add to existing order 
-        _placeOrder(msg.sender, _quantity, _price, _pairedPrice, _isBuyOrder, _isBorrowable, orderId);
-
-        _transferFrom(msg.sender, _quantity, _isBuyOrder);
-        emit Deposit(msg.sender, _quantity, _price, _pairedPrice, _isBuyOrder, _isBorrowable, orderId);
+        // revert if deposit is immediately profitable for takers (protection)
+        else revert("Limit price at loss");
     }
 
     /// @inheritdoc IBook
     function withdraw(
-        uint256 _removedOrderId,
-        uint256 _removedQuantity
+        int24 _poolId,
+        uint256 _quantity
     )
         external
-        orderHasAssets(_removedOrderId)
-        moreThanZero(_removedQuantity)
-        onlyMaker(_removedOrderId)
+        moreThanZero(_quantity)
+        poolHasAssets(_poolId)
+        poolHasOrders(_poolId)
     {
-        Order memory removedOrder = orders[_removedOrderId];
-        bool inQuoteToken = removedOrder.isBuyOrder;
+        Pool memory pool = pools[_poolId];
+        bool inQuote = convertToInQuote(_poolType(_poolId));
         
-        // withdraw is allowed for non-borrowed assets, possibly net of minimum deposit if withdraw is partial
-        require(_removable(_removedOrderId, _removedQuantity), "Remove too much_1");
+        // from which order in pool user can withdraw 
+        uint256 orderId_ = getUserOrderIdInPool(msg.sender, _poolId, inQuote);
 
-        // Remaining total deposits must be enough to secure maker's existing borrowing positions
-        // Maker's excess collateral must remain positive after removal
+        // order's asset type must match pool's asset type
+        require(orders[orderId].isBuyOrder == inQuote, "asset mismatch_6");
 
-        _incrementTimeWeightedRates(); // necessary to update excess collateral with accrued interest rate
-        require(_removedQuantity <= _getExcessCollateral(removedOrder.maker, inQuoteToken), "Remove too much_2");
+        // update pool's TWIR and TUWIR before changes in pool's UR and calculating user's excess collateral
+        _incrementWeightedRates(_poolId);
+
+        // add interest rate to existing deposit
+        // update TUWIR_t to TUWIR_T to reset interest rate to zero
+        // add interest rate to deposit and pool's total borrow
+        _addInterestRateTo(_poolId, !TO_POSITION, orderId_);
+
+        // withdraw no more than deposit net of non-borrowed assets and min deposit if partial
+        require(_removable(orderId_, _quantity), "Remove too much_1");
+
+        // cannot withdraw more than available assets in the pool
+        require(_quantity <= _poolAvailableAssets(_poolId), "Remove too much_2");
+
+        // update user's excess collateral with accrued interest rate
+        // excess collateral must remain positive after removal
+        require(_quantity <= _getUserExcessCollateral(msg.sender, inQuote), "Remove too much_3");
 
         // reduce quantity in order, possibly to zero
-        _reduceOrderBy(_removedOrderId, _removedQuantity);
+        _decreaseOrderBy(orderId, _quantity);
 
-        _decreaseTotalAssetsBy(_removedQuantity, inQuoteToken);
-        _transferTo(msg.sender, _removedQuantity, removedOrder.isBuyOrder);
-        emit Withdraw(removedOrder.maker, _removedQuantity, removedOrder.price, removedOrder.isBuyOrder, _removedOrderId);
+        // decrease total deposits in pool
+        _decreasePoolDepositsBy(_poolId, _quantity, inQuote);
+
+        // decrease non borrowables by min deposit if full withraw or quantity if non borrowable
+        _decreasePoolNonBorrowablesBy(_poolId, _quantity, inQuote);
+
+        _transferTo(msg.sender, _quantity, inQuote);
+
+        emit Withdraw(msg.sender, _quantity, _poolId, limitPrice[_poolId], inQuote, orderId);
     }
 
     /// @inheritdoc IBook
     function borrow(
-        uint256 _borrowedOrderId,
-        uint256 _borrowedQuantity
+        int24 _poolId,
+        uint256 _quantity
     )
         external
-        orderHasAssets(_borrowedOrderId)
-        moreThanZero(_borrowedQuantity)
-        isBorrowable(_borrowedOrderId)
+        moreThanZero(_quantity)
+        poolHasAssets(_poolId)
+        poolHasOrders(_poolId)
     {
-        Order memory borrowedOrder = orders[_borrowedOrderId];
-        bool inQuoteToken = borrowedOrder.isBuyOrder;
+        Pool memory pool = pools[_poolId];
+        bool inQuote = convertToInQuote(_poolType(_poolId));
 
-        // cannot borrow more than available assets, net of minimum deposit
-        require(_borrowable(_borrowedOrderId, _borrowedQuantity), "Borrow too much_0");
+        // decrease available assets in pool by min deposits 
+        // ensure mainimal assets are reserved for takers even when positions outnumber deposits in pool
+        _increasePoolNonBorrowablesBy(minDeposit(_isBuyOrder), _poolId);
 
-        // check available assets are not already used as collateral by maker and can be borrowed, update TWIR first
-        _incrementTimeWeightedRates();
-        require(_borrowedQuantity <= _getExcessCollateral(borrowedOrder.maker, inQuoteToken), "Borrow too much_1");
+        // cannot borrow more than available assets in pool
+        require(_quantity <= _poolAvailableAssets(_poolId), "Borrow too much_1");
 
+        // calculate required collateral of borrow
+        uint256 requiredCollateral = convert(_quantity, limitPrice[_poolId], inQuote, ROUNDUP);
+
+        // update TWIR before calculating user's excess collateral
+        _incrementWeightedRates(_poolId);
+
+        // update excess collateral with accrued interest rate
         // check borrowed amount is collateralized enough by borrower's own orders
-        uint256 neededCollateral = convert(_borrowedQuantity, borrowedOrder.price, inQuoteToken, ROUNDUP);
-        require(neededCollateral <= _getExcessCollateral(msg.sender, !inQuoteToken), "Borrow too much_2");   
+        require(requiredCollateral <= _getUserExcessCollateral(msg.sender, !inQuote), "Borrow too much_2");
+        
+        // create new or update existing borrowing position in positions
+        // update pool's total borrow
+        // add position id to borrowIds[] in user if new
+        // add position id to positionIds[] in pool if new
+        // returns id of new position or updated existing one
+        uint256 positionId = _createOrAddPositionInPositions(_poolId, msg.sender, _quantity, inQuote);
 
-        // check if borrower already borrows from order, if not, add orderId to borrowFromIds array is mapping users, 
-        // revert if users has too many open positions (max position reached)
-        _addOrderIdInBorrowFromIdsInUsers(msg.sender, _borrowedOrderId);
+        // add _quantity to pool's total borrow
+        _increasePoolBorrowBy(_poolId, _quantity, _inQuote);
 
-        // create new or update existing borrowing position in mapping positions
-        // output the id of the new position or update existing one
-        uint256 positionId = _addPositionToPositions(msg.sender, _borrowedOrderId, _borrowedQuantity);
+        _transferTo(msg.sender, _quantity, inQuote);
 
-        // add new positionId in positionIds array in orders, check first that position does not already exist
-        // reverts if max number of positions is reached
-        _AddPositionIdToPositionIdsInOrders(positionId, _borrowedOrderId);
-
-        _transferTo(msg.sender, _borrowedQuantity, inQuoteToken);
-        emit Borrow(msg.sender, positionId, _borrowedQuantity, inQuoteToken);
+        emit Borrow(msg.sender, _poolId, positionId, _quantity, inQuote);
     }
 
     /// @inheritdoc IBook
     function repay(
-        uint256 _positionId,
-        uint256 _repaidQuantity
+        int24 _poolId,
+        uint256 _quantity
     )
         external
-        positionExists(_positionId)
-        moreThanZero(_repaidQuantity)
-        onlyBorrower(_positionId)
+        moreThanZero(_quantity)
+        poolHasAssets(_poolId)
+        poolHasOrders(_poolId)
+        // positionHasBorrowedAssets(_positionId)
+        // onlyBorrower(_positionId)
     {
-        bool inQuoteToken = orders[positions[_positionId].orderId].isBuyOrder;
+        Pool memory pool = pools[_poolId];
+        bool inQuote_ = convertToInQuote(_poolType(_poolId));
+
+        // which position in pool user repays
+        uint256 positionId = getUserPositionIdInPool(msg.sender, _poolId, inQuote);
+
+        // check user is an active borrower in pool
+        require(positions[positionId].borrowedAssets > 0);
+
+        // order's asset type must match pool's asset type
+        require(positions[positionId].inQuote == inQuote_, "asset mismatch_7");
 
         // increment time-weighted rates with IR based on UR before repay
-        _incrementTimeWeightedRates();
+        _incrementWeightedRates(_poolId);
 
-        // add interest rate to borrowed quantity, update TWIR_t to TWIR_T to reset interest rate to zero
-        _addInterestRateTo(_positionId);
+        // add interest rate to borrowed quantity
+        // update TWIR_t to TWIR_T to reset interest rate to zero
+        // add interest rate to borrowed quantity and pool's total borrow
+        _addInterestRateTo(_poolId, TO_POSITION, positionId);
 
-        require(_repaidQuantity <= positions[_positionId].borrowedAssets, "Repay too much");
+        require(_quantity <= positions[positionId].borrowedAssets, "Repay too much");
 
-        // decrease borrowedAssets in positions, possibly to zero
-        _reduceBorrowBy(_positionId, _repaidQuantity);
-        _decreaseTotalBorrowBy(_repaidQuantity, inQuoteToken);
+        // decrease borrowed assets in position, possibly to zero
+        _decreaseBorrowBy(positionId, _quantity);
 
-        _transferFrom(msg.sender, _repaidQuantity, inQuoteToken);
-        emit Repay(msg.sender, _positionId, _repaidQuantity, inQuoteToken);
+        // decrease borrowed assets in pool's total borrow
+        _decreasePoolBorrowBy(_poolId, _quantity, inQuote);
+
+        // decrease non borrowables by min deposit if full repay or quantity if non borrowable
+        // _decreasePoolNonBorrowablesBy(_poolId, _quantity, inQuote);
+
+        _transferFrom(msg.sender, _quantity, inQuote);
+        
+        emit Repay(msg.sender, _poolId, positionId, _quantity, inQuote);
     }
 
     /// @inheritdoc IBook
     function take(
-        uint256 _takenOrderId,
+        uint256 _poolId,
         uint256 _takenQuantity
     )
         public
-        orderHasAssets(_takenOrderId)
+        poolHasAssets(_poolId)
+        poolHasOrders(_poolId)
     {
-        Order memory takenOrder = orders[_takenOrderId];
-        bool isBuyOrder = takenOrder.isBuyOrder;
-        uint256 lentAssets = getAssetsLentByOrder(_takenOrderId);
+        Pool memory pool = pools[_poolId];
+        // uint256 gas = 200000;
         
         // if order is borrowed, taking is allowed for profitable trades only
-        if (lentAssets > 0) require(profitable(_takenOrderId), "Trade must be profitable");
+        if (pool.borrows > 0) require(profitable(_poolId), "Trade must be profitable");
+
+        uint256 availableAssets = _substract(pool.deposits, pool.borrows, "err 012", !RECOVER);
+        require(_takenQuantity <= availableAssets, "take too muche_00");
+        
+        bool inQuote = convertToInQuote(_poolType(_poolId));
+        // uint256 minDepose = minDeposit(inQuote);
+        uint256 positionNumber = calibrate(_poolId); 
+        
+        // take orders as they come in pool's orderIds[] from bottom up
+        // from order with assets A, take minDeposit M 
+        // clear remaining assets (A-M) with collateral C of pool's debt D
+        // check if makers borrow the other side of the book, iterate on all maker's debt
+        // repay maker's debt convert(D) up to order's assets (A-M), as if collateral was 100 % in pool
+        // with residual amount R = (A-M-convert(D)), create or increase limit orders by convert(R) the other side of the book
+        // Example: Alice deposits 2100 USDC in a buy order (p = 1900)
+        // She borrows 1 ETH from Clair's sell order (p' = 2200)
+        // Alice's buy order is taken for X \in (0, 2100) USDC in exchange of X/p ETH
+        // Her debt in ETH is repaid for min(X/p, 1) 
+
+        if (_takenQuantity > 0)
+        {
+            uint256 remainingTakenQuantity = _takenQuantity;
+            for (uint256 i = pool.bottomOrder; i < pool.topOrder; i++) {
+                uint256 orderId = pool.orderIds[i];
+                Order order = orders[orderId];
+                remainingTakenQuantity = (remainingTakenQuantity - minDeposit(inQuote)).maxi(0);
+
+                // increment time-weighted rates with IR based on past UR before take() changes future UR
+                _incrementWeightedRates(_poolId);
+                
+                // liquidate N borrowing positions, output seized borrowers' collateral
+                // Ex: Bob deposits 2 ETH in a sell order to borrow 4000 from Alice's buy order (p = 2000)
+                // Alice's buy order is taken, Bob's collateral is seized for 4000/p = 2 ETH  
+                uint256 seizedCollateral = _closeNPositions(orderId);
+                
+                // Liquidation means les assets deposited (seized collateral) and less assets borrowed (canceled debt)
+                uint256 canceledDebt = 0;
+                if (seizedCollateral > 0) {
+                    // total deposits from borrowers' side are reduced by 2 ETH
+                    _decreasePoolDepositsBy(_poolId, seizedCollateral, !isBuyOrder);
+                    // if 2 ETH are seized, 2*p = 4000 USDC of debt are canceled
+                    canceledDebt = convert(seizedCollateral, takenOrder.price, !isBuyOrder, !ROUNDUP);
+                    // total borrow is reduced by 4000 USDC
+                    _decreasePoolBorrowBy(poolId, canceledDebt, isBuyOrder);
+                }
+
+                
+                
+                
+                // maker's debt paid back
+                if (order.quantity > 0) {
+                    uint256 takenAssets = remainingTakenQuantity.mini(order.quantity);
+                    uint256 cash = convert(takenAssets, limitPrice[_poolId], inQuote, !ROUNDUP);
+
+                    // if user has no debt, remaining cash = cash
+                    // if he has a lot of debt, remaining cash = 0
+                    // CAN REPAY() BE REUSED HERE ?
+                    uint256 remainingCash = _repayUserDebt(order.maker, cash, inquote);
+
+                    // whatever the amount of repaid debt, taker exchanges the whole order
+                    remainingTakenQuantity -= convert(remainingCash, limitPrice[_poolId], inQuote, ROUNDUP);
+                }
+
+                
+
+                
+            }
+        }
+            
+        }
+
+        // liquidate positions as they come fromm bottom up
+        // seize assets the other side of the book up to the amount borrowed
+        // with the proceeds, create or increase limit orders the other side of the book
+
+        for (uint256 i = pool.bottomPosition; i < (pool.bottomPosition + maxPosition); i++) {
+            
+        }
+
+
 
         // taking is allowed for non-borrowed assets, possibly net of minimum deposit if taking is partial
-        require(_takable(_takenOrderId, _takenQuantity, lentAssets, minDeposit(isBuyOrder)), "Take too much");
+        require(_takable(_poolId, _quantity, minDepose), "Take too much");
 
-        // increment time-weighted rates with IR based on past UR before take() changes UR forward
-        _incrementTimeWeightedRates();
         
-        // liquidate all borrowing positions, output seized borrowers' collateral
-        // Ex: Bob deposits 2 ETH in a sell order to borrow 4000 from Alice's buy order (p = 2000)
-        // Alice's buy order is taken, Bob's collateral is seized for 4000/p = 2 ETH  
-        uint256 seizedCollateral = _closeAllPositions(_takenOrderId);
-        
-        // Liquidation means les assets deposited (seized collateral) and less assets borrowed (canceled debt)
-        uint256 canceledDebt = 0;
-        if (seizedCollateral > 0) {
-            // total deposits from borrowers' side are reduced by 2 ETH
-            _decreaseTotalAssetsBy(seizedCollateral, !isBuyOrder);
-            // if 2 ETH are seized, 2*p = 4000 USDC of debt are canceled
-            canceledDebt = convert(seizedCollateral, takenOrder.price, !isBuyOrder, !ROUNDUP);
-            // total borrow is reduced by 4000 USDC
-            _decreaseTotalBorrowBy(canceledDebt, isBuyOrder);
-        }
 
-        // assets taken could collateralize maker's own borrowing positions
-        // assets received (given by taker or seized from borrowers) are used to repay maker's own loans first
-        // Alice deposits 2100 USDC in a buy order (p = 1900) to borrow 1 ETH from Clair's sell order (p' = 2200) 
-        // Alice's buy order is taken for X \in (0, 2100) USDC in exchange of X/p ETH
-        // Her borrowing in ETH is reduced by min(X/p, 1) 
-        // Taking a collateral order writes off the debt first (exit strategy)
         
-        uint256 reducedBorrow = 0;
-        if (_takenQuantity + canceledDebt > 0) {
-            uint256 budgetToRepayLoans = convert(_takenQuantity + canceledDebt, takenOrder.price, isBuyOrder, !ROUNDUP);
-            reducedBorrow = _reduceUserBorrow(takenOrder.maker, budgetToRepayLoans, isBuyOrder);
-            _decreaseTotalBorrowBy(reducedBorrow, !isBuyOrder);
-            // Alice's buy order is reduced by amount taken + 2 * p USDC
-            _reduceOrderBy(_takenOrderId, _takenQuantity + canceledDebt);
-            // total deposits from maker's side are reduced by taken quantity + 2*p USDC
-            _decreaseTotalAssetsBy(_takenQuantity + canceledDebt, isBuyOrder);
-        }
 
         // quantity given by taker in exchange of _takenQuantity (can be zero)
         uint256 exchangedQuantity = convert(_takenQuantity, takenOrder.price, isBuyOrder, ROUNDUP);
@@ -314,26 +416,41 @@ contract Book is IBook {
         // check if an identical order exists already, if so increase deposit, else create
         uint256 pairedOrderId = _getOrderIdInDepositIdsInUsers(
             takenOrder.maker,
-            takenOrder.pairedPrice,
-            takenOrder.price,
+            takenOrder.poolId,
+            takenOrder.pairedPoolId,
             !takenOrder.isBuyOrder);
-        uint256 netTransfer = _substract(exchangedQuantity + seizedCollateral, reducedBorrow, "err 000", RECOVER);
+        uint256 netTransfer = _substract(exchangedQuantity + seizedCollateral, canceledDebt, "err 000", RECOVER);
         
         if (netTransfer > 0) {
             // if the paired order must be created and minimum amount deposited is not met, send to maker back
             // else create or increase paired order
-            if (pairedOrderId == 0 && netTransfer < minDeposit(!isBuyOrder)) {
+            uint256 minDepose = minDeposit(!isBuyOrder);
+            if (pairedOrderId == 0 && netTransfer < minDepose) {
                 _transferTo(takenOrder.maker, netTransfer, !isBuyOrder);
             } else {
-                _placeOrder(
+                uint256 newOrderId = _placeOrder(
+                    poolId,
                     takenOrder.maker,
                     netTransfer,
-                    takenOrder.pairedPrice,
-                    takenOrder.price,
+                    pairedPoolId, // takenOrder.pairedPrice,
+                    // takenOrder.price,
                     !isBuyOrder,
                     takenOrder.isBorrowable,
-                    pairedOrderId
+                    orderId
                 );
+                // add new orderId in depositIds array in users
+                _addOrderIdInDepositIdsInUser(_maker, newOrderId);
+
+                // add new orderId in pool orderIds mapping
+                _addOrderIdToOrderIdsInPool(_poolId, newOrderId);
+        
+                // update TWIR
+                _incrementWeightedRates(_poolId);
+
+                // increase total deposits net of non borrowables in pool
+                _increasePoolDepositsBy(_poolId, netTransfer, isBuyOrder);
+                if (!takenOrder.isBorrowable) _increasePoolNonBorrowablesBy(_poolId, netTransfer, isBuyOrder);
+                else _increasePoolNonBorrowablesBy(_poolId, minDepose);
             }            
         }
 
@@ -348,12 +465,12 @@ contract Book is IBook {
     /// @inheritdoc IBook
     function liquidate(uint256 _positionId)
         external
-        positionExists(_positionId)
+        positionHasBorrowedAssets(_positionId)
     {
         uint256 orderId = positions[_positionId].orderId;
         
         // if taking is profitable, liquidate all positions, not only the undercollateralized one
-        if (profitable(orderId)) {
+        if (profitable(pooolId)) {
             take(orderId, 0);
         } else {
             // only maker can pull the trigger
@@ -389,6 +506,9 @@ contract Book is IBook {
     }
 
     /// @inheritdoc IBook
+
+    // scenario : depose - borrowed - change to non borrowable - Available assets are reduced by depose but careful with negative available assets
+
     function changeBorrowable(uint256 _orderId, bool _isBorrowable)
         external
         onlyMaker(_orderId)
@@ -400,59 +520,159 @@ contract Book is IBook {
 
     ///////******* Internal functions *******///////
     
-    // place liquidty on the book, create a new order or increase existing one
-    // update internal balances, update TWIR and increase total assets
-    // called by deposit() at the initiative of user or take() for self-replacing order
+    // lets users place order in the book
+    // update TWIR and initialize deposit's time-weighted and UR-weighted rate
+    // update ERC20 balances
     
-    function _placeOrder(
+    function _deposit(
+        uint256 _quantity,
+        int24 _poolId,
+        int24 _pairedPoolId,
+        bool _isBuyOrder,
+        bool _isBorrowable
+    )
+        internal
+        returns (uint256 orderId_)
+    {
+        // revert if limit price and paired limit price are in wrong order
+        require(consistent(_poolId, _pairedPoolId, _isBuyOrder), "Inconsistent limit prices");
+
+        // revert if _poolId or _pairedPoolId has no price and is not adjacent to a pool id with a price        
+        require(nearBy(_poolId), "Limit price too far");
+        require(nearBy(_pairedPoolId), "Paired price too far");
+        
+        // returns order id if maker already supplies in pool with same paired limit price, if not returns zero
+        uint256 orderId = _getOrderIdInDepositIdsInUsers(msg.sender, _poolId, _pairedPoolId, _isBuyOrder);
+
+        // check minimum amount deposited
+        if (orderId == 0) require(_quantity >= minDeposit(_isBuyOrder), "Deposit too small");
+
+        // update TWIR and TUWIR before accounting for changes in UR and future interest rate
+        _incrementWeightedRates(_poolId);
+
+        // add to existing order or create new order
+        // if new order:
+        // - add new orderId in depositIds[] in users
+        // - add new orderId on top of orderIds[] in pool
+        orderId_ = _createOrIncreaseOrder(msg.sender, _quantity, _poolId, _pairedPoolId, _isBuyOrder, _isBorrowable, orderId);
+
+        // increase total deposits in pool
+        _increasePoolDepositsBy(_poolId, _quantity, _isBuyOrder);
+
+        // increase total deposits in pool, net of non borrowable assets
+        if (!_isBorrowable) _increasePoolNonBorrowablesBy(_poolId, _quantity, _isBuyOrder);
+        else _increasePoolNonBorrowablesBy(minDepose, _poolId);
+
+        _transferFrom(msg.sender, _quantity, _isBuyOrder);
+    }
+        
+    // import order id if maker already supplies in pool with same paired limit price (otherwise zero)
+    // add to existing order or create new order
+    // if existing order:
+    // - increase deposit by quantity + accrued interest rate
+    // - reset R_t to R_T
+    // if new order:
+    // - add new orderId in depositIds[] in users
+    // - add new orderId on top of orderIds[] in pool
+    // update pool's total deposit
+    // returns order id
+    // called by _deposit() or take() ? for self-replacing order
+    
+    function _createOrIncreaseOrder(
+        int24 _poolId,
         address _maker,
         uint256 _quantity,
-        uint256 _price,
-        uint256 _pairedPrice,
+        int24 _pairedPoolId,
         bool _isBuyOrder,
         bool _isBorrowable,
         uint256 _orderId
     )
         internal
+        returns (uint256 orderId_)
     {
+
+        // if order already exists     
         if (_orderId != 0) {
+
+            // add interest rate to existing deposit
+            // update TUWIR_t to TUWIR_T to reset interest rate to zero
+            // add interest rate to deposit and pool's total borrow
+            _addInterestRateTo(_poolId, !TO_POSITION, _orderId);
+
+            // add additional quantity to existing deposit
             _increaseOrderBy(_orderId, _quantity);
+
+            orderId_ = _orderId;
+
+        // order does not exist
         } else {
-            // add order to orders, output the id of the new order
-            uint256 newOrderId = _addOrderToOrders(
-                _maker,
-                _isBuyOrder,
-                _quantity,
-                _price,
-                _pairedPrice,
-                _isBorrowable
-            );
-            // add new orderId in depositIds array in users
-            _addOrderIdInDepositIdsInUsers(newOrderId, _maker);        
+
+            // create new order in orders
+            uint256 newOrderId = _placeOrder(_poolId, _maker, _quantity, _pairedPoolId, _isBuyOrder, _isBorrowable);
+            
+            // add new orderId in depositIds[] in users
+            // revert if max orders reached
+            _addOrderIdInDepositIdsInUser(msg.sender, newOrderId);
+
+            // add new orderId on top of orderIds[] in pool
+            _addOrderIdToOrderIdsInPool(_poolId, newOrderId);
         }
-        // update TWIR and increase total assets
-        _incrementTimeWeightedRates();
-        _increaseTotalAssetsBy(_quantity, _isBuyOrder);
+    }
+
+    // create a new order
+    
+    function _placeOrder(
+        int24 _poolId,
+        address _maker,
+        uint256 _quantity,
+        int24 _pairedPoolId,
+        bool _isBuyOrder,
+        bool _isBorrowable
+    )
+        internal
+        returns (uint256 newOrderId)
+    {
+        Order memory newOrder = Order(
+            _poolId,
+            _maker,
+            _quantity,
+            _pairedPoolId,
+            getTimeUrWeightedRate(poolId),
+            _isBuyOrder,
+            _isBorrowable
+        );
+        newOrderId = lastOrderId;
+        orders[newOrderId] = newOrder;
+        lastOrderId ++;
     }
     
-    // close **all** borrowing positions after taking an order, even if taking is partial or 0
+    // NOT RELEVANT ANYMORE: ne ferme plus max_positions positions sur un ordre mais N positions dans un pool
+    // close **all** borrowing positions after taking in a pool, even if taking is partial or 0
     // call _closePosition for every position to close
     // doesn't perform external transfers
-    // _fromOrderId: order id from which borrowing positions must be cleared
+    // _poolId: pool id from which borrowing positions must be cleared
 
-    function _closeAllPositions(uint256 _fromOrderId)
+    function _closeNPositions(uint256 poolId)
         internal
         returns (uint256 seizedBorrowerCollateral)
     {
         uint256[MAX_POSITIONS] memory positionIds = orders[_fromOrderId].positionIds;
         seizedBorrowerCollateral = 0;
 
-        // iterate on position ids which borrow from the order taken, liquidate position one by one
+        // iterate on position ids which borrow from the pool taken, liquidate position one by one
         for (uint256 i = 0; i < MAX_POSITIONS; i++) {
             uint256 positionId = positionIds[i];
-            if(_borrowIsPositive(positionId)) {
-                // first, add interest rate to borrowed quantity
-                _increaseBorrowBy(positionId, _interestLoad(positionId));
+            if(_hasBorrowedAssets(positionId)) {
+
+                // return interest rate multiplied by borrowed quantity
+                accruedInterestRate_ = accruedInterestRate(positions[positionId].poolId, TO_POSITION, positionId);
+
+                // add interest rate to position
+                _increaseBorrowBy(positionId, accruedInterestRate_);
+
+                // update pool's total borrow
+                _increasePoolBorrowBy(_poolId, accruedInterestRate_, inQuote);
+
                 uint256 seizedCollateral = _closePosition(
                     positionId,
                     positions[positionId].borrowedAssets,
@@ -484,12 +704,12 @@ contract Book is IBook {
         returns (uint256 seizedCollateral_)
     {
         Position memory position = positions[_positionId]; // position to be liquidated
-        bool inQuoteToken = orders[position.orderId].isBuyOrder; // type of order from which assets are taken
+        bool inQuote = orders[position.orderId].isBuyOrder; // type of order from which assets are taken
         
         // collateral to seize the other side of the book given borrowed quantity
         // ex: Bob deposits 1 ETH in 2 sell orders to borrow 4000 from Alice's buy order (p = 2000)
         // Alice's buy order is taken => seized Bob's collateral is 4000/p = 2 ETH spread over 2 orders
-        uint256 collateralToSeize = convert(_borrowToCancel, _price, inQuoteToken, ROUNDUP);
+        uint256 collateralToSeize = convert(_borrowToCancel, _price, inQuote, ROUNDUP);
 
         uint256 remainingCollateralToSeize = collateralToSeize;
 
@@ -499,23 +719,23 @@ contract Book is IBook {
             // order id from which assets are seized, ex: id of Bob's first sell order with ETH as collateral
             uint256 orderId = depositIds[j];
             if (_orderHasAssets(orderId) &&
-                orders[orderId].isBuyOrder != inQuoteToken)
+                orders[orderId].isBuyOrder != inQuote)
             {
                 uint256 orderQuantity = orders[orderId].quantity;
 
                 if (orderQuantity > remainingCollateralToSeize)
                 {
                     // enough collateral assets are seized before borrower's order could be fully seized
-                    _reduceOrderBy(orderId, remainingCollateralToSeize);
-                    uint256 reducedBorrow = convert(remainingCollateralToSeize, _price, !inQuoteToken, ROUNDUP);
+                    _decreaseOrderBy(orderId, remainingCollateralToSeize);
+                    uint256 canceledDebt = convert(remainingCollateralToSeize, _price, !inQuote, ROUNDUP);
                     // handle rounding errors
                     positions[_positionId].borrowedAssets = _substract(
-                        positions[_positionId].borrowedAssets, reducedBorrow, "err 001", RECOVER);
+                        positions[_positionId].borrowedAssets, canceledDebt, "err 001", RECOVER);
                     remainingCollateralToSeize = 0;
                     break;
                 } else {
                     // borrower's order is fully seized, reduce order quantity to zero
-                    _reduceOrderBy(orderId, orderQuantity);
+                    _decreaseOrderBy(orderId, orderQuantity);
                     // cancel debt for the same amount as collateral seized
                     positions[_positionId].borrowedAssets = 0;
                     remainingCollateralToSeize -= orderQuantity;
@@ -527,69 +747,62 @@ contract Book is IBook {
     }
 
     // when an order is taken, the assets that the maker obtains serve in priority to pay back maker's own positions
-    // reduce maker's borrowing positions possibly as high as BudgetToRepayLoans
+    // reduce maker's borrowing positions possibly as high as _cash
     // Ex: Bob deposits a sell order as collateral to borrow Alice's buy order
-    // if Bob's sell order is taken first, his borrowing position from Alice is reduced first, possibly to zero
+    // Bob's sell order is taken first, his borrowing position from Alice is reduced, possibly to zero
     // as multiple positions may be collateralized by a taken order:
-    // - iterate on borrowing positions
-    // - close positions as they come by calling _closeMakerPosition()
-    // - stop when all positions have been closed or budget is exhausted
+    // - iterate on user's borrowing positions
+    // - close positions as they come by calling _repayDebt()
+    // - stop when all positions have been closed or cash is exhausted
     // - change internal balances
     
-    function _reduceUserBorrow(
+    function _repayUserDebt(
         address _borrower,
-        uint256 _budgetToRepayLoans,
-        bool _isBuyOrder // type of the taken order
+        uint256 _cash,
+        bool _inQuote // type of the taken order
     )
         internal
-        returns (uint256 totalReducedBorrow_)
+        returns (uint256 remainingCash_)
     {
-        uint256[MAX_BORROWS] memory borrowFromIds = users[_borrower].borrowFromIds;
-        uint256 budgetBefore = _budgetToRepayLoans;
-        totalReducedBorrow_ = 0;
+        remainingCash_ = _cash;
+        uint256[MAX_POSITIONS] memory borrowIds_ = users[_borrower].borrowIds;
 
-        // iterate on position ids which borrow from the order taken, liquidate position one by one
-        for (uint256 i = 0; i < MAX_BORROWS; i++) {
-            uint256 borrowedOrderId = borrowFromIds[i];
-            uint256 positionId = getPositionId(borrowedOrderId, _borrower);
-            if (positions[positionId].borrowedAssets > 0 &&
-                orders[borrowedOrderId].isBuyOrder != _isBuyOrder)
+        // iterate on position ids, pay back position one by one with budget
+        for (uint256 i = 0; i < MAX_POSITIONS; i++) {
+            uint256 positionId = positions[borrowIds[i]];
+            if (positions[positionId].borrowedAssets > 0 && positions[positionId].inQuote != _inQuote)
             {
-                (uint256 budgetAfter, uint256 reducedBorrow) =_closeMakerPosition(positionId, budgetBefore);
-                totalReducedBorrow_ += reducedBorrow;
-                if (budgetAfter == 0) break;
-                else budgetBefore = budgetAfter;
+                remainingCash_ = _repayDebt(poolId, positionId, remainingCash);
+                if (remainingCash_ == 0) break;
             }
         }
     }
 
-    // reduce maker's borrow from one order, partially or fully
-    // _budget: remaining assets from taken position available to partially or fully repay the position
+    // reduce maker's debt in position, partially or fully, with remainingCash
+    // remaining cash: available assets exchanged against taken order
 
-    function _closeMakerPosition(
+    function _repayDebt(
+        int24 _poolId,
         uint256 _positionId,
-        uint256 _budget 
+        uint256 _remainingCash
     )
         internal 
-        returns (
-            uint256 remainingBudget_, // after closing this position
-            uint256 reducedBorrow_ // quantity of assets reduced from this position
-        )
+        returns (uint256 remainingCash_) // after closing this position
     {
         // add interest rate to borrowed quantity and update TWIR_t to TWIR_T to reset interest rate to zero
-        _addInterestRateTo(_positionId);
+        // add interest rate to pool's total borrow
+        _addInterestRateTo(_poolId, TO_POSITION, _positionId);
         
-        uint256 borrowedAssets = positions[_positionId].borrowedAssets;
-        if (borrowedAssets >= _budget) {
-            // position has enough borrowed assets to close: position partially closed
-            reducedBorrow_ = _budget;
-            remainingBudget_ = 0;
-        } else {
-            // position fully closed
-            reducedBorrow_ = borrowedAssets;
-            remainingBudget_ = _budget - borrowedAssets;
-        }
-        _reduceBorrowBy(_positionId, reducedBorrow_);
+        uint256 canceledDebt = positions[_positionId].borrowedAssets.mini(_remainingCash);
+
+        // decrease borrowed assets in position, possibly to zero
+        _decreaseBorrowBy(_positionId, canceledDebt);
+
+        // decrease borrowed assets in pool
+        _decreasePoolBorrowBy(positions[positionId].poolId, canceledDebt, positions[positionId].inQuote);
+
+        // revise remaining cash down
+        remainingCash_ = _remainingCash - canceledDebt;
     }
 
     // liquidate borrowing positions from users which excess collateral is zero or negative
@@ -600,16 +813,21 @@ contract Book is IBook {
     {
         Position memory position = positions[_positionId]; // position to be liquidated
         Order memory borrowedOrder = orders[position.orderId]; // order of maker from which assets are borrowed
-        bool inQuoteToken = borrowedOrder.isBuyOrder;
+        bool inQuote = borrowedOrder.isBuyOrder;
         
         // increment time-weighted rates with IR before liquidate (necessary for up-to-date excess collateral)
-        _incrementTimeWeightedRates();
+        _incrementWeightedRates(_poolId);
 
-        require(_getExcessCollateral(position.borrower, !inQuoteToken) == 0, "Borrower excess collateral is positive");
+        require(_getUserExcessCollateral(position.borrower, !inQuote) == 0, "Borrower excess collateral is positive");
 
-        // add fee rate to borrowed quantity (interest rate has been already added)
+        // multiply fee rate by borrowed quantity = fee
         uint256 totalFee = FEE.wMulUp(position.borrowedAssets);
+
+        // add fee to borrowed quantity (interest rate already added), update pool's total borrow
         _increaseBorrowBy(_positionId, totalFee);
+
+        // add fee to pool's total borrow
+        _increasePoolBorrowBy(_poolId, totalFee, inQuote);
 
         // seize collateral equivalent to borrowed quantity + interest rate + fee
         uint256 seizedCollateral = _closePosition(_positionId, positions[_positionId].borrowedAssets, priceFeed);
@@ -617,11 +835,11 @@ contract Book is IBook {
         // Liquidation means less assets deposited (seized collateral) and less assets borrowed (canceled debt)
         if (seizedCollateral > 0) {
             // total deposits from borrowers' side are reduced by 2 ETH
-            _decreaseTotalAssetsBy(seizedCollateral, !inQuoteToken);
+            _decreasePoolDepositsBy(seizedCollateral, !inQuote);
             // if 2 ETH are seized, 2*p = 4000 USDC of debt are canceled
-            _decreaseTotalBorrowBy(convert(seizedCollateral, borrowedOrder.price, !inQuoteToken, !ROUNDUP), inQuoteToken);
+            _decreasePoolBorrowBy(poolId, convert(seizedCollateral, borrowedOrder.price, !inQuote, !ROUNDUP), inQuote);
             // transfer seized collateral to maker
-            _transferTo(borrowedOrder.maker, seizedCollateral, !inQuoteToken);
+            _transferTo(borrowedOrder.maker, seizedCollateral, !inQuote);
         }
     }
 
@@ -639,56 +857,58 @@ contract Book is IBook {
     }
     
     // transfer ERC20 from user/taker/repayBorrower to contract
+
     function _transferFrom(
         address _from,
         uint256 _quantity,
-        bool _isBuyOrder
+        bool _inQuote
     )
         internal
         moreThanZero(_quantity)
     {
-        if (_isBuyOrder) quoteToken.safeTransferFrom(_from, address(this), _quantity);
+        if (_inQuote) quoteToken.safeTransferFrom(_from, address(this), _quantity);
         else baseToken.safeTransferFrom(_from, address(this), _quantity);
     }
 
-    // add order to Order, returns id of the new order
-    function _addOrderToOrders(
-        address _maker,
-        bool _isBuyOrder,
-        uint256 _quantity,
-        uint256 _price,
-        uint256 _pairedPrice,
-        bool _isBorrowable
-    )
-        internal 
-        returns (uint256 orderId)
-    {
-        uint256[MAX_POSITIONS] memory positionIds;
-        Order memory newOrder = Order(
-            _maker,
-            _isBuyOrder,
-            _quantity,
-            _price,
-            _pairedPrice,
-            _isBorrowable,
-            positionIds
-        );
-        orders[lastOrderId] = newOrder;
-        orderId = lastOrderId;
-        lastOrderId++;
-    }
+    // DEPRECATED add order to Order, returns id of the new order
+    // function _addOrderToOrders(
+    //     address _maker,
+    //     bool _isBuyOrder,
+    //     uint256 _quantity,
+    //     uint256 _price,
+    //     uint256 _pairedPrice,
+    //     bool _isBorrowable
+    // )
+    //     internal 
+    //     returns (uint256 orderId)
+    // {
+    //     uint256[MAX_POSITIONS] memory positionIds;
+    //     Order memory newOrder = Order(
+    //         _maker,
+    //         _isBuyOrder,
+    //         _quantity,
+    //         _price,
+    //         _pairedPrice,
+    //         _isBorrowable,
+    //         positionIds
+    //     );
+    //     orders[lastOrderId] = newOrder;
+    //     orderId = lastOrderId;
+    //     lastOrderId++;
+    // }
 
-    // if order id is not in depositIds array in struct users, include it, reverts if max orders reached
-    function _addOrderIdInDepositIdsInUsers(
-        uint256 _orderId,
-        address _maker
+    // add new orderId in depositIds[] in users 
+    // revert if max orders reached
+
+    function _addOrderIdInDepositIdsInUser(
+        address _maker,
+        uint256 _orderId
     )
         internal
     {
         bool fillRow = false;
         for (uint256 i = 0; i < MAX_ORDERS; i++) {
-            uint256 orderId = users[_maker].depositIds[i];
-            if (orderId == 0 || !_orderHasAssets(orderId)) {
+            if (!_orderHasAssets(users[_maker].depositIds[i])) {
                 users[_maker].depositIds[i] = _orderId;
                 fillRow = true;
                 break;
@@ -697,64 +917,117 @@ contract Book is IBook {
         if (!fillRow) revert("Max orders reached");
     }
 
-    // if borrower doesn't already borrow from order, add order id in borrowFromIds array in mapping users
-    // reverts if max borrowing reached
+    // add position id in borrowIds[] in mapping users
+    // reverts if user's max number of positions reached
 
-    function _addOrderIdInBorrowFromIdsInUsers(
+    function _addPositionIdInBorrowIdsInUser(
         address _borrower,
-        uint256 _orderId
+        uint256 _positionId
     )
         internal
     {
         bool fillRow = false;
-        for (uint256 i = 0; i < MAX_BORROWS; i++)
+        for (uint256 i = 0; i < MAX_POSITIONS; i++)
         {
-            uint256 orderId = users[_borrower].borrowFromIds[i];
-            if (orderId == 0 || !_borrowIsPositive(getPositionId(orderId, _borrower)))
+            if (!_hasBorrowedAssets(users[_borrower].borrowIds[i]))
             {
-                users[_borrower].borrowFromIds[i] = _orderId;
+                users[_borrower].borrowIds[i] = _positionId;
                 fillRow = true;
                 break;
             }
         }
-        if (!fillRow) revert("Max positions reached for borrower");
+        if (!fillRow) revert("Max positions reached");
     }
 
-    // if position doesn't exist, add new position in positions mapping
-    // if exists, increase borrow by quantity + interest load and reset R_t to R_T
-    // returns existing or new position id in positions mapping
-    // _orderId: from which assets are borrowed
+    // add order id on top of orderIds in pool
+    // make sure order id does not already exist in ordersIds
 
-    function _addPositionToPositions(
+    function _addOrderIdToOrderIdsInPool(
+        address _poolId,
+        uint256 _orderId
+    )
+        internal
+    {
+        pools[_poolId].orderIds[pools[_poolId].topOrder] = _orderId;
+        pools[_poolId].topOrder ++;
+    }
+
+    // add position to existing position or create new one
+    // check if user already borrows in pool
+    // if yes:
+    // - increase borrow by quantity + accrued interest rate
+    // - reset R_t to R_T
+    // if not:
+    // add position id to borrowIds[] in users
+    // add position id to borrows[] in pools
+    // update pool's total borrow
+    // returns existing or new position id
+    // _poolId: pool id from which assets are borrowed
+
+    function _createOrAddPositionInPositions(
+        int24 _poolId,
         address _borrower,
-        uint256 _orderId,
-        uint256 _borrowedQuantity
+        uint256 _quantity,
+        bool _inQuote
     )
         internal
         returns (uint256 positionId_)
     {
-        positionId_ = getPositionId(_orderId, _borrower);
-        bool inQuoteToken = orders[_orderId].isBuyOrder;
+        // find if borrower has already a position in pool
+        positionId_ = getPositionId(_borrower, _poolId);
+
         // if position already exists
         if (positionId_ != 0) {
-            // add interest rate to borrowed quantity, update TWIR_t to TWIR_T to reset interest rate to zero
-            _addInterestRateTo(positionId_);
-            _increaseBorrowBy(positionId_, _borrowedQuantity);
-        } else {
-            Position memory newPosition = Position(
-                _borrower,
-                _orderId,
-                _borrowedQuantity,
-                getTimeWeightedRate(inQuoteToken)
-            );
-            positions[lastPositionId] = newPosition;
-            positionId_ = lastPositionId;
-            lastPositionId++;
+            
+            // add interest rate to borrowed quantity
+            // update TWIR_t to TWIR_T to reset interest rate to zero
+            // add interest rate to borrowed quantity and pool's total borrow
+            _addInterestRateTo(_poolId, TO_POSITION, positionId_);
+
+            // add additional borrow to borrowed quantity
+            _increaseBorrowBy(positionId_, _quantity);
         }
-        _increaseTotalBorrowBy(_borrowedQuantity, inQuoteToken);
+        // if position doesn't exist
+        else 
+        {
+            // create position in positions, return new position id
+            newPositionId = _addPositionToPositions(_poolId, _borrower, _quantity, _inQuote);
+
+            // add new position id to borrowIds[] in users, 
+            // revert if user has too many open positions (max position reached)
+            _addPositionIdInBorrowIdsInUser(msg.sender, newPositionId);
+
+            // add new position id in pool
+            _AddPositionIdToPositionIdsInPool(poolId, newPositionId);
+        }
     }
 
-    // increase borrowedAssets in position, special attention to excessCollateral
+
+    // create position in positions mapping
+    // returns new position id
+    
+    function _addPositionToPositions(
+        int24 _poolId,
+        address _borrower,
+        uint256 _quantity,
+        bool _inQuote
+    )
+        internal
+        returns (uint256 positionId_)
+    {
+        Position memory newPosition = Position(
+            _poolId,
+            _borrower,
+            _quantity,
+            getTimeWeightedRate(_poolId), // initialize interest rate
+            _inQuote
+        );
+        positionId_ = lastPositionId;
+        positions[position_Id] = newPosition;
+        lastPositionId++;
+    }
+
+    // increase borrowedAssets in position (special attention to excessCollateral)
     function _increaseBorrowBy(
         uint256 _positionId,
         uint256 _quantity
@@ -765,9 +1038,9 @@ contract Book is IBook {
     }
 
     // decrease borrowedAssets in position, borrowing = 0 is equivalent to deleted position
-    // quantity =< borrowing is checked before the call
+    // quantity =< borrowing is checked before the call, _substract could be removed
 
-    function _reduceBorrowBy(
+    function _decreaseBorrowBy(
         uint256 _positionId,
         uint256 _quantity
     )
@@ -778,25 +1051,19 @@ contract Book is IBook {
         );
     }
 
-    // if borrower doesn't already borrow from order, add new position id in positionIds array in orders
-    // reverts if max number of positions is reached
+    // add new position id on top of positionIds[] in pool
+    // make sure position id does not already exist in positionIds
 
-    function _AddPositionIdToPositionIdsInOrders(
+    function _AddPositionIdToPositionIdsInPool(
         uint256 _positionId,
         uint256 _orderId
     )
         internal
     {
-        bool fillRow = false;
-        uint256[MAX_POSITIONS] memory positionIds = orders[_orderId].positionIds;
-        for (uint256 i = 0; i < MAX_POSITIONS; i++) {
-            if (positionIds[i] == 0 || !_borrowIsPositive(positionIds[i])) {
-                orders[_orderId].positionIds[i] = _positionId;
-                fillRow = true;
-                break;
-            }
-        }
-        require(fillRow, "Max positions reached for order");
+        pools[_poolId].positionIds[pools[_poolId].topPosition] = _positionId;
+        pools[_poolId].topPosition ++;
+    }
+
     }
 
     // increase quantity offered in order, possibly from zero
@@ -810,62 +1077,92 @@ contract Book is IBook {
     }
 
     // reduce quantity offered in order, emptied is equivalent to deleted
-    function _reduceOrderBy(
+    function _decreaseOrderBy(
         uint256 _orderId,
         uint256 _quantity
     )
         internal
     {
-        orders[_orderId].quantity = _substract(
-            orders[_orderId].quantity, _quantity, "err 003", RECOVER
-        );
+        orders[_orderId].quantity = _substract(orders[_orderId].quantity, _quantity, "err 003", !RECOVER);
     }
 
-    // increase total assets in quote (buy order side) or base (sell order side) token
-    function _increaseTotalAssetsBy(
+    // increase total deposits in pool (check before asset type)
+    function _increasePoolDepositsBy(
+        int256 _poolId,
         uint256 _quantity,
         bool _inQuote
     )
         internal
     {
-        if (_inQuote) totalQuoteAssets += _quantity;
-        else totalBaseAssets += _quantity;
+        pools[_poolId].deposits += _quantity;
     }
 
-    function _decreaseTotalAssetsBy(
+    // check asset type, decrease total deposits in pool
+    function _decreasePoolDepositsBy(
+        int24 _poolId,
         uint256 _quantity,
         bool _inQuote
     )
         internal
     {
-        if (_inQuote) totalQuoteAssets = _substract(totalQuoteAssets, _quantity, "err 004", RECOVER);
-        else totalBaseAssets = _substract(totalBaseAssets, _quantity, "err 005", RECOVER);
+        if (_sameType(_poolType(_poolId), _inQuote)) 
+            pools[_poolId].deposits = _substract(pools[_poolId].deposits, _quantity, "err 004", RECOVER);
+        else revert("asset mismatch_1");
     }
 
-    // increase total borrow in quote (buy order side) or base (sell order side) token
-    function _increaseTotalBorrowBy(
+    // check asset type, increase total borrow in pool
+    function _increasePoolBorrowBy(
+        int24 _poolId,
         uint256 _quantity,
         bool _inQuote
     )
         internal
     {
-        if (_inQuote) totalQuoteBorrow += _quantity;
-        else totalBaseBorrow += _quantity;
+        if (_sameType(_poolType(_poolId), _inQuote)) pools[_poolId].borrows += _quantity;
+        else revert("asset mismatch_2");
     }
 
-    // decrease total borrow in quote or base tokens
-    function _decreaseTotalBorrowBy(
+    // check asset type and decrease total borrow in pool
+    function _decreasePoolBorrowBy(
+        int24 _poolId,
         uint256 _quantity,
         bool _inQuote
     )
         internal
     {
-        if (_inQuote) totalQuoteBorrow = _substract(totalQuoteBorrow, _quantity, "err 006", RECOVER);
-        else totalBaseBorrow = _substract(totalBaseBorrow, _quantity, "err 007", RECOVER);
+        if (_sameType(_poolType(_inQuote), _inQuote))
+            _substract(pools[_poolId].borrows, _quantity, "err 006", !RECOVER);
+        else revert("asset mismatch_3");
+    }
+    
+    // check asset type, increase non borrowables in pool
+    function _increasePoolNonBorrowablesBy(
+        int24 _poolId,
+        uint256 _quantity,
+        bool _inQuote        
+    )
+        internal
+    {
+        if (!_isBorrowable) pools[_poolId].nonBorrowables += _quantity;
+        else pools[_poolId].nonBorrowables += minDeposit(_isBuyOrder);
+    }
+
+    // check asset type, decrease non borrowables in pool
+    function _decreasePoolNonBorrowablesBy(
+        int24 _poolId,
+        uint256 _quantity,
+        bool _inQuote        
+    )
+        internal
+    {
+        if (_sameType(_poolType(_poolId), _inQuote)) {
+            _substract(pools[_poolId].nonBorrowables, _quantity, "err 009", !RECOVER);
+        }
+        else revert("asset mismatch_5");
     }
 
     // handle substraction between two quantities
-    // if reslt is negative, _recover = true, sets result to zero, emits an error code but does'nt break the flow 
+    // if negative, _recover = true, sets result to zero, emits an error code but does'nt break the flow 
 
     function _substract(
         uint256 _a,
@@ -886,135 +1183,205 @@ contract Book is IBook {
         }
     }
 
-    // add IR_{t-1} (n_t - n_{t-1})/N to time-weighted interest rate TWIR_{t-2} in the two markets:
+    // add IR_{t-1} (n_t - n_{t-1})/N to TWIR_{t-2} in pool
+    // and get TWIR_{t-1} the time-weighted interest rate from inception to present (in WAD)
+    // with N number of seconds in a year, elapsed in seconds (intergers)
     // TWIR_{t-2} = IR_0 n_1/N + IR_1 (n_2 - n_1)/N + ... + IR_{t-1} (n_{t-2} - n_{t-1})/N
-    // with N number of seconds in a year, elapsed in seconds (intergers), quote- and baseTimeWeightedRate in WAD
+    // TWIR_{t-1} = IR_0 n_1/N + IR_1 (n_2 - n_1)/N + ... + IR_{t-1} (n_{t-2} - n_{t-1})/N + (n_t - n_{t-1})/N
+    // pool can be either in quote or base tokens, depending on market price
     
-    function _incrementTimeWeightedRates()
+    function _incrementWeightedRates(int24 _poolId)
         internal
     {
-        uint256 elapsed = block.timestamp - lastTimeStamp;
-        if (elapsed == 0) return;
-        quoteTimeWeightedRate += elapsed * getInstantRate(true);
-        baseTimeWeightedRate += elapsed * getInstantRate(false);
-        lastTimeStamp = block.timestamp;
+        uint256 elapsedTime = block.timestamp - pools[_poolId].lastTimeStamp;
+        if (elapsedTime == 0) return;
+        pools[_poolId].timeWeightedRate += elapsedTime * getInstantRate(_poolId);
+        pools[_poolId].timeUrWeightedRate += elapsedTime * getInstantRate(_poolId).mulDivDown(getUtilizationRate(_poolId));
+        pools[_poolId].lastTimeStamp = block.timestamp;
     }
 
     // get user's excess collateral in the quote or base token
     // excess collateral = total deposits - borrowed assets - needed collateral
     // needed collateral is computed with interest rate added to borrowed assets
+    // _inQuote: asset type of required collateral
 
-    function _getExcessCollateral(
+    function _getUserExcessCollateral(
         address _user,
-        bool _inQuoteToken
+        bool _inQuote
     )
         public
         returns (uint256) {
         
-        uint256 totalDeposit = getUserTotalDeposit(_user, _inQuoteToken);
-        uint256 totalBorrow = getUserTotalBorrow(_user, _inQuoteToken);
-        uint256 neededCollateral = _getBorrowerNeededCollateral(_user, _inQuoteToken);
-        
-        if (totalDeposit > totalBorrow + neededCollateral) {
-            return totalDeposit - totalBorrow - neededCollateral;
+        _substract(getUserTotalDeposits(_user, _inQuote), _getUserRequiredCollateral(_user, _inQuote), "err 009", !RECOVER);
+    }
+
+    // calculate accrued interest rate for borrowed quantity or deposit
+    // update TWIR_t to TWIR_T to reset interest rate to zero
+    // add interest rate to borrowed quantity or deposit
+    // add interest rate to pool's total borrow or total deposit
+    // note: increasing total borrow and total deposit by interest rate does not chang pool's EL, as expected
+    // however, it changes UR a bit upward
+    // _mappingId: positionId or orderId
+    // _toPosition: true of applied to position, false if applied to deposit
+    
+    function _addInterestRateTo(
+        int24 _poolId,
+        bool _toPosition,
+        uint256 _mappingId,
+    )
+        internal
+    {
+        // return interest rate multiplied by borrowed quantity or deposit
+        uint256 accruedInterestRate_ = accruedInterestRate(_poolId, _toPosition, _mappingId);
+
+        if (_toPosition) {
+
+            // update TWIR_t to TWIR_T to reset interest rate to zero
+            positions[_mappingId].positionWeightedRate = getTimeWeightedRate(_poolId);
+
+            // add interest rate to borrowed quantity
+            _increaseBorrowBy(_mappingId, accruedInterestRate_);
+
+            // add interest rate to pool's total borrow
+            _increasePoolBorrowBy(_poolId, accruedInterestRate_);
+
         } else {
-            return 0;
+
+            // update TUWIR_t to TUWIR_T to reset interest rate to zero
+            orders[_mappingId].orderWeightedRate = getTimeUrWeightedRate(_poolId);
+
+            // add interest rate to deposit
+            _increaseOrderBy(_mappingId, accruedInterestRate_);
+
+            // add interest rate to pool's total deposits
+            _increasePoolDepositsBy(_poolId, accruedInterestRate_);
         }
     }
 
-    // compute and add interest rate to borrowed quantity
-    // update TWIR_t to TWIR_T to reset interest rate to zero
-    // update total borrow in quote or base token
-    
-    function _addInterestRateTo(uint256 _positionId) internal
-    {
-        bool inQuoteToken = orders[positions[_positionId].orderId].isBuyOrder;
-        uint256 interestLoad = _interestLoad(_positionId);
-        _increaseBorrowBy(_positionId, interestLoad);
-        positions[_positionId].timeWeightedRate = getTimeWeightedRate(inQuoteToken);
-        _increaseTotalBorrowBy(interestLoad, inQuoteToken); 
-    }
+    // required collateral needed to secure a user's debt in a given asset
+    // update borrow by adding interest rate to debt (_incrementWeightedRates() has been called before)
+    // collateral is in the opposite assets to debt's asset
 
-    // borrower's total collateral needed to secure his debt in the quote or base token
-    // update borrowing by adding interest rate to it beforehand (_incrementTimeWeightedRates() has been called before)
-    // if needed collateral is not in quote token (base token), borrowed order is a buy order
-    // Ex: Alice deposits 3800 USDC to sell at 1900; Bob borrows 1900 USDC from Alice and needs 1 ETH as collateral
-    // _inQuoteToken = false as collateral needed is in ETH
-
-    function _getBorrowerNeededCollateral(
+    function _getUserRequiredCollateral(
         address _borrower,
-        bool _inQuoteToken
+        bool _inQuote
     )
         public
-        returns (uint256 totalNeededCollateral)
+        returns (uint256 totalNeededCollateral_)
     {
-        totalNeededCollateral = 0;
-        uint256[MAX_BORROWS] memory borrowedIds = users[_borrower].borrowFromIds;
+        totalNeededCollateral_ = 0;
+
+        uint256[MAX_POSITIONS] memory borrowIds_ = users[_borrower].borrowIds;
         for (uint256 i = 0; i < MAX_BORROWS; i++) {
-            Order memory order = orders[borrowedIds[i]]; // order id which assets are borrowed
-            // look for borrowing positions to assess needed collateral in the opposite currency
-            if (order.isBuyOrder == !_inQuoteToken) {
-                uint256 positionId = getPositionId(borrowedIds[i], _borrower);
-                if (positionId != 0) {
-                    // first add interest rate to borrowed quantity, update TWIR_t to TWIR_T to reset interest rate to zero
-                    _addInterestRateTo(positionId);
-                    totalNeededCollateral += convert(
-                        positions[positionId].borrowedAssets,
-                        order.price,
-                        order.isBuyOrder,
-                        ROUNDUP);
-                }
+
+            uint256 positionId = borrowedIds[i]; // position id from which user borrows assets
+            int24 poolId_ = positions[positionId].poolId;
+            PoolIn poolType = _poolType(poolId_);
+
+            // look for borrowing positions to calculate required collateral
+            if (_hasBorrowedAssets(positionId) && !_sameType(poolType, _inQuote)) {
+                // add interest rate to borrowed quantity, update TWIR_t to TWIR_T to reset interest rate to zero
+                // add interest rate to borrowed quantity and pool's total borrow
+                _addInterestRateTo(poolId_, TO_POSITION, positionId);
+                uint256 borrowed = positions[positionId].borrowedAssets;
+                totalNeededCollateral += convert(borrowed, limitPrice[_poolId], poolType, ROUNDUP);
+            }
+        }
+    }
+
+    // check whether the pool is in quote token, base token or none
+    // update bottomOrder if necessary
+    
+    function _poolType(int24 _poolId) 
+        internal
+        returns (PoolIn)
+    {
+        Pool pool = pools[_poolId];
+        pool.token = PoolIn.none; // default
+
+        for (uint256 i = pool.bottomOrder; i <= pool.topOrder; i++) {
+            uint256 orderId = pool.orderIds[i];
+            if (orders[orderId].quantity > 0) {
+                pool.token = orders[orderId].isbuyOrder ? PoolIn.quote : PoolIn.base;
+                pool.bottomOrder = i;
+                break;
             }
         }
     }
 
     //////////********* Public View functions *********/////////
 
-    function setPriceFeed(uint256 _newPrice)
-        public
+    function getUserOrderIdInPool(
+        address _user,
+        int24 _poolId,
+        bool _inQuote
+    )
+        internal view
+        returns (uint256 orderId_)
     {
-        priceFeed = _newPrice;
+        uint256[MAX_ORDERS] memory depositIds = users[_user].depositIds;
+        orderId_ = 0;
+        for (uint256 i = 0; i < MAX_ORDERS; i++) {
+            uint256 orderId = depositIds[i];
+            if (orders[orderId].poolId == _poolId && orders[orderId].isBuyOrder == _inQuote)
+                orderId_ = orderId;
+        }
     }
-    
-    // get UR = total borrow / total assets in the buy order or sell order market
-    function getUtilizationRate(bool _isBuyOrder)
-        public view
-        returns (uint256 utilizationRate_)
+
+    function getUserPositionIdInPool(
+        address _user,
+        int24 _poolId,
+        bool inquote
+    )
+        internal view
+        returns (uint256 positionId_)
     {
-        if (_isBuyOrder) {
-            if (totalQuoteAssets == 0) utilizationRate_ = 5 * WAD / 10;
-            else if (totalQuoteAssets <= totalQuoteBorrow) utilizationRate_ = 1 * WAD;
-            else {
-                utilizationRate_ = totalQuoteBorrow.mulDivDown(WAD, totalQuoteAssets);
-            }
-        } else {
-            if (totalBaseAssets == 0) utilizationRate_ = 5 * WAD / 10;
-            else if (totalBaseAssets <= totalBaseBorrow ) utilizationRate_ = 1 * WAD;
-            else utilizationRate_ = totalBaseBorrow.mulDivDown(WAD, totalBaseAssets);
+        uint256[MAX_POSITIONS] memory borrowIds = users[_user].borrowIds;
+        positionId_ = 0;
+        for (uint256 i = 0; i < MAX_POSITIONS; i++) {
+            uint256 positionId = borrowIds[i];
+            if (positions[positionId].poolId == _poolId && positions[positionId].inQuote == _inQuote)
+                positioId_ = positionId;
         }
     }
     
-    // get instant rate r_t (in seconds) for quote (buy order) and base tokens (sell orders)
+    // get UR = total borrow / total net assets in pool
+    function getUtilizationRate(int24 _poolId)
+        public view
+        returns (uint256 utilizationRate_)
+    {
+        Pool pool = pools[_poolId];
+        uint256 netDeposits = pool.deposits - pool.nonBorrowables;
+        if (netDeposits == 0) utilizationRate_ = 5 * WAD / 10;
+        else if (netDeposits <= pool.borrows) utilizationRate_ = 1 * WAD;
+        else utilizationRate_ = pool.borrows.mulDivUp(WAD, netDeposits);
+    }
+    
+    // get instant rate r_t (in seconds) for pool
     // must be multiplied by 60 * 60 * 24 * 365 / WAD to get annualized rate
 
-    function getInstantRate(bool _isBuyOrder)
+    function getInstantRate(int24 _poolId)
         public view
         returns (uint256 instantRate)
     {
-        uint256 annualRate = ALPHA 
-            + BETA.wMulDown(getUtilizationRate(_isBuyOrder))
-            + GAMMA.wMulDown(getUtilizationRate(!_isBuyOrder));
+        uint256 annualRate = ALPHA + BETA.wMulDown(getUtilizationRate(_poolId));
         instantRate = annualRate / YEAR;
     }
     
-    // get TWIR_T in buy or sell order market
-    // used in computing interest rate for borrowing positions
-
-    function getTimeWeightedRate(bool isBuyOrder)
+    // get TWIR_T in pool, used to compute interest rate for borrowing positions
+    function getTimeWeightedRate(int24 _poolId)
         public view
         returns (uint256)
     {
-        return isBuyOrder ? quoteTimeWeightedRate : baseTimeWeightedRate;
+        return pools[_poolId].TimeWeightedRate;
+    }
+
+    // get TUWIR_T in pool, used to compute interest rate for deposits
+    function getTimeUrWeightedRate(int24 _poolId)
+        public view
+        returns (uint256)
+    {
+        return pools[_poolId].TimeUrWeightedRate;
     }
 
     // get maker's address based on order id
@@ -1034,9 +1401,9 @@ contract Book is IBook {
     }
 
     // sum all assets deposited by user in the quote or base token
-    function getUserTotalDeposit(
+    function getUserTotalDeposits(
         address _user,
-        bool _inQuoteToken
+        bool _inQuote
     )
         public view
         returns (uint256 totalDeposit)
@@ -1044,68 +1411,69 @@ contract Book is IBook {
         uint256[MAX_ORDERS] memory depositIds = users[_user].depositIds;
         totalDeposit = 0;
         for (uint256 i = 0; i < MAX_ORDERS; i++) {
-            if (orders[depositIds[i]].isBuyOrder == _inQuoteToken)
+            if (orders[depositIds[i]].isBuyOrder == _inQuote)
                 totalDeposit += orders[depositIds[i]].quantity;
         }
     }
 
     // total assets borrowed by other users from _user in base or quote token
-    function getUserTotalBorrow(
-        address _user,
-        bool _inQuoteToken
-    )
-        public view
-        returns (uint256 totalBorrow)
-    {
-        uint256[MAX_ORDERS] memory orderIds = users[_user].depositIds;
-        totalBorrow = 0;
-        for (uint256 i = 0; i < MAX_ORDERS; i++) {
-            totalBorrow += _getOrderBorrowedAssets(orderIds[i], _inQuoteToken);
-        }
-    }
+    // function getUserTotalBorrowFrom(
+    //     address _user,
+    //     bool _inQuote
+    // )
+    //     public view
+    //     returns (uint256 totalBorrow)
+    // {
+    //     uint256[MAX_ORDERS] memory orderIds = users[_user].borrowIds;
+    //     totalBorrow = 0;
+    //     for (uint256 i = 0; i < MAX_ORDERS; i++) {
+    //         totalBorrow += _getOrderBorrowedAssets(orderIds[i], _inQuote);
+    //     }
+    // }
 
     // total assets borrowed from order in base or quote tokens
-    function _getOrderBorrowedAssets(
-        uint256 _orderId,
-        bool _inQuoteToken
-        )
-        public view
-        returns (uint256 borrowedAssets)
-    {
-        if (!_orderHasAssets(_orderId) || orders[_orderId].isBuyOrder != _inQuoteToken) return borrowedAssets = 0;
-        uint256[MAX_POSITIONS] memory positionIds = orders[_orderId].positionIds;
-        for (uint256 i = 0; i < MAX_POSITIONS; i++) {
-            borrowedAssets += positions[positionIds[i]].borrowedAssets;
-        }
-    }
+    // DEPRECATED
+
+    // function _getOrderBorrowedAssets(
+    //     uint256 _orderId,
+    //     bool _inQuote
+    //     )
+    //     public view
+    //     returns (uint256 borrowedAssets)
+    // {
+    //     if (!_orderHasAssets(_orderId) || orders[_orderId].isBuyOrder != _inQuote) return borrowedAssets = 0;
+    //     uint256[MAX_POSITIONS] memory positionIds = orders[_orderId].positionIds;
+    //     for (uint256 i = 0; i < MAX_POSITIONS; i++) {
+    //         borrowedAssets += positions[positionIds[i]].borrowedAssets;
+    //     }
+    // }
 
     // get quantity of assets lent by order
-    function getAssetsLentByOrder(uint256 _orderId)
-        public view
-        returns (uint256 totalLentAssets)
-    {
-        uint256[MAX_POSITIONS] memory positionIds = orders[_orderId].positionIds;
-        totalLentAssets = 0;
-        for (uint256 i = 0; i < MAX_POSITIONS; i++) {
-            totalLentAssets += positions[positionIds[i]].borrowedAssets;
-        }
-    }
+    // function getAssetsLentByOrder(uint256 _orderId)
+    //     public view
+    //     returns (uint256 totalLentAssets)
+    // {
+    //     uint256[MAX_POSITIONS] memory positionIds = orders[_orderId].positionIds;
+    //     totalLentAssets = 0;
+    //     for (uint256 i = 0; i < MAX_POSITIONS; i++) {
+    //         totalLentAssets += positions[positionIds[i]].borrowedAssets;
+    //     }
+    // }
     
-    // check that taking the order is profitable
+    // check that taking assets in pool is profitable
     // if buy order, price feed must be lower than limit price
     // if sell order, price feed must be higher than limit price
     
-    function profitable(uint256 _orderId)
+    function profitable(int24 _poolId)
         public view
         returns (bool)
     {
-        
-        uint256 limitPrice = orders[_orderId].price;
-        if (orders[_orderId].isBuyOrder) return (priceFeed <= limitPrice);
-        else return (priceFeed >= limitPrice);
+        if (pools[_poolId].token = PoolIn.quote) return (priceFeed <= limitPrice[_poolId]);
+        else if (pools[_poolId].token = PoolIn.base) return (priceFeed >= limitPrice[_poolId]);
+        else return false;
     }
     
-    // return false if desired quantity is not possible to withdraw
+    // return false if desired quantity cannot be withdrawn
     function _removable(
         uint256 _orderId,
         uint256 _quantity // removed quantity
@@ -1113,15 +1481,21 @@ contract Book is IBook {
         internal view
         returns (bool)
     {
-        uint256 depositedAssets = orders[_orderId].quantity;
-        uint256 lentAssets = getAssetsLentByOrder(_orderId);
-        uint256 availableAssets = _substract(depositedAssets, lentAssets, "err 008", RECOVER);
-        uint256 minSupply = minDeposit(orders[_orderId].isBuyOrder);
+        Order order = orders[_orderId];
+        uint256 minDepose = minDeposit(order.isbuyorder);
 
-        if (lentAssets == 0 && _quantity == depositedAssets || (_quantity + minSupply < availableAssets)) return true;
+        if (_quantity == order.quantity || (_quantity + minDepose < order.quantity)) return true;
         else return false;
     }
 
+    function _poolAvailableAssets(int24 _poolId)
+        internal view
+        returns (uint256)
+    {
+        Pool pool = pools[_poolId];
+        return _substract(pool.deposits, pool.borrows + pool.nonBorrowables, "err 009", !RECOVER);
+    }
+    
     // return false if desired quantity is not possible to borrow
     function _borrowable(
         uint256 _orderId,
@@ -1133,24 +1507,23 @@ contract Book is IBook {
         uint256 depositedAssets = orders[_orderId].quantity;
         uint256 lentAssets = getAssetsLentByOrder(_orderId);
         uint256 availableAssets = _substract(depositedAssets, lentAssets, "err 009", RECOVER);
-        uint256 minSupply = minDeposit(orders[_orderId].isBuyOrder); 
+        uint256 minDepose = minDeposit(orders[_orderId].isBuyOrder); 
 
-        if (_quantity + minSupply <= availableAssets) return true;
+        if (_quantity + minDepose <= availableAssets) return true;
         else return false;
     }
 
     // return false if desired quantity is not possible to take
     function _takable(
-        uint256 _orderId,
+        uint256 _poolId,
         uint256 _quantity, // taken quantity
-        uint256 _lentAssets, // assets borrowed from order
         uint256 _minDeposit
     )
         internal view
         returns (bool)
     {
-        uint256 depositedAssets = orders[_orderId].quantity;
-        uint256 availableAssets = _substract(depositedAssets, _lentAssets, "err 010", RECOVER);
+        Pool pool = pools[_poolId];
+        uint256 availableAssets = _substract(pool.deposits, pool.borrows, "err 010", !RECOVER);
 
         if (_quantity == availableAssets || _quantity + _minDeposit <= availableAssets) return true;
         else return false;
@@ -1159,34 +1532,64 @@ contract Book is IBook {
 
     //////////********* Internal View functions *********/////////
 
-    // compute interest rate since start of borrowing position between t and T
-    // exp(TWIR_T - TWIR_t) - 1 using a Taylor approximation
+    // compute interest rate since start of borrowing position or deposit between t and T
+    // exp(TWIR_T - TWIR_t) - 1 is computed using a 3rd order Taylor approximation
 
-    function accruedInterestRate(
-        uint256 _positionId,
-        bool _inQuoteToken
+    function interestRate(
+        int24 _poolId,
+        bool _toPosition,
+        uint256 _mappingId
     )
         internal view
-        returns (uint256 accruedInterestRate_)
+        returns (uint256)
     {
-        require(getTimeWeightedRate(_inQuoteToken) >= positions[_positionId].timeWeightedRate, "interest rate negative");
-        accruedInterestRate_ = (getTimeWeightedRate(_inQuoteToken) - positions[_positionId].timeWeightedRate).wTaylorCompounded();
+        uint256 rateDiff;
+        if (_toPosition) {
+            rateDiff = _substract(getTimeWeightedRate(_poolId), positions[_mappingId].positionWeightedRate, "err 000", !RECOVER);
+            if (rateDiff > 0) return rateDiff.wTaylorCompoundedUp();
+            else return 0;
+        } else {
+            rateDiff = _substract(getTimeUrWeightedRate(_poolId), users[_mappingId].orderWeightedRate, "err 001", !RECOVER);
+            if (rateDiff > 0) return rateDiff.wTaylorCompoundedDown();
+            else return 0;
+        }
     }
 
-    function _interestLoad(uint256 _positionId)
+    // return interest rate multiplied by borrowed quantity or deposit
+
+    function accruedInterestRate(
+        int24 poolId,
+        bool _toPosition,
+        uint256 _mappingId
+    )
         internal view
-        returns (uint256 interestLoad_)
+        returns (uint256)
     {
-        bool inQuoteToken = orders[positions[_positionId].orderId].isBuyOrder;
-        uint256 interestRate = accruedInterestRate(_positionId, inQuoteToken);
-        interestLoad_ = interestRate.wMulUp(positions[_positionId].borrowedAssets);
+        if(_toPosition)
+            return interestRate(_poolId, _toPosition, _mappingId).wMulUp(positions[_positionId].borrowedAssets);
+        else
+            return interestRate(_poolId, !_toPosition, _mappingId).wMulDown(orders[_orderId].quantity);
     }
 
-    function _orderHasAssets(uint256 _orderId)
+    // function _orderHasAssets(uint256 _orderId)
+    //     internal view
+    //     returns (bool)
+    // {
+    //     return (orders[_orderId].quantity > 0);
+    // }
+
+    function _poolHasAssets(int24 _poolId)
         internal view
         returns (bool)
     {
-        return (orders[_orderId].quantity > 0);
+        return (pools[_poolId].deposits > 0);
+    }
+
+    function _poolHasOrders(int24 _poolId)
+        internal view
+        returns (bool)
+    {
+        return (_poolType(_poolId) != PoolIn.none);
     }
 
     function _onlyMaker(uint256 orderId)
@@ -1201,7 +1604,7 @@ contract Book is IBook {
         require(getBorrower(_positionId) == msg.sender, "Only borrower can repay position");
     }
 
-    function _borrowIsPositive(uint256 _positionId)
+    function _hasBorrowedAssets(uint256 _positionId)
         internal view
         returns (bool)
     {
@@ -1213,6 +1616,14 @@ contract Book is IBook {
         returns (bool)
     {
         return orders[_orderId].isBorrowable;
+    }
+
+    function _sameType(bool _isBuyOrder, PoolIn _token)
+        internal view
+        returns (bool)
+    {
+        if ((_isBuyOrder && _token != PoolIn.base) || (!_isBuyOrder && _token != PoolIn.quote)) return true;
+        else return false;
     }
 
     // check if user borrows from order
@@ -1235,13 +1646,12 @@ contract Book is IBook {
         }
     }
 
-    // check if an order already exists with the same user and limit price
-    // if so, returns order id
+    // check if an order already exists in the pool, if so, returns order id, otherwise returns 0
     
     function _getOrderIdInDepositIdsInUsers(
         address _user,
-        uint256 _price,
-        uint256 _pairedPrice,
+        int24 _poolId,
+        int24 _pairedPoolId,
         bool _isBuyOrder
     )
         internal view
@@ -1251,8 +1661,8 @@ contract Book is IBook {
         uint256[MAX_ORDERS] memory depositIds = users[_user].depositIds;
         for (uint256 i = 0; i < MAX_ORDERS; i++) {
             if (
-                orders[depositIds[i]].price == _price &&
-                orders[depositIds[i]].pairedPrice == _pairedPrice &&
+                orders[depositIds[i]].poolId == _poolId &&
+                orders[depositIds[i]].pairedPoolId == _pairedPoolId &&
                 orders[depositIds[i]].isBuyOrder == _isBuyOrder
             ) {
                 orderId = depositIds[i];
@@ -1261,22 +1671,22 @@ contract Book is IBook {
         }
     }
 
-    // get positionId from positionIds array in orders, returns 0 if not found
+    // get position id from borrowIds[] in user, returns 0 if not found
 
     function getPositionId(
-        uint256 _orderId,
-        address _borrower
+        address _user,
+        int24 _poolId
     )
         internal view
         returns (uint256 positionId_)
     {
         positionId_ = 0;
-        uint256[MAX_POSITIONS] memory positionIds = orders[_orderId].positionIds;
+        uint256[MAX_POSITIONS] memory positionIds = users[_user].borrowIds;
         for (uint256 i = 0; i < MAX_POSITIONS; i++) {
-            if (positionIds[i] == 0) break; // a bit risky
             if (positions[positionIds[i]].borrower == _borrower &&
+                positions[positionIds[i]].poolId == _poolId &&
                 positions[positionIds[i]].borrowedAssets > 0) {
-                positionId_ = orders[_orderId].positionIds[i];
+                positionId_ = positionIds[i];
                 break;
             }
         }
@@ -1284,13 +1694,19 @@ contract Book is IBook {
 
     /////**** Functions used in tests and in UI ****//////
 
-    // Add manual getter for positionIds in Order, used in setup.sol for tests
-    function getOrderPositionIds(uint256 _orderId)
-        public view
-        returns (uint256[MAX_POSITIONS] memory)
+    function setPriceFeed(uint256 _newPrice)
+        public
     {
-        return orders[_orderId].positionIds;
+        priceFeed = _newPrice;
     }
+    
+    // Add manual getter for positionIds in Order, used in setup.sol for tests
+    // function getOrderPositionIds(uint256 _orderId)
+    //     public view
+    //     returns (uint256[MAX_POSITIONS] memory)
+    // {
+    //     return orders[_orderId].positionIds;
+    // }
     
     // Add manual getter for depositIds for User, used in AX_ORDERSreachedsetup.sol for tests
     function getUserDepositIds(address user)
@@ -1303,7 +1719,7 @@ contract Book is IBook {
     // Add manual getter for borroFromIds for User, used in setup.sol for tests
     function getUserBorrowFromIds(address user)
         public view
-        returns (uint256[MAX_BORROWS] memory)
+        returns (uint256[MAX_POSITIONS] memory)
     {
         return users[user].borrowFromIds;
     }
@@ -1316,7 +1732,7 @@ contract Book is IBook {
         count = 0;
         uint256[MAX_ORDERS] memory depositIds = users[_user].depositIds;
         for (uint256 i = 0; i < MAX_ORDERS; i++) {
-            count = orders[depositIds[i]].quantity > 0 ? count + 1 : count;
+            if (orders[depositIds[i]].quantity > 0) count ++;
         }
     }
 
@@ -1327,49 +1743,96 @@ contract Book is IBook {
     // if sell order, limit price must be higher than limit paired price
     
     function consistent(
-        uint256 _price,
-        uint256 _pairedPrice,
+        int24 _poolId,
+        int24 _pairedPoolId,
         bool _isBuyOrder
     )
         public pure
         returns (bool)
     {
         
-        if (_isBuyOrder) return (_pairedPrice >= _price);
-        else return (_pairedPrice <= _price);
+        if (_isBuyOrder) return (_pairedPoolId >= _poolId);
+        else return (_pairedPoolId <= _poolId);
+    }
+
+    function nearBy(int24 _poolId)
+        public pure
+        returns (bool)
+    {
+        if (limitPrice[_poolId] > 0) return true;
+        else if (limitPrice[_poolId - 1] > 0) {
+            limitPrice[_poolId] = limitPrice[_poolId - 1] * PRICE_STEP;
+            return true;
+        }
+        else if (limitPrice[_poolId + 1] > 0) {
+            limitPrice[_poolId] = limitPrice[_poolId + 1] / PRICE_STEP;
+            return true;
+        }
+        else return false;
+    }
+
+     function calibrate(
+        int24 _poolId,
+        uint256 availableAssets
+    ) 
+        view private
+        returns (positionNumber_)
+    {
+        uint256 nbPositions = _substract(pools[_poolId].topPosition, pools[_poolId].bottomPositionRow, "err 011", !RECOVER);
+
+        for (uint256 i = pool.bottomOrder; i < pool.topOrder; i++) {
+            if(order[pool.orderIds[i]].quantity > 0) nbOrders++;
+        }
+
+        if (nbOrders == 0) {
+            revert("No liquidity");
+        }
+        else if (nbPositions == 0) {
+            positionNumber_ = 0;
+        }
+        else if (nbOrders >= nbPositions) {
+            positionNumber_ = 1;
+        }
+        else {
+            positionNumber_ = MAX_OPERATIONS.maxi((nbPositions / nbOrders) + 1);
+        }
     }
     
     function convert(
         uint256 _quantity,
         uint256 _price,
-        bool _inQuoteToken, // type of the asset to convert to (quote or base token)
+        bool _inQuote, // type of the asset to convert to (quote or base token)
         bool _roundUp // round up or down
     )
         internal pure
         moreThanZero(_price)
         returns (uint256 convertedQuantity)
     {
-        if (_roundUp) convertedQuantity = _inQuoteToken ? _quantity.wDivUp(_price) : _quantity.wMulUp(_price);
-        else convertedQuantity = _inQuoteToken ? _quantity.wDivDown(_price) : _quantity.wMulDown(_price);
-    }
-
-    // add +/- 10% to the default paired price of next limit order after taking
-    function defaultPairedPrice(
-        uint256 _price,
-        bool _isBuyOrder
-    )
-        internal pure
-        moreThanZero(_price)
-        returns (uint256)
-    {
-        return _isBuyOrder ? _price + _price.mulDivUp(1, 10) : _price - _price.mulDivUp(1, 11);
+        if (_roundUp) convertedQuantity = _inQuote ? _quantity.wDivUp(_price) : _quantity.wMulUp(_price);
+        else convertedQuantity = _inQuote ? _quantity.wDivDown(_price) : _quantity.wMulDown(_price);
     }
 
     function minDeposit(bool _isBuyOrder)
         public pure
-        returns (uint256 minAssets)
+        returns (uint256)
     {
-        minAssets = _isBuyOrder ? MIN_DEPOSIT_QUOTE : MIN_DEPOSIT_BASE;
+        _isBuyOrder = true ? MIN_DEPOSIT_QUOTE : MIN_DEPOSIT_BASE;
+    }
+
+    function convertToPoolType(bool _isBuyOrder)
+        private pure
+        returns (PoolIn)
+    {
+        return _isBuyOrder ? PoolIn.quote : PoolIn.base;
+    }
+
+    function convertToInQuote(PoolIn _poolToken)
+        private pure
+        returns (bool)
+    {
+        if (_poolToken == PoolIn.quote) return true;
+        else if (_poolToken == PoolIn.base) return false;
+        else revert("Pool has no orders");
     }
 
 }

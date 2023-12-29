@@ -174,60 +174,53 @@ Deposit more assets $X$ in the order book or repaying a position, or other borro
 - Bob receives 3*p = 6300
 - from which 4400 are used to repay his loan
 
-#### Case 4. Bob increases his borrowing
-
-- increase borrowing position by 400 at date t'
-- restarts R_t to R_{t'}
-
 ### Calculation
 
-The interest rates in the buy and sell markets are set according to a linear function of utilization rates: $r_t = \alpha + (\beta + \gamma) \text{UR}_t + \gamma \text{UR}_t^*$, with $\text{UR}_t^*$ the utilization rate of the opposite market.
+The interest rates in the buy and sell markets are set according to a linear function of utilization rates: $r_t = \alpha + \beta \text{UR}_t.
 
-### Steps
+### Increase deposit at date T after a deposit at date t
 
-When a user deposits, withdraws, borrows, repays or liquidates a loan, the protocol:
-
-- call _incrementTimeWeightedRates()
+1. Call _incrementWeightedRates(): increment time-weighted and UR-weighted rates:
   - pull current block.timestamp $n_t$ (in seconds) and computes elapsed time $n_t - n_{t-1}$ since last update
-  - increment time-weighted rates since origin $\text{TWIR}_t = n_1 IR_0 + (n_2 - n_1) IR_1 + ... + (n_t - n_{t-1}) IR_{t-1}$
-  - use $IR_{t-1}$ based on UR valid between $t-1$ and $t$, according to the linear formula
-- update total deposits and total borrowings in the affected market
-  - $UR_t$ and $UR_t^*$ will be used to determine $IR_t$ in the next iteration
+  - add $(n_T - n_{T-1}) IR_{T-1}$ to TWIR_{T-1}
+  - add $(n_T - n_{T-1}) IR_{T-1} UR_{T-1}$ to TUWIR_{T-1}
+  - use $IR_{T-1}$ based on UR_{T-1} valid between $T-1$ and $T$, according to the linear formula
+2. Add interest rate to existing deposit
+  - compute average past interest rate thanks to Taylor expansion, including $IR_{T-1} UR_{T-1}$
+  - multiply UR-weighted interest rate by quantity = accrued interest rate
+  - update TWIR_t to TWIR_T to reset interest rate in deposit to zero
+  - add accrued interest rate to existing deposit
+  - add accrued interest rate to pool's total deposit => update UR_T
+3. Add new deposit to existing one
+4. Add new deposit to pool's total deposit => update UR_T
 
-In addition, when a user borrows from a limit order, the protocol:
+Note: $UR_T$ will be used to determine $IR_{T+1}$ in the next iteration
 
-- store the updated $\text{TWIR}_t$ in borrowing position struct
+### Decrease borrowing position at date T after a first borrow at date t
 
-When a borrower repays or closes his loan, or he's liquidated at date $T$, the protocol:
+Steps 1. and 2. are the same
+3. Substract withdraw from existing quantity
+4. Substract withdraw from pool's total deposit => update UR_T
 
-- calculate $DR_t = TWIR_T - TWIR_t = (n_{t+1} - n_t) IR_t + ... + (n_T - n_{T-1}) IR_{T-1}$
-- compute interest rate $e^{DR_t} - 1$ thanks to Taylor approximation.
+### Increase borrowing position at date T after a first borrow at date t
 
-#### Decrease borrowing
+Step 1.is the same
 
-Bob borrows 2000 at 10%. One year later, he pays back 1000:
+2. Add interest rate to existing borrowed quantity
+  - compute average past interest rate thanks to Taylor expansion, including $IR_{T-1}$
+  - multiply interest rate by quantity = accrued interest rate
+  - update TWIR_t to TWIR_T to reset interest rate in borrow to zero
+  - add accrued interest rate to borrowed quantity
+  - add accrued interest rate to pool's total borrow => update UR_T
+3. Add new borrow to existing quantity
+4. Add new borrow to pool's total borrow => update UR_T
 
-- interest rate is added to his loan which becomes 2200
-- $\text{TWIR}_t$ of his borrowing position is updated to TWIR$_T$
-- pays 1000 from 2200
-- debt is now 1200
+### Decrease borrowing position at date T after a first borrow at date t
 
-#### Increase borrowing
+Steps 1. and 2. are the same
+3. Substract repay to existing quantity
+4. Substract repay to pool's total borrow => update UR_T
 
-Bob borrows 2000 at 10%. One year later, he borrows 1000 more:
-
-- interest rate is added to his loan which becomes 2200
-- $\text{TWIR}_t$ of his borrowing position is updated to $\text{TWIR}_T$
-- 1000 is added to 2200
-- debt is now 2200
-
-#### Partial closing
-
-Bob borrows 2000 at 10%. One year later, his own limit order which serves as collatera is taken. His position is reduced by 1000 
-
-- interest rate is added to his loan which becomes 2200
-- debt is now 2200
-- part of the collateral taken is seized for 1000/p to reduce his debt by 1000
 
 ### Interest-based liquidation
 
