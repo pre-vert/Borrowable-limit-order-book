@@ -152,6 +152,12 @@ Deposit more assets $X$ in the order book or repaying a position, or other borro
 
 ## Interest rate model
 
+On the quote side of the book, lenders earn an interest rate on the borrowable part of their deposits, regardless this part actually borrowed, partially or fully.
+
+They don't earn an interest on the non borrowable part, whether a minimum non borrowable deposit or more as chosen by the depositor.
+
+On the base side of the book, deposits serve as collateral and do not earn an interest.
+
 ### General model with examples
 
 - Alice deposits a buy order with 6000 USDC (p = 2000)
