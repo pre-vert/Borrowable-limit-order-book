@@ -3,135 +3,116 @@ pragma solidity ^0.8.20;
 
 interface IBook {
 
-    /// @notice lets users place orders in the order book
-    /// @dev Update ERC20 balances
+    /// @notice lets users place orders in a pool
+    /// @param _poolId id of pool in which user deposits
     /// @param _quantity The quantity of assets deposited (quoteToken for buy orders, baseToken for sell orders)
-    /// @param _price price of the buy or sell order
-    /// @param _pairedPrice price of the buy or sell paired order
+    /// @param _pairedPoolId id of pool in which the assets taken are reposted
     /// @param _isBuyOrder true for buy orders, false for sell orders
 
-    function deposit(uint256 _quantity, uint256 _price, uint256 _pairedPrice, bool _isBuyOrder, bool _isBorrowable) external;
+    function deposit(int24 _poolId, uint256 _quantity, int24 _pairedPoolId, bool _isBuyOrder) external;
 
-    /// @notice lets user partially or fully remove her order from the book
-    ///         Only non-borrowed assets can be removed
-    /// @param _removedOrderId id of the order to be removed
-    /// @param _quantityToRemove desired quantity of assets removed
+    /// @notice lets user partially or fully remove her liquidity from the book
+    ///         Only non-borrowed assets can be removed from pool
+    /// @param _poolId id of pool from which assets are removed
+    /// @param _removedQuantity desired quantity of assets removed
     
-    function withdraw(uint256 _removedOrderId, uint256 _quantityToRemove) external;
+    function withdraw(int24 _poolId, uint256 _removedQuantity) external;
 
-    /// @notice Lets users borrow assets from orders (create or increase a borrowing position)
+    /// @notice Lets users borrow assets from pool (create or increase a borrowing position)
     ///         Borrowers need to place orders first on the other side of the book with enough assets
-    ///         order is borrowable up to order's available assets or user's excess collateral
-    /// @param _borrowedOrderId id of the order which assets are borrowed
-    /// @param _borrowedQuantity quantity of assets borrowed from the order
+    ///         pool is borrowable up to pool's available assets or user's excess collateral
+    /// @param _poolId id of the pool which assets are borrowed
+    /// @param _quantity quantity of assets borrowed from the order
 
-    function borrow(uint256 _borrowedOrderId, uint256 _borrowedQuantity) external;
+    function borrow(int24 _poolId, uint256 _quantity) external;
 
     /// @notice lets users decrease or close a borrowing position
-    /// @param _positionId id of the order which assets are paid back
-    /// @param _repaidQuantity quantity of assets paid back
+    /// @param _poolId id of pool which borrowed assets are paid back by user
+    /// @param _quantity quantity of assets paid back
     
-    function repay(uint256 _positionId, uint256 _repaidQuantity) external;
+    function repay(int24 _poolId, uint256 _quantity) external;
 
-    /// @notice
-    /// Let users take limit orders, regardless orders' assets are borrowed or not
-    /// taking, even 0, liquidates:
-    /// - all positions borrowing from the order
-    /// - maker's own positions for 100% of the taken order which assets are collateral (transferred to contract)
-    /// net assets are used to fund a new order on the other side of the book at a pre-specified limit price
-    /// @param _takenOrderId id of the order to be taken
-    /// @param _takenQuantity quantity of assets taken from the order
+    /// @notice Let users take limit orders in pool. Taking quote assets, even 0:
+    ///         - liquidates a number of positions borrowing from the order
+    ///         - seize collateral orders for the exact amount of liquidated assets
+    ///         - take available quote assets in exchange of base assets at pool's limit price
+    ///         Take base assets:
+    ///         - take available base assets in exchange of quote assets
+    ///         - pay back makers' open positions with received quote assets
+    ///         For both assets, repost assets in the book as new orders at a pre-specified limit price
+    /// @param _poolId id of pool which available assets are taken
+    /// @param _takenQuantity amount of quote assets received by taker in exchange of base assets
 
-    function take(uint256 _takenOrderId, uint256 _takenQuantity) external;
+    function take(uint256 _poolId, uint256 _takenQuantity) external;
 
-    /// @notice
-    /// If order is profitable, calls take() with 0 capital, which liquidates all positions
-    /// Else, calls _liquidate() which closes a borrowing position which excess collateral is zero or negative
-    /// only maker can liquidate positions borrowing from her own order
-    /// borrow is reduced for 100% of the position 
-    /// borrower's collateral is seized for 100% of the position at current price (price feed)
-    /// collateral assets are transferred to maker with a 2% fee
-    /// @param _positionId id of the liquidated position
+    /// @notice liquidate borrowing positions from users whose excess collateral is zero or negative
+    ///         iterate on borrower's positions
+    ///         cancel debt in quote tokens and seize an equivalent amount of deposits in base tokens at discount
+    /// @param  _borrower borrower whose positions are liquidated
+    /// @param _suppliedQuotes: quantity of quote assets supplied by liquidator in exchange of base collateral assets
 
-    function liquidate(uint256 _positionId) external;
+    function liquidateBorrower(address _borrower, uint256 _suppliedQuotes) external;
 
     /// @notice let maker change limit price of her order
-    /// @param _orderId id of the order id which price is changed
+    /// @param _poolId id of pool which limit price is changed
+    /// @param _newPoolId id of pool with new limit price
     
-    function changeLimitPrice(uint256 _orderId, uint256 _price) external;
+    function changeLimitPrice(int24 _poolId, int24 _newPoolId) external;
 
-    /// @notice let maker change paired price of an order
-    ///         _pairedPrice can be filled with 0, in this case, is set to limit price +/- 10%
-    /// @param _orderId is order id which paired price is changed
+    /// @notice let maker change limit price of her order
+    /// @param _poolId id of pool which paired limit price is changed
+    /// @param _newPairedPoolId id of pool with new paired limit price
     
-    function changePairedPrice(uint256 _orderId, uint256 _pairedPrice) external;
-
-    /// @notice make order borrowable if _isBorrowable is true or non borrowable if false
-    /// @param _orderId is order id which is made borrowable
-    
-    function changeBorrowable(uint256 _orderId, bool _isBorrowable) external;
+    function changePairedPrice(int24 _poolId, int24 _newPairedPoolId) external;
 
     //** EVENTS **//
 
     event Deposit(
         address maker,
+        int24 poolId,
+        uint256 orderId,
         uint256 quantity,
-        uint256 price,
-        uint256 pairedPrice,
-        bool isBuyOrder,
-        bool isBorrowable,
-        uint256 orderId
+        int24 pairedPoolId,
+        bool isBuyOrder
     );
 
     event Withdraw(
-        address maker,
-        uint256 quantity,
-        uint256 price,
-        bool isBuyOrder,
-        uint256 orderId
+        uint256 orderId,
+        uint256 quantity    
     );
 
     event Borrow(
         address borrower,
+        int24 poolId,
         uint256 positionId,
         uint256 quantity,
         bool isBuyOrder
     );
 
     event Repay(
-        address borrower,
         uint256 positionId,
-        uint256 quantity,
-        bool isBuyOrder
+        uint256 quantity
     );
 
     event Take(
         address taker,
-        uint256 orderId,
-        address maker,
+        int24 poolId,
         uint256 quantity,
-        uint256 price,
-        bool isBuyOrder
+        bool inQuote
     );
 
-    event Liquidate(
-        address maker,
-        uint256 _positionId
+    event LiquidateBorrower(
+        address borrower,
+        uint256 reducedDebt
     );
 
     event ChangeLimitPrice(
-        uint256 _orderId,
-        uint256 _price
+        uint256 orderId,
+        int24 newPoolId
     );
 
     event ChangePairedPrice(
-        uint256 _orderId,
-        uint256 _pairedPrice
+        uint256 orderId,
+        uint256 newPairedPollId
     );
-
-    event ChangeBorrowable(
-        uint256 _orderId,
-        bool _isBorrowable
-    );
-
 }

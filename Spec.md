@@ -232,6 +232,21 @@ Steps 1. and 2. are the same
 
 Borrowing positions is closed out when the limit order from which assets are borrowed is taken, but also when the borrower runs out of collateral to pay a growing interest rate. See [white paper](llob_wp.pdf) for details.
 
+#### Max Loan-To-Value
+
+Example 1: Alice deposits 6000 USDC in a buy order at 2000. Price is 2100. Bob borrows 4000 from Alice. He needs to put aside a collateral of $2*2100*(1+\mu)$ with $\mu$ the overcollateralization factor equal to 0.02.
+
+max LTV = $4000/(2*2100*(1+\mu))$ = $(4000/4200)*(1/(1+\mu))$
+
+max LTV = $4000/(2*2100*(1+\mu))$ = $(4000/4200)*(1/(1+\mu))$
+
+Max loan to value is 99%. Liquidation threshold is 99.5%. When a user is liquidated, the liquidator can take up to 5% of the deposits at market price in exchange of the debt.
+
+Example: Alice deposits 6000 USDC in a buy order at limit price 2000. Bob borrows 4000 from Alice by depositing 2.01 ETH. The liquidation of Bob's position brings a profit of 2.01 p - 4000. Examples
+
+- p = 2200 * 2.01 - 4000 = 422
+- p = 2100 * 
+
 When all remaining collateral is exhausted by the interest rate, the maker/lender can seize the collateral and collect a 2% fee.
 
 Example: Bob borrows 2000 at 10%. One year later, his position is liquidated:

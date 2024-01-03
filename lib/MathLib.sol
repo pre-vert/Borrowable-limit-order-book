@@ -55,11 +55,11 @@ library MathLib {
         return firstTerm + secondTerm + thirdTerm;
     }
 
-    function mini(uint256 _a, uint256 _b) internal pure returns (uint256) {
+    function minimum(uint256 _a, uint256 _b) internal pure returns (uint256) {
         return _a < _b ? _a : _b;
     }
 
-    function maxi(uint256 _a, uint256 _b) internal pure returns (uint256) {
+    function maximum(uint256 _a, uint256 _b) internal pure returns (uint256) {
         return _a < _b ? _b : _a;
     }
 }
