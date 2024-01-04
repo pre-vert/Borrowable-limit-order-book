@@ -1,4 +1,4 @@
-# :book: Borrowable Limit Order Book - SPEC
+# :book: Borrowable Limit Order Book - SPEC (in progress)
 
 ## :family: Actors
 

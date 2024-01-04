@@ -13,10 +13,10 @@ interface IBook {
 
     /// @notice lets user partially or fully remove her liquidity from the book
     ///         Only non-borrowed assets can be removed from pool
-    /// @param _poolId id of pool from which assets are removed
+    /// @param _orderId id of pool from which assets are removed
     /// @param _removedQuantity desired quantity of assets removed
     
-    function withdraw(int24 _poolId, uint256 _removedQuantity) external;
+    function withdraw(uint256 _orderId, uint256 _removedQuantity) external;
 
     /// @notice Lets users borrow assets from pool (create or increase a borrowing position)
     ///         Borrowers need to place orders first on the other side of the book with enough assets
@@ -27,10 +27,10 @@ interface IBook {
     function borrow(int24 _poolId, uint256 _quantity) external;
 
     /// @notice lets users decrease or close a borrowing position
-    /// @param _poolId id of pool which borrowed assets are paid back by user
+    /// @param _orderId id of pool which borrowed assets are paid back by user
     /// @param _quantity quantity of assets paid back
     
-    function repay(int24 _poolId, uint256 _quantity) external;
+    function repay(uint256 _orderId, uint256 _quantity) external;
 
     /// @notice Let users take limit orders in pool. Taking quote assets, even 0:
     ///         - liquidates a number of positions borrowing from the order
@@ -43,7 +43,7 @@ interface IBook {
     /// @param _poolId id of pool which available assets are taken
     /// @param _takenQuantity amount of quote assets received by taker in exchange of base assets
 
-    function take(uint256 _poolId, uint256 _takenQuantity) external;
+    function take(int24 _poolId, uint256 _takenQuantity) external;
 
     /// @notice liquidate borrowing positions from users whose excess collateral is zero or negative
     ///         iterate on borrower's positions
@@ -54,16 +54,16 @@ interface IBook {
     function liquidateBorrower(address _borrower, uint256 _suppliedQuotes) external;
 
     /// @notice let maker change limit price of her order
-    /// @param _poolId id of pool which limit price is changed
+    /// @param _orderId id of order which limit price is changed
     /// @param _newPoolId id of pool with new limit price
     
-    function changeLimitPrice(int24 _poolId, int24 _newPoolId) external;
+    function changeLimitPrice(uint256 _orderId, int24 _newPoolId) external;
 
     /// @notice let maker change limit price of her order
-    /// @param _poolId id of pool which paired limit price is changed
+    /// @param _orderId id of order which paired limit price is changed
     /// @param _newPairedPoolId id of pool with new paired limit price
     
-    function changePairedPrice(int24 _poolId, int24 _newPairedPoolId) external;
+    function changePairedPrice(uint256 _orderId, int24 _newPairedPoolId) external;
 
     //** EVENTS **//
 
