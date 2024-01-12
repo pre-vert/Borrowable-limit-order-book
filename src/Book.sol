@@ -177,15 +177,15 @@ contract Book is IBook {
     // *** MAPPINGS *** //
 
     // int24: integers between -8,388,608 and 8,388,607
-    mapping(int24 poolId => Pool) public pools;  
+    mapping(int24 poolId => Pool) internal pools;
 
-    mapping(uint256 orderId => Order) public orders;
+    mapping(int24 poolId => uint256) internal limitPrice; 
+
+    mapping(uint256 orderId => Order) internal orders;
 
     mapping(address user => User) internal users;
 
-    mapping(uint256 positionId => Position) public positions;
-
-    mapping(int24 poolId => uint256) public limitPrice;
+    mapping(uint256 positionId => Position) internal positions;
 
     // *** VARIABLES *** //
 
@@ -220,13 +220,13 @@ contract Book is IBook {
         external
         moreThanZero(_quantity)
     {
-        // minimal quantity must be deposited
+        // A minimal quantity must be deposited
         require(_quantity >= minDeposit(_isBuyOrder), "Not enough deposited");
         
         // in quote or base tokens, or none if pool empty
         PoolIn poolType = _poolType(_poolId);
 
-        // asset deposited must not be profitable to take
+        // asset deposited must not be profitable to take (profitable: ongoing liquidation)
         require(!_profitable(_poolId), "Price at loss");
         
         // asset deposited must be of same type as pool's type, or pool must be empty
@@ -437,19 +437,19 @@ contract Book is IBook {
     /// @inheritdoc IBook
 
     // take()
-    // _updateAggregates()            | update pool's total borrow and total deposits with interest rate
-    //  └─ Take quote tokens          | if take borrowable quote tokens
-    //     └─ _liquidatePositions()   | liquidate a batch of positions
-    //        └─ _closePosition()     | liquidate positions one by one
-    //        └─ _seizeCollateral()   | seize collateral for the exact amount liquidated
-    //     └─ _closeOrders()          | close orders for amount of base assets received from taker and liquidated borrowers
-    //        └─ _repostLiquidity()   | repost base tokens received by lenders in sell orders
-    //  └─ Take base tokens           | if take collateral base tokens
-    //     └─ _takeOrders()           | take a batch of orders
-    //        └─ _reduceUserDebt()    | if orders are collateral, repay debt with quote tokens received from taker
-    //        └─ _repostLiquidity()   | repost quote tokens received by lenders in buy orders
-    //  └─ _transferFrom()            | transfer base or quote tokens from taker to contract
-    //  └─ _transferTo()              | transfer  tokens of opposit teype from contract to taker
+    // _updateAggregates()               | update pool's total borrow and total deposits with interest rate
+    //  ├── Take quote tokens            | if take borrowable quote tokens
+    //  │   ├── _liquidatePositions()    | liquidate positions one after one
+    //  │   |   ├── _closePosition()     | liquidate one position
+    //  │   |   └── _seizeCollateral()   | seize collateral for the exact amount liquidated
+    //  │   └── _closeOrders()           | close orders for amount of base assets received from taker and liquidated borrowers
+    //  │       └── _repostLiquidity()   | repost base tokens received by lenders in sell orders
+    //  ├── Take base tokens             | if take collateral base tokens
+    //  │   └── _takeOrders()            | take orders one after one
+    //  │       ├── _reduceUserDebt()    | if order is collateral, repay debt with quote tokens received from taker
+    //  │       └── _repostLiquidity()   | repost quote tokens received by lenders in buy order
+    //  ├── _transferFrom()              | transfer base or quote tokens from taker to contract
+    //  └── _transferTo()                | transfer  tokens of opposit teype from contract to taker
 
     function take(
         int24 _poolId,

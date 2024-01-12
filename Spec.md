@@ -234,7 +234,7 @@ Borrowing positions is closed out when the limit order from which assets are bor
 
 #### Max Loan-To-Value
 
-Example 1: Alice deposits 6000 USDC in a buy order at 2000. Price is 2100. Bob borrows 4000 from Alice. He needs to put aside a collateral of $2*2100*(1+\mu)$ with $\mu$ the overcollateralization factor equal to 0.02.
+Example 1: Alice deposits 6000 USDC in a buy order at 2000. Price is 2100. Bob borrows 4000 from Alice. He needs to put aside a collateral of $2*2100*(1+\mu)$ with $1+\mu$ the overcollateralization factor equal to 0.02.
 
 max LTV = $4000/(2*2100*(1+\mu))$ = $(4000/4200)*(1/(1+\mu))$
 
