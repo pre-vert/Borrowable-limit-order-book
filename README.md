@@ -1,18 +1,14 @@
 # LendBook
 
-This repository contains the core Solidity contract for an order book which lets users borrow its deposited assets.
-
-## Overview
-
-A Lending limit order book is a special order book in which ($i$) the assets backing the limit orders can be borrowed and ($ii$) the borrowed assets of the bid side are collateralized by the assets in the ask side, and reciprocally.
+This repository contains the core Solidity contract of a new lending protocol in which lenders supply liquidity in limit orders. Other users can borrow the assets by posting collateral in limit orders. All orders are displayed in a limit order book and can be taken by traders. All positions are liquidated when the limit orders from which the assets are borrowed are filled.
 
 ### Benefits
 
 The benefits of appending a lending protocol to an order book are multiple:
 
 - stop loss orders with guaranteed stop price
-- zero liquidation costs
-- high leverage
+- low liquidation costs
+- high loan-to-value and leverage
 - leverage programmability
 - no risk of bad debt
 - minimized governance
