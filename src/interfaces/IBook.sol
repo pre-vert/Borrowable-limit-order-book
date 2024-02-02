@@ -57,7 +57,7 @@ interface IBook {
     /// @param _orderId id of order which limit price is changed
     /// @param _newPoolId id of pool with new limit price
     
-    function changeLimitPrice(uint256 _orderId, int24 _newPoolId) external;
+    // function changeLimitPrice(uint256 _orderId, int24 _newPoolId) external;
 
     /// @notice let maker change limit price of her order
     /// @param _orderId id of order which paired limit price is changed
@@ -106,13 +106,13 @@ interface IBook {
         uint256 reducedDebt
     );
 
-    event ChangeLimitPrice(
-        uint256 orderId,
-        int24 newPoolId
-    );
+    // event ChangeLimitPrice(
+    //     uint256 orderId,
+    //     int24 newPoolId
+    // );
 
     event ChangePairedPrice(
         uint256 orderId,
-        uint256 newPairedPollId
+        int24 newPairedPollId
     );
 }

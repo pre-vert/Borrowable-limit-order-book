@@ -7,12 +7,15 @@ import {Book} from "../src/Book.sol";
 import {console} from "forge-std/console.sol";
 
 contract DeployBook is Script {
-    function run() external returns (Book, Token, Token) {
+
+    uint256 initialPrice = 100;
+
+    function run() external returns (Book, Token, Token, uint256) {
         vm.startBroadcast();
         Token baseToken = new Token("BaseToken", "BTK");
         Token quoteToken = new Token("QuoteToken", "QTK");
-        Book book = new Book(address(quoteToken), address(baseToken));
+        Book book = new Book(address(quoteToken), address(baseToken), initialPrice);
         vm.stopBroadcast();
-        return (book, quoteToken, baseToken);
+        return (book, quoteToken, baseToken, initialPrice);
     }
 }

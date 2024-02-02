@@ -12,14 +12,15 @@ contract Setup is StdCheats, Test {
     Book public book;
     Token public baseToken;
     Token public quoteToken;
+    uint256 initialPrice;
     DeployBook public deployBook;
 
     bool constant public BuyOrder = true;
     bool constant public SellOrder = false;
     bool constant public InQuoteToken = true;
     bool constant public InBaseToken = false;
-    bool constant public IsBorrowable = true;
-    bool constant public IsNonBorrowable = false;
+    // bool constant public IsBorrowable = true;
+    // bool constant public IsNonBorrowable = false;
     uint256 constant public AccountNumber = 27;
     uint256 constant public ReceivedQuoteToken = 20000 * WAD;
     uint256 constant public ReceivedBaseToken = 200 * WAD;
@@ -37,23 +38,25 @@ contract Setup is StdCheats, Test {
     uint256 constant DepositBT = 20;
     uint256 constant TakeQT = 900;
     uint256 constant TakeBT = 10;
-    uint256 constant LowPrice = 90;
-    uint256 constant UltraLowPrice = 80;
-    uint256 constant HighPrice = 110;
-    uint256 constant UltraHighPrice = 120;
+    int24 constant UltraLowPrice = -2;
+    int24 constant VeryLowPrice = -1;
+    int24 constant LowPrice = 0;
+    int24 constant HighPrice = 1;
+    int24 constant VeryHighPrice = 2;
+    int24 constant UltraHighPrice = 3;
 
     address OrderBook;
     address Alice;
     address Bob;
     address Carol;
     address Dave;
-    //address PoorGuy;
 
     mapping(uint256 => address) public acc;
 
     function setUp() public {
         deployBook = new DeployBook();
-        (book, quoteToken, baseToken) = deployBook.run();
+        (book, quoteToken, baseToken, initialPrice) = deployBook.run();
+        // book.limitPrice[0] = initialPrice;
         fundingAccounts(AccountNumber);
     }
     
@@ -87,65 +90,67 @@ contract Setup is StdCheats, Test {
 
     function depositBuyOrder(
         address _user,
+        int24 _poolId,
         uint256 _quantity,
-        uint256 _price
+        int24 _pairedPoolId
     ) public {
         vm.prank(_user);
-        book.deposit(_quantity * WAD, _price * WAD, (_price + _price / 10) * WAD, BuyOrder, IsBorrowable);
+        book.deposit( _poolId, _quantity * WAD, _pairedPoolId, BuyOrder);
     }
 
     function depositSellOrder(
         address _user,
+        int24 _poolId,
         uint256 _quantity,
-        uint256 _price
-        ) public {
-        vm.prank(_user);
-        book.deposit(_quantity * WAD, _price * WAD, (_price - _price / 10) * WAD, SellOrder, IsBorrowable);
-    }
-
-    function depositBuyOrderWithPairedPrice(
-        address _user,
-        uint256 _quantity,
-        uint256 _price,
-        uint256 _pairedPrice
+        int24 _pairedPoolId
     ) public {
         vm.prank(_user);
-        book.deposit(_quantity * WAD, _price * WAD, _pairedPrice * WAD, BuyOrder, IsBorrowable);
+        book.deposit(_poolId, _quantity * WAD, _pairedPoolId, SellOrder);
     }
 
-    function depositSellOrderWithPairedPrice(
-        address _user,
-        uint256 _quantity,
-        uint256 _price,
-        uint256 _pairedPrice
-        ) public {
-        vm.prank(_user);
-        book.deposit(_quantity * WAD, _price * WAD, _pairedPrice * WAD, SellOrder, IsBorrowable);
-    }
+    // function depositBuyOrderWithPairedPrice(
+    //     address _user,
+    //     uint256 _quantity,
+    //     uint256 _price,
+    //     uint256 _pairedPrice
+    // ) public {
+    //     vm.prank(_user);
+    //     book.deposit(_quantity * WAD, _price * WAD, _pairedPrice * WAD, BuyOrder);
+    // }
+
+    // function depositSellOrderWithPairedPrice(
+    //     address _user,
+    //     uint256 _quantity,
+    //     uint256 _price,
+    //     uint256 _pairedPrice
+    //     ) public {
+    //     vm.prank(_user);
+    //     book.deposit(_quantity * WAD, _price * WAD, _pairedPrice * WAD, SellOrder, IsBorrowable);
+    // }
 
     function withdraw(address _user, uint256 _orderId, uint256 _quantity) public {
         vm.prank(_user);
         book.withdraw(_orderId, _quantity * WAD);
     }
 
-    function take(address _user, uint256 _orderId, uint256 _quantity) public {
+    function borrow(address _user, int24 _poolId, uint256 _quantity) public {
         vm.prank(_user);
-        book.take(_orderId, _quantity * WAD);
+        book.borrow(_poolId, _quantity * WAD);
     }
-
+    
     function repay(address _user, uint256 _positionId, uint256 _quantity) public {
         vm.prank(_user);
         book.repay(_positionId, _quantity * WAD);
     }
 
-    function borrow(address _user, uint256 _orderId, uint256 _quantity) public {
+    function take(address _user, int24 _poolId, uint256 _quantity) public {
         vm.prank(_user);
-        book.borrow(_orderId, _quantity * WAD);
+        book.take(_poolId, _quantity * WAD);
     }
 
-    function liquidate(address _user, uint256 _positionId) public {
+    function liquidateBorrower(address _user, uint256 _quantity) public {
         vm.prank(_user);
-        book.liquidate(_positionId);
+        book.liquidateBorrower(_user, _quantity);
     }
 
     function setPriceFeed(uint256 _price) public {
@@ -154,36 +159,32 @@ contract Setup is StdCheats, Test {
 
     // check maker of order
     function checkOrderMaker(uint256 _orderId, address _maker) public {
-        (address maker,,,,,) = book.orders(_orderId);
+        (, address maker,,,,) = book.orders(_orderId);
         assertEq(maker, _maker);
     }
 
     // check assets in order == _quantity
     function checkOrderQuantity(uint256 _orderId, uint256 _quantity) public {
-        (,, uint256 quantity,,,) = book.orders(_orderId);
+        (,,, uint256 quantity,,) = book.orders(_orderId);
         assertEq(quantity, _quantity * WAD);
     }
 
-    // check limit price in oder
-    function checkOrderPrice(uint256 _orderId, uint256 _price) public {
-        (,,,uint256 price,,) = book.orders(_orderId);
-        assertEq(price, _price * WAD);
+    // check limit price in order
+    function checkPoolId(uint256 _orderId, int24 _poolId) public {
+        (int24 poolId,,,,,) = book.orders(_orderId);
+        assertEq(poolId, _poolId);
     }
 
-    // check paired price in oder
-    function checkOrderPairedPrice(uint256 _orderId, uint256 _pairedPrice) public {
-        (,,,,uint256 pairedPrice,) = book.orders(_orderId);
-        assertEq(pairedPrice, _pairedPrice * WAD);
+    // check paired pool id in order
+    function checkOrderPairedPrice(uint256 _orderId, int24 _pairedPoolId) public {
+        (,, int24 pairedPoolId,,,) = book.orders(_orderId);
+        assertEq(pairedPoolId, _pairedPoolId);
     }
 
     // check assets borrowed in position = _quantity
     function checkBorrowingQuantity(uint256 _positionId, uint256 _quantity) public {
         (,, uint256 quantity,) = book.positions(_positionId);
         assertEq(quantity, _quantity * WAD);
-    }
-
-    function checkOrderPositionId(uint256 _orderId, uint256 _row, uint256 _positionId) public {
-        assertEq(book.getOrderPositionIds(_orderId)[_row], _positionId);
     }
     
     function checkUserDepositId(address _user, uint256 _row, uint256 _orderId) public {
@@ -194,54 +195,23 @@ contract Setup is StdCheats, Test {
         assertEq(book.getUserBorrowFromIds(_user)[_row], _orderId);
     }
 
-    function checkInstantRate(bool _isBuyOrder) public {
-        uint256 annualRate = book.ALPHA() +
-            book.BETA() * book.getUtilizationRate(_isBuyOrder) / WAD +
-            book.GAMMA() * book.getUtilizationRate(!_isBuyOrder) / WAD;
-        assertEq(book.getInstantRate(_isBuyOrder), annualRate / YEAR);
-        if (_isBuyOrder) {
-            console.log("Utilization rate in buy order market (1e04): ",
-                book.getUtilizationRate(_isBuyOrder) * 1e4 / WAD);
-            console.log("Annualized rate in buy order market (1e05): ",
-                book.getInstantRate(_isBuyOrder) * 1e5 * YEAR / WAD);
-        }
-        else {
-            console.log("Utilization rate in sell order market (1e04): ", 
-                book.getUtilizationRate(_isBuyOrder) * 1e4 / WAD);
-            console.log("Annualized rate in sell order market (1e05): ",
-                book.getInstantRate(_isBuyOrder) * 1e5 * YEAR / WAD);
-        }
+    function checkInstantRate(int24 _poolId) public {
+        uint256 annualRate = book.ALPHA() + book.BETA() * book.getUtilizationRate(_poolId) / WAD;
+        assertEq(book.getInstantRate(_poolId), annualRate / YEAR);
+        console.log("Utilization rate in buy order market (1e04): ",
+            book.getUtilizationRate(_poolId) * 1e4 / WAD);
+        console.log("Annualized rate in buy order market (1e05): ",
+            book.getInstantRate(_poolId) * 1e5 * YEAR / WAD);
     }
 
-    function changeLimitPrice(address _user, uint256 _orderId, uint256 _price) public {
+    // function changeLimitPrice(address _user, uint256 _orderId, int24 _poolId) public {
+    //     vm.prank(_user);
+    //     book.changeLimitPrice(_orderId, _poolId);
+    // }
+
+    function changePairedPrice(address _user, uint256 _orderId, int24 _pairedPoolId) public {
         vm.prank(_user);
-        book.changeLimitPrice(_orderId, _price * WAD);
+        book.changePairedPrice(_orderId, _pairedPoolId);
     }
-
-    function changePairedPrice(address _user, uint256 _orderId, uint256 _pairedPrice) public {
-        vm.prank(_user);
-        book.changePairedPrice(_orderId, _pairedPrice * WAD);
-    }
-
-    function checkOrderIsBorrowable(uint256 _orderId) public {
-        (,,,,, bool isBorrowable) = book.orders(_orderId);
-        assertEq(isBorrowable, IsBorrowable);
-    }
-
-    function checkOrderIsNonBorrowable(uint256 _orderId) public {
-        (,,,,, bool isBorrowable) = book.orders(_orderId);
-        assertEq(isBorrowable, IsNonBorrowable);
-    }
-
-    function makeOrderNonBorrowable(address _user, uint256 _orderId) public {
-        vm.prank(_user);
-        book.changeBorrowable(_orderId, IsNonBorrowable);
-    }
-
-    function makeOrderBorrowable(address _user, uint256 _orderId) public {
-        vm.prank(_user);
-        book.changeBorrowable(_orderId, IsBorrowable);
-    }
-    
 
 }

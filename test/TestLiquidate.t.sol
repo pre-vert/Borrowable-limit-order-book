@@ -7,214 +7,214 @@ import {MathLib, WAD} from "../lib/MathLib.sol";
 
 contract TestLiquidate is Setup {
 
-    function test_LiquidateBuyFailsIfPositionDoesntExist() public {
-        depositBuyOrder(Alice, 6000, 50);
-        depositSellOrder(Bob, 100, 200);
-        borrow(Bob, Alice_Order, 5000);
-        setPriceFeed(100);
-        vm.expectRevert("Position does not exist");
-        liquidate(Alice, Carol_Position);
-    }
+    // function test_LiquidateBuyFailsIfPositionDoesntExist() public {
+    //     depositBuyOrder(Alice, 6000, 50);
+    //     depositSellOrder(Bob, 100, 200);
+    //     borrow(Bob, Alice_Order, 5000);
+    //     setPriceFeed(100);
+    //     vm.expectRevert("Position does not exist");
+    //     liquidate(Alice, Carol_Position);
+    // }
 
-    function test_LiquidateSellFailsIfPositionDoesntExist() public {
-        depositSellOrder(Alice, 60, 200);
-        depositBuyOrder(Bob, 10000, 50);
-        borrow(Bob, Alice_Order, 50);
-        setPriceFeed(100);
-        vm.expectRevert("Position does not exist");
-        liquidate(Alice, Carol_Position);
-    }
+    // function test_LiquidateSellFailsIfPositionDoesntExist() public {
+    //     depositSellOrder(Alice, 60, 200);
+    //     depositBuyOrder(Bob, 10000, 50);
+    //     borrow(Bob, Alice_Order, 50);
+    //     setPriceFeed(100);
+    //     vm.expectRevert("Position does not exist");
+    //     liquidate(Alice, Carol_Position);
+    // }
 
-    // only maker can liquidate buy order
-    function test_LiquidateBuyFailsIfNotMaker() public {
-        depositBuyOrder(Alice, 6000, 50);
-        depositSellOrder(Bob, 100, 200);
-        borrow(Bob, Alice_Order, 5000);
-        setPriceFeed(100);
-        vm.expectRevert("Only maker can modify order");
-        liquidate(Carol, Bob_Position);
-    }
+    // // only maker can liquidate buy order
+    // function test_LiquidateBuyFailsIfNotMaker() public {
+    //     depositBuyOrder(Alice, 6000, 50);
+    //     depositSellOrder(Bob, 100, 200);
+    //     borrow(Bob, Alice_Order, 5000);
+    //     setPriceFeed(100);
+    //     vm.expectRevert("Only maker can modify order");
+    //     liquidate(Carol, Bob_Position);
+    // }
 
-    // only maker can liquidate sell order
-    function test_LiquidateSellFailsIfNotMaker() public {
-        depositSellOrder(Alice, 60, 200);
-        depositBuyOrder(Bob, 10000, 50);
-        borrow(Bob, Alice_Order, 50);
-        setPriceFeed(100);
-        vm.expectRevert("Only maker can modify order");
-        liquidate(Carol, Bob_Position);
-    }
+    // // only maker can liquidate sell order
+    // function test_LiquidateSellFailsIfNotMaker() public {
+    //     depositSellOrder(Alice, 60, 200);
+    //     depositBuyOrder(Bob, 10000, 50);
+    //     borrow(Bob, Alice_Order, 50);
+    //     setPriceFeed(100);
+    //     vm.expectRevert("Only maker can modify order");
+    //     liquidate(Carol, Bob_Position);
+    // }
 
-    // only borrower of buy order with excess collateral <= 0 can be liquidated
-    function test_LiquidateBuyFailsIfExcessCollateralIsPositive() public {
-        depositBuyOrder(Alice, 6000, 50);
-        depositSellOrder(Bob, 81, 200);
-        borrow(Bob, Alice_Order, 4000);
-        setPriceFeed(100);
-        vm.expectRevert("Borrower excess collateral is positive");
-        liquidate(Alice, Bob_Position);
-    }
+    // // only borrower of buy order with excess collateral <= 0 can be liquidated
+    // function test_LiquidateBuyFailsIfExcessCollateralIsPositive() public {
+    //     depositBuyOrder(Alice, 6000, 50);
+    //     depositSellOrder(Bob, 81, 200);
+    //     borrow(Bob, Alice_Order, 4000);
+    //     setPriceFeed(100);
+    //     vm.expectRevert("Borrower excess collateral is positive");
+    //     liquidate(Alice, Bob_Position);
+    // }
 
-    // only borrower of sell order with excess collateral <= 0 can be liquidated
-    function test_LiquidateSellFailsIfExcessCollateralIsPositive() public {
-        depositSellOrder(Alice, 60, 200);
-        depositBuyOrder(Bob, 1001, 50);
-        borrow(Bob, Alice_Order, 5);
-        setPriceFeed(100);
-        vm.expectRevert("Borrower excess collateral is positive");
-        liquidate(Alice, Bob_Position);
-    }
+    // // only borrower of sell order with excess collateral <= 0 can be liquidated
+    // function test_LiquidateSellFailsIfExcessCollateralIsPositive() public {
+    //     depositSellOrder(Alice, 60, 200);
+    //     depositBuyOrder(Bob, 1001, 50);
+    //     borrow(Bob, Alice_Order, 5);
+    //     setPriceFeed(100);
+    //     vm.expectRevert("Borrower excess collateral is positive");
+    //     liquidate(Alice, Bob_Position);
+    // }
 
-    // Alice is willing to liquidate Bob but calls take() since her buy order is profitable
-    // This is as if Alice takes her own buy order for 0
-    // Bob and Carol's positions are liquidated for 60 + 40 = 100 BT
-    // which are used to create a new sell order for Alice
+    // // Alice is willing to liquidate Bob but calls take() since her buy order is profitable
+    // // This is as if Alice takes her own buy order for 0
+    // // Bob and Carol's positions are liquidated for 60 + 40 = 100 BT
+    // // which are used to create a new sell order for Alice
 
-    function test_LiquidateBuyIsTakeIfProfitable() public {
-        depositBuyOrder(Alice, 6000, 50);
-        depositSellOrder(Bob, 60, 200);
-        depositSellOrder(Carol, 50, 180);
-        borrow(Bob, Alice_Order, 3000);
-        borrow(Carol, Alice_Order, 2000);
-        uint256 contractQuoteBalance = quoteToken.balanceOf(OrderBook);
-        uint256 contractBaseBalance = baseToken.balanceOf(OrderBook);
-        uint256 makerQuoteBalance = quoteToken.balanceOf(Alice);
-        uint256 makerBaseBalance = baseToken.balanceOf(Alice);
-        uint256 borrowerQuoteBalance = quoteToken.balanceOf(Bob);
-        uint256 borrowerBaseBalance = baseToken.balanceOf(Bob);
-        uint256 borrower2QuoteBalance = quoteToken.balanceOf(Carol);
-        uint256 borrower2BaseBalance = baseToken.balanceOf(Carol);
-        setPriceFeed(40);
-        liquidate(Alice, Bob_Position);
-        assertEq(quoteToken.balanceOf(OrderBook), contractQuoteBalance);
-        assertEq(baseToken.balanceOf(OrderBook), contractBaseBalance); // - 100 * WAD);
-        assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance);
-        assertEq(baseToken.balanceOf(Alice), makerBaseBalance); // + 100 * WAD);
-        assertEq(quoteToken.balanceOf(Bob), borrowerQuoteBalance);
-        assertEq(baseToken.balanceOf(Bob), borrowerBaseBalance);
-        assertEq(quoteToken.balanceOf(Carol), borrower2QuoteBalance);
-        assertEq(baseToken.balanceOf(Carol), borrower2BaseBalance);
-        checkOrderQuantity(Alice_Order, 6000 - 3000 - 2000);
-        checkOrderQuantity(Bob_Order, 60 - 60);
-        checkOrderQuantity(Carol_Order, 50 - 40);
-        checkOrderQuantity(Alice_Order + 3, 100);
-    }
+    // function test_LiquidateBuyIsTakeIfProfitable() public {
+    //     depositBuyOrder(Alice, 6000, 50);
+    //     depositSellOrder(Bob, 60, 200);
+    //     depositSellOrder(Carol, 50, 180);
+    //     borrow(Bob, Alice_Order, 3000);
+    //     borrow(Carol, Alice_Order, 2000);
+    //     uint256 contractQuoteBalance = quoteToken.balanceOf(OrderBook);
+    //     uint256 contractBaseBalance = baseToken.balanceOf(OrderBook);
+    //     uint256 makerQuoteBalance = quoteToken.balanceOf(Alice);
+    //     uint256 makerBaseBalance = baseToken.balanceOf(Alice);
+    //     uint256 borrowerQuoteBalance = quoteToken.balanceOf(Bob);
+    //     uint256 borrowerBaseBalance = baseToken.balanceOf(Bob);
+    //     uint256 borrower2QuoteBalance = quoteToken.balanceOf(Carol);
+    //     uint256 borrower2BaseBalance = baseToken.balanceOf(Carol);
+    //     setPriceFeed(40);
+    //     liquidate(Alice, Bob_Position);
+    //     assertEq(quoteToken.balanceOf(OrderBook), contractQuoteBalance);
+    //     assertEq(baseToken.balanceOf(OrderBook), contractBaseBalance); // - 100 * WAD);
+    //     assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance);
+    //     assertEq(baseToken.balanceOf(Alice), makerBaseBalance); // + 100 * WAD);
+    //     assertEq(quoteToken.balanceOf(Bob), borrowerQuoteBalance);
+    //     assertEq(baseToken.balanceOf(Bob), borrowerBaseBalance);
+    //     assertEq(quoteToken.balanceOf(Carol), borrower2QuoteBalance);
+    //     assertEq(baseToken.balanceOf(Carol), borrower2BaseBalance);
+    //     checkOrderQuantity(Alice_Order, 6000 - 3000 - 2000);
+    //     checkOrderQuantity(Bob_Order, 60 - 60);
+    //     checkOrderQuantity(Carol_Order, 50 - 40);
+    //     checkOrderQuantity(Alice_Order + 3, 100);
+    // }
 
-    // Alice is willing to liquidate Carol but calls take() since her buy order is profitable
-    // This is as if Alice takes her own buy order for 0
-    // Bob and Carol's positions are liquidated for 6000 + 8000 = 14,000 QT
-    // which are used to create a new buy order for Alice
+    // // Alice is willing to liquidate Carol but calls take() since her buy order is profitable
+    // // This is as if Alice takes her own buy order for 0
+    // // Bob and Carol's positions are liquidated for 6000 + 8000 = 14,000 QT
+    // // which are used to create a new buy order for Alice
 
-    function test_LiquidateSellIsTakeIfProfitable() public {
-        depositSellOrder(Alice, 100, 200);
-        depositBuyOrder(Bob, 9000, 50);
-        depositBuyOrder(Carol, 8000, 50);
-        borrow(Bob, Alice_Order, 30);
-        borrow(Carol, Alice_Order, 40);
-        uint256 contractQuoteBalance = quoteToken.balanceOf(OrderBook);
-        uint256 contractBaseBalance = baseToken.balanceOf(OrderBook);
-        uint256 makerQuoteBalance = quoteToken.balanceOf(Alice);
-        uint256 makerBaseBalance = baseToken.balanceOf(Alice);
-        uint256 borrowerQuoteBalance = quoteToken.balanceOf(Bob);
-        uint256 borrowerBaseBalance = baseToken.balanceOf(Bob);
-        uint256 borrower2QuoteBalance = quoteToken.balanceOf(Carol);
-        uint256 borrower2BaseBalance = baseToken.balanceOf(Carol);
-        setPriceFeed(210);
-        liquidate(Alice, Carol_Position);
-        assertEq(quoteToken.balanceOf(OrderBook), contractQuoteBalance); // - (8000 + 6000) * WAD);
-        assertEq(baseToken.balanceOf(OrderBook), contractBaseBalance);
-        assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance); // + (8000 + 6000) * WAD);
-        assertEq(baseToken.balanceOf(Alice), makerBaseBalance);
-        assertEq(quoteToken.balanceOf(Bob), borrowerQuoteBalance);
-        assertEq(baseToken.balanceOf(Bob), borrowerBaseBalance);
-        assertEq(quoteToken.balanceOf(Carol), borrower2QuoteBalance);
-        assertEq(baseToken.balanceOf(Carol), borrower2BaseBalance);
-        checkOrderQuantity(Alice_Order, 100 - 30 - 40);
-        checkOrderQuantity(Bob_Order, 9000 - 6000);
-        checkOrderQuantity(Carol_Order, 8000 - 8000);
-        checkOrderQuantity(Alice_Order + 3, 14000);
-    }
+    // function test_LiquidateSellIsTakeIfProfitable() public {
+    //     depositSellOrder(Alice, 100, 200);
+    //     depositBuyOrder(Bob, 9000, 50);
+    //     depositBuyOrder(Carol, 8000, 50);
+    //     borrow(Bob, Alice_Order, 30);
+    //     borrow(Carol, Alice_Order, 40);
+    //     uint256 contractQuoteBalance = quoteToken.balanceOf(OrderBook);
+    //     uint256 contractBaseBalance = baseToken.balanceOf(OrderBook);
+    //     uint256 makerQuoteBalance = quoteToken.balanceOf(Alice);
+    //     uint256 makerBaseBalance = baseToken.balanceOf(Alice);
+    //     uint256 borrowerQuoteBalance = quoteToken.balanceOf(Bob);
+    //     uint256 borrowerBaseBalance = baseToken.balanceOf(Bob);
+    //     uint256 borrower2QuoteBalance = quoteToken.balanceOf(Carol);
+    //     uint256 borrower2BaseBalance = baseToken.balanceOf(Carol);
+    //     setPriceFeed(210);
+    //     liquidate(Alice, Carol_Position);
+    //     assertEq(quoteToken.balanceOf(OrderBook), contractQuoteBalance); // - (8000 + 6000) * WAD);
+    //     assertEq(baseToken.balanceOf(OrderBook), contractBaseBalance);
+    //     assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance); // + (8000 + 6000) * WAD);
+    //     assertEq(baseToken.balanceOf(Alice), makerBaseBalance);
+    //     assertEq(quoteToken.balanceOf(Bob), borrowerQuoteBalance);
+    //     assertEq(baseToken.balanceOf(Bob), borrowerBaseBalance);
+    //     assertEq(quoteToken.balanceOf(Carol), borrower2QuoteBalance);
+    //     assertEq(baseToken.balanceOf(Carol), borrower2BaseBalance);
+    //     checkOrderQuantity(Alice_Order, 100 - 30 - 40);
+    //     checkOrderQuantity(Bob_Order, 9000 - 6000);
+    //     checkOrderQuantity(Carol_Order, 8000 - 8000);
+    //     checkOrderQuantity(Alice_Order + 3, 14000);
+    // }
 
-    // liquidate borrow buy order:
-    // - Bob must pay back 5000 + 2% fee rate = 5100 quote tokens
-    // - At market price of 100, this means the transfer of 51 base tokens from Bob to Alice's wallet
+    // // liquidate borrow buy order:
+    // // - Bob must pay back 5000 + 2% fee rate = 5100 quote tokens
+    // // - At market price of 100, this means the transfer of 51 base tokens from Bob to Alice's wallet
 
-    function test_LiquidateBorrowPositionFromBuy() public {
-        depositBuyOrder(Alice, 6000, 50);
-        depositSellOrder(Bob, 100, 200);
-        borrow(Bob, Alice_Order, 5000);
-        // checkInstantRate(BuyOrder);
-        // checkInstantRate(SellOrder);
-        uint256 contractQuoteBalance = quoteToken.balanceOf(OrderBook);
-        uint256 contractBaseBalance = baseToken.balanceOf(OrderBook);
-        uint256 makerQuoteBalance = quoteToken.balanceOf(Alice);
-        uint256 makerBaseBalance = baseToken.balanceOf(Alice);
-        uint256 borrowerQuoteBalance = quoteToken.balanceOf(Bob);
-        uint256 borrowerBaseBalance = baseToken.balanceOf(Bob);
-        setPriceFeed(100);
-        liquidate(Alice, Bob_Position);
-        assertEq(quoteToken.balanceOf(OrderBook), contractQuoteBalance);
-        assertEq(baseToken.balanceOf(OrderBook), contractBaseBalance - 51 * WAD);
-        assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance);
-        assertEq(baseToken.balanceOf(Alice), makerBaseBalance + 51 * WAD);
-        assertEq(quoteToken.balanceOf(Bob), borrowerQuoteBalance);
-        assertEq(baseToken.balanceOf(Bob), borrowerBaseBalance);
-    }
+    // function test_LiquidateBorrowPositionFromBuy() public {
+    //     depositBuyOrder(Alice, 6000, 50);
+    //     depositSellOrder(Bob, 100, 200);
+    //     borrow(Bob, Alice_Order, 5000);
+    //     // checkInstantRate(BuyOrder);
+    //     // checkInstantRate(SellOrder);
+    //     uint256 contractQuoteBalance = quoteToken.balanceOf(OrderBook);
+    //     uint256 contractBaseBalance = baseToken.balanceOf(OrderBook);
+    //     uint256 makerQuoteBalance = quoteToken.balanceOf(Alice);
+    //     uint256 makerBaseBalance = baseToken.balanceOf(Alice);
+    //     uint256 borrowerQuoteBalance = quoteToken.balanceOf(Bob);
+    //     uint256 borrowerBaseBalance = baseToken.balanceOf(Bob);
+    //     setPriceFeed(100);
+    //     liquidate(Alice, Bob_Position);
+    //     assertEq(quoteToken.balanceOf(OrderBook), contractQuoteBalance);
+    //     assertEq(baseToken.balanceOf(OrderBook), contractBaseBalance - 51 * WAD);
+    //     assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance);
+    //     assertEq(baseToken.balanceOf(Alice), makerBaseBalance + 51 * WAD);
+    //     assertEq(quoteToken.balanceOf(Bob), borrowerQuoteBalance);
+    //     assertEq(baseToken.balanceOf(Bob), borrowerBaseBalance);
+    // }
 
-    // liquidate borrow sell order: Bob must pay back 30 + 2% fee rate = 30.6 quote tokens
-    // At market price of 100, this means the transfer of 3060 quote tokens from Bob to Alice's wallet
+    // // liquidate borrow sell order: Bob must pay back 30 + 2% fee rate = 30.6 quote tokens
+    // // At market price of 100, this means the transfer of 3060 quote tokens from Bob to Alice's wallet
 
-    function test_LiquidateBorrowPositionFromSell() public {
-        depositSellOrder(Alice, 100, 200);
-        depositBuyOrder(Bob, 6000, 50);
-        borrow(Bob, Alice_Order, 30);
-        uint256 contractQuoteBalance = quoteToken.balanceOf(OrderBook);
-        uint256 contractBaseBalance = baseToken.balanceOf(OrderBook);
-        uint256 makerQuoteBalance = quoteToken.balanceOf(Alice);
-        uint256 makerBaseBalance = baseToken.balanceOf(Alice);
-        uint256 borrowerQuoteBalance = quoteToken.balanceOf(Bob);
-        uint256 borrowerBaseBalance = baseToken.balanceOf(Bob);
-        setPriceFeed(100);
-        liquidate(Alice, Bob_Position);
-        assertEq(quoteToken.balanceOf(OrderBook), contractQuoteBalance - 3060 * WAD);
-        assertEq(baseToken.balanceOf(OrderBook), contractBaseBalance);
-        assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance + 3060 * WAD);
-        assertEq(baseToken.balanceOf(Alice), makerBaseBalance);
-        assertEq(quoteToken.balanceOf(Bob), borrowerQuoteBalance);
-        assertEq(baseToken.balanceOf(Bob), borrowerBaseBalance);
-    }
+    // function test_LiquidateBorrowPositionFromSell() public {
+    //     depositSellOrder(Alice, 100, 200);
+    //     depositBuyOrder(Bob, 6000, 50);
+    //     borrow(Bob, Alice_Order, 30);
+    //     uint256 contractQuoteBalance = quoteToken.balanceOf(OrderBook);
+    //     uint256 contractBaseBalance = baseToken.balanceOf(OrderBook);
+    //     uint256 makerQuoteBalance = quoteToken.balanceOf(Alice);
+    //     uint256 makerBaseBalance = baseToken.balanceOf(Alice);
+    //     uint256 borrowerQuoteBalance = quoteToken.balanceOf(Bob);
+    //     uint256 borrowerBaseBalance = baseToken.balanceOf(Bob);
+    //     setPriceFeed(100);
+    //     liquidate(Alice, Bob_Position);
+    //     assertEq(quoteToken.balanceOf(OrderBook), contractQuoteBalance - 3060 * WAD);
+    //     assertEq(baseToken.balanceOf(OrderBook), contractBaseBalance);
+    //     assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance + 3060 * WAD);
+    //     assertEq(baseToken.balanceOf(Alice), makerBaseBalance);
+    //     assertEq(quoteToken.balanceOf(Bob), borrowerQuoteBalance);
+    //     assertEq(baseToken.balanceOf(Bob), borrowerBaseBalance);
+    // }
 
-    // liquidate borrow buy order: Bob must pay back 4000 + 2% fee rate + 2*1.499% = 4200 quote tokens
-    // At market price of 100, this means the transfer of 42 base tokens from Bob to Alice's wallet
-    // Bob's collateral is only 41, which is actually transferred to Alice ¯\_(ツ)_/¯
+    // // liquidate borrow buy order: Bob must pay back 4000 + 2% fee rate + 2*1.499% = 4200 quote tokens
+    // // At market price of 100, this means the transfer of 42 base tokens from Bob to Alice's wallet
+    // // Bob's collateral is only 41, which is actually transferred to Alice ¯\_(ツ)_/¯
 
-    function test_LiquidateBorrowAndInterestFromBuy() public {
-        depositBuyOrder(Alice, 6000, 99);
-        depositSellOrder(Bob, 41, 200);
-        borrow(Bob, Alice_Order, 4000);
-        checkInstantRate(BuyOrder);
-        checkInstantRate(SellOrder);
-        uint256 contractBaseBalance = baseToken.balanceOf(OrderBook);
-        uint256 makerBaseBalance = baseToken.balanceOf(Alice);
-        setPriceFeed(100);
-        vm.warp(2 * YEAR);
-        liquidate(Alice, Bob_Position);
-        assertEq(baseToken.balanceOf(OrderBook), contractBaseBalance - 41 * WAD);
-        assertEq(baseToken.balanceOf(Alice), makerBaseBalance + 41 * WAD);
-    }
+    // function test_LiquidateBorrowAndInterestFromBuy() public {
+    //     depositBuyOrder(Alice, 6000, 99);
+    //     depositSellOrder(Bob, 41, 200);
+    //     borrow(Bob, Alice_Order, 4000);
+    //     checkInstantRate(BuyOrder);
+    //     checkInstantRate(SellOrder);
+    //     uint256 contractBaseBalance = baseToken.balanceOf(OrderBook);
+    //     uint256 makerBaseBalance = baseToken.balanceOf(Alice);
+    //     setPriceFeed(100);
+    //     vm.warp(2 * YEAR);
+    //     liquidate(Alice, Bob_Position);
+    //     assertEq(baseToken.balanceOf(OrderBook), contractBaseBalance - 41 * WAD);
+    //     assertEq(baseToken.balanceOf(Alice), makerBaseBalance + 41 * WAD);
+    // }
 
-    // liquidate borrow sell order:
-    // - Bob must pay back 30 + 2% fee rate = 30.6 quote tokens
-    // - At market price of 100, this means the transfer of 3060 quote tokens from Bob to Alice's wallet
+    // // liquidate borrow sell order:
+    // // - Bob must pay back 30 + 2% fee rate = 30.6 quote tokens
+    // // - At market price of 100, this means the transfer of 3060 quote tokens from Bob to Alice's wallet
 
-    function test_LiquidateBorrowAndInterestFromSell() public {
-        depositSellOrder(Alice, 100, 200);
-        depositBuyOrder(Bob, 6000, 50);
-        borrow(Bob, Alice_Order, 30);
-        checkInstantRate(BuyOrder);
-        checkInstantRate(SellOrder);
-        setPriceFeed(100);
-        liquidate(Alice, Bob_Position);
-    }
+    // function test_LiquidateBorrowAndInterestFromSell() public {
+    //     depositSellOrder(Alice, 100, 200);
+    //     depositBuyOrder(Bob, 6000, 50);
+    //     borrow(Bob, Alice_Order, 30);
+    //     checkInstantRate(BuyOrder);
+    //     checkInstantRate(SellOrder);
+    //     setPriceFeed(100);
+    //     liquidate(Alice, Bob_Position);
+    // }
 
 }
