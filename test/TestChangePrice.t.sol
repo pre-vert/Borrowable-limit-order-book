@@ -9,47 +9,39 @@ import {MathLib, WAD} from "../lib/MathLib.sol";
 contract TestChangePrice is Setup {
 
     // ChangePairedPrice() with a new paired price for buy order changes paired price
-    function test_ChangeBuyOrderPairedPrice() public {
-        depositBuyOrder(Alice, LowPrice, 1000, HighPrice);
-        changePairedPrice(Alice, Alice_Order, VeryHighPrice);
-        checkOrderPairedPrice(Alice_Order, VeryHighPrice);
+    function test_ChangeBuyOrderPairedPrice() public depositBuy(LowPriceId) {
+        changePairedPrice(Alice, FirstOrderId, VeryHighPriceId);
+        checkOrderPairedPrice(FirstOrderId, VeryHighPriceId);
     }
 
     // ChangePairedPrice() with a new paired price for sell order changes paired price
-    function test_ChangeSellOrderPairedPrice() public {
-        depositSellOrder(Alice, HighPrice, 110, LowPrice);
-        changePairedPrice(Alice, Alice_Order, VeryLowPrice);
-        checkOrderPairedPrice(Alice_Order, VeryLowPrice);
+    function test_ChangeSellOrderPairedPrice() public setLowPrice() depositSell(FirstPoolId) {
+        changePairedPrice(Bob, FirstOrderId, FirstPoolId - 2);
+        checkOrderPairedPrice(FirstOrderId, FirstPoolId - 2);
     }
 
     // When caller is not maker of buy order, revert
-    function test_RevertBuyOrderPairedIfNotMaker() public {
-        depositBuyOrder(Alice, LowPrice, 1000, HighPrice);
+    function test_RevertBuyOrderPairedIfNotMaker() public depositBuy(LowPriceId) {
         vm.expectRevert("Only maker");
-        changePairedPrice(Bob, Alice_Order, VeryHighPrice);
+        changePairedPrice(Bob, FirstOrderId, VeryHighPriceId);
     }
 
     // When caller is not maker of sell order, revert
-    function test_RevertSellOrderPairedIfNotMaker() public {
-        depositSellOrder(Alice, HighPrice, 10, LowPrice);
+    function test_RevertSellOrderPairedIfNotMaker() public setLowPrice() depositSell(FirstPoolId) {
         vm.expectRevert("Only maker");
-        changePairedPrice(Carol, Alice_Order, VeryLowPrice);
+        changePairedPrice(Carol, FirstOrderId, VeryLowPriceId);
     }
 
     // When new paired price in buy order is in wrong order with limit price, revert
-    function test_RevertBuyOrderPairedIfNotConsistent() public {
-        depositBuyOrder(Alice, LowPrice, 1000, HighPrice);
-        //setPriceFeed(70);
+    function test_RevertBuyOrderPairedIfNotConsistent() public depositBuy(LowPriceId) {
         vm.expectRevert("Inconsistent prices");
-        changePairedPrice(Alice, Alice_Order, VeryLowPrice);
+        changePairedPrice(Alice, FirstOrderId, VeryLowPriceId);
     }
 
     // When new paired price in sell order is in wrong order with limit price, revert
-    function test_RevertSellOrderPairedIfNotConsistent() public {
-        depositSellOrder(Alice, HighPrice, 10, LowPrice);
-        //setPriceFeed(130);
+    function test_RevertSellOrderPairedIfNotConsistent() public setLowPrice() depositSell(FirstPoolId) {
         vm.expectRevert("Inconsistent prices");
-        changePairedPrice(Alice, Alice_Order, VeryHighPrice);
+        changePairedPrice(Bob, FirstOrderId, VeryHighPriceId);
     }
 
     // // ChangeLimitPrice() with a new limit price changes buy order's limit price

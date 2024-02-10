@@ -2,281 +2,263 @@
 pragma solidity ^0.8.20;
 
 import {Test, console} from "forge-std/Test.sol";
+//import "forge-std/console.sol";
 import {Setup} from "./Setup.sol";
 import {MathLib, WAD} from "../lib/MathLib.sol";
 
 contract TestDeposit is Setup {
 
-    // // if new limit order, create order in mapping orders
-    // function test_DepositBuyOrder() public {
-    //     depositBuyOrder(Alice, 2000, 90);
-    //     (address maker,
-    //     bool isBuyOrder,
-    //     uint256 quantity,
-    //     uint256 price, 
-    //     uint256 pairedPrice,
-    //     bool isBorrowable)
-    //     = book.orders(1);
-    //     assertEq(maker, Alice);
-    //     assertEq(quantity, 2000 * WAD);
-    //     assertEq(price, 90 * WAD);
-    //     assertEq(pairedPrice, price + price / 10);
-    //     assertEq(isBuyOrder, BuyOrder);
-    //     assertEq(isBorrowable, IsBorrowable);
-    // }
+    // if new limit order, create order in mapping orders
+    function test_DepositBuyOrder() public depositBuy(LowPriceId) {
+        // vm.warp(0);
+        (int24 poolId,
+        address maker,
+        int24 pairedPoolId,
+        uint256 quantity,
+        uint256 orderWeightedRate,
+        bool isBuyOrder
+        )
+        = book.orders(FirstOrderId);
+        assertEq(poolId, LowPriceId);
+        assertEq(poolId, FirstPoolId);
+        assertEq(maker, Alice);
+        assertEq(pairedPoolId, HighPriceId);
+        assertEq(quantity, DepositQT);
+        assertEq(orderWeightedRate, orderWeightedRate);
+        assertEq(isBuyOrder, BuyOrder);
+        assertEq(initialPriceWAD, book.limitPrice(FirstPoolId));
+    }
 
-    // function test_DepositSellOrder() public {
-    //     depositSellOrder(Bob, 20, 110);
-    //     (address maker,
-    //     bool isBuyOrder,
-    //     uint256 quantity,
-    //     uint256 price,
-    //     uint256 pairedPrice,
-    //     bool isBorrowable)
-    //     = book.orders(1);
-    //     assertEq(maker, Bob);
-    //     assertEq(quantity, 20 * WAD);
-    //     assertEq(price, 110 * WAD);
-    //     assertEq(pairedPrice, price - price / 10);
-    //     assertEq(isBuyOrder, SellOrder);
-    //     assertEq(isBorrowable, IsBorrowable);
-    //     assertEq(book.countOrdersOfUser(Bob), 1);
-    //     assertEq(book.countOrdersOfUser(Bob), 1);
-    // }
+    function test_DepositSellOrder() public setLowPrice() depositSell(FirstPoolId) {
+        (int24 poolId,
+        address maker,
+        int24 pairedPoolId,
+        uint256 quantity,
+        uint256 orderWeightedRate,
+        bool isBuyOrder)
+        = book.orders(FirstOrderId);
+        assertEq(poolId, FirstPoolId);
+        assertEq(maker, Bob);
+        assertEq(pairedPoolId, FirstPoolId - 1);
+        assertEq(quantity, DepositBT);
+        assertEq(orderWeightedRate, 1 * WAD);
+        assertEq(isBuyOrder, SellOrder);
+        assertEq(initialPriceWAD, book.limitPrice(FirstPoolId));
+    }
 
-    // // Transfer tokens to contract, correctly adjusts balances
-    // function test_DepositBuyOrderCheckBalances() public {
-    //     uint256 OrderBookBalance = quoteToken.balanceOf(OrderBook);
-    //     uint256 userBalance = quoteToken.balanceOf(Alice);
-    //     depositBuyOrder(Alice, 2000, 90);
-    //     assertEq(quoteToken.balanceOf(OrderBook), OrderBookBalance + 2000 * WAD);
-    //     assertEq(quoteToken.balanceOf(Alice), userBalance - 2000 * WAD);
-    //     checkOrderQuantity(1, 2000);
-    // }
+    // Deposit buy order correctly adjusts user deposit
+    function test_DepositBuyOrderCheckUserDeposit() public depositBuy(FirstPoolId) {
+        // first row of user.depositIds[] is 1
+        checkUserDepositId(Alice, 0, FirstOrderId);
+    }
 
-    // function test_DepositSellOrderCheckBalances() public {
-    //     uint256 OrderBookBalance = baseToken.balanceOf(OrderBook);
-    //     uint256 userBalance = baseToken.balanceOf(Alice);
-    //     depositSellOrder(Alice, 20, 110);
-    //     assertEq(baseToken.balanceOf(OrderBook), OrderBookBalance + 20 * WAD);
-    //     assertEq(baseToken.balanceOf(Alice), userBalance - 20 * WAD);
-    //     checkOrderQuantity(1, 20);
-    // }
+    // Deposit sell order correctly adjusts user deposit
+    function test_DepositSellOrderCheckUserDeposit() public setLowPrice() depositSell(FirstPoolId) {
+        // first row of user.depositIds[] is 1
+        checkUserDepositId(Bob, 0, FirstOrderId);
+    }
 
-    // // Make two orders, correctly adjusts external balances
-    // function test_DepositTwoBuyOrders() public {
-    //     uint256 OrderBookBalance = quoteToken.balanceOf(OrderBook);
-    //     uint256 userBalance = quoteToken.balanceOf(Alice);
-    //     depositBuyOrder(Alice, 2000, 90);
-    //     depositBuyOrder(Alice, 3000, 95);
-    //     assertEq(quoteToken.balanceOf(OrderBook), OrderBookBalance + 5000 * WAD);
-    //     assertEq(quoteToken.balanceOf(Alice), userBalance - 5000 * WAD);
-    //     checkOrderQuantity(Alice_Order, 2000);
-    //     checkOrderQuantity(Alice_Order + 1, 3000);
-    // }
+    // Deposit buy order correctly adjusts balances
+    function test_DepositBuyOrderCheckBalances() public {
+        uint256 OrderBookBalance = quoteToken.balanceOf(OrderBook);
+        uint256 userBalance = quoteToken.balanceOf(Alice);
+        depositBuyOrder(Alice, FirstPoolId, DepositQT, FirstPoolId + 1);
+        assertEq(quoteToken.balanceOf(OrderBook), OrderBookBalance + DepositQT);
+        assertEq(quoteToken.balanceOf(Alice), userBalance - DepositQT);
+        checkOrderQuantity(FirstOrderId, DepositQT);
+    }
 
-    // // Make three orders, correctly adjusts external balances
-    // function test_DepositThreeOrders() public {
-    //     uint256 bookBalance = baseToken.balanceOf(OrderBook);
-    //     depositSellOrder(Alice, 20, 110);
-    //     depositBuyOrder(Alice, 2000, 90);
-    //     depositSellOrder(Bob, 15, 105);
-    //     assertEq(baseToken.balanceOf(OrderBook), bookBalance + 35 * WAD);
-    //     assertEq(book.countOrdersOfUser(Alice), 2);
-    //     assertEq(book.countOrdersOfUser(Bob), 1);
-    //     assertEq(book.countOrdersOfUser(Carol), 0);
-    // }
+    // Deposit sell order correctly adjusts balances
+    function test_DepositSellOrderCheckBalances() public setLowPrice() {
+        uint256 OrderBookBalance = baseToken.balanceOf(OrderBook);
+        uint256 userBalance = baseToken.balanceOf(Bob);
+        depositSellOrder(Bob, FirstPoolId, DepositBT, FirstPoolId - 1);
+        assertEq(baseToken.balanceOf(OrderBook), OrderBookBalance + DepositBT);
+        assertEq(baseToken.balanceOf(Bob), userBalance - DepositBT);
+        checkOrderQuantity(FirstOrderId, DepositBT);
+    }
 
-    // // When deposit is less than min deposit, revert
-    // function test_RevertBuyOrderIfZeroDeposit() public {
-    //     vm.expectRevert("Deposit too small"); // confusing error message
-    //     depositBuyOrder(Alice, 99, 90);
-    //     checkOrderQuantity(Alice_Order, 0);
-    // }
+    // // Two orders correctly adjusts external balances
+    function test_DepositTwoBuyOrders() public {
+        uint256 orderBookBalance = quoteToken.balanceOf(OrderBook);
+        uint256 userBalance = quoteToken.balanceOf(Alice);
+        depositBuyOrder(Alice, FirstPoolId, DepositQT, FirstPoolId + 1);
+        depositBuyOrder(Alice, FirstPoolId - 1, 2 * DepositQT, FirstPoolId);
+        assertEq(quoteToken.balanceOf(OrderBook), orderBookBalance + 3 * DepositQT);
+        assertEq(quoteToken.balanceOf(Alice), userBalance - 3 * DepositQT);
+        checkOrderQuantity(FirstOrderId, DepositQT);
+        checkOrderQuantity(SecondOrderId, 2 * DepositQT);
+    }
 
-    // function test_RevertSellOrderIfZeroDeposit() public {
-    //     vm.expectRevert("Deposit too small");
-    //     depositSellOrder(Alice, 1, 110);
-    //     checkOrderQuantity(Alice_Order, 0);
-    // }
+    // Three buy orders correctly adjusts external balances
+    function test_DepositThreeOrders() public {
+        setPriceFeed(2100);
+        uint256 orderBookBalance = quoteToken.balanceOf(OrderBook);
+        uint256 userBalance = quoteToken.balanceOf(Alice);
+        depositBuyOrder(Alice, FirstPoolId, DepositQT, FirstPoolId + 1);
+        depositBuyOrder(Alice, FirstPoolId - 1, 2 * DepositQT, FirstPoolId);
+        depositBuyOrder(Alice, FirstPoolId - 2, DepositQT, FirstPoolId - 1);
+        assertEq(quoteToken.balanceOf(OrderBook), orderBookBalance + 4 * DepositQT);
+        assertEq(quoteToken.balanceOf(Alice), userBalance - 4 * DepositQT);
+        checkOrderQuantity(FirstOrderId, DepositQT);
+        checkOrderQuantity(SecondOrderId, 2 * DepositQT);
+        checkOrderQuantity(ThirdOrderId, DepositQT);
+    }
 
-    // // When price is zero, revert
-    // function test_RevertBuyOrderIfZeroPrice() public {
-    //     vm.expectRevert("Must be positive");
-    //     depositBuyOrder(Alice, 1000, 0);
-    //     checkOrderQuantity(Alice_Order, 0);
-    // }
+    // Three sell orders correctly adjusts external balances
+    function test_DepositThreeSellOrders() public setLowPrice() {
+        uint256 orderBookBalance = baseToken.balanceOf(OrderBook);
+        uint256 userBalance = baseToken.balanceOf(Alice);
+        depositSellOrder(Alice, FirstPoolId, DepositBT, FirstPoolId - 1);
+        depositSellOrder(Alice, FirstPoolId + 1, 2 * DepositBT, FirstPoolId);
+        depositSellOrder(Alice, FirstPoolId + 2, DepositBT, FirstPoolId + 1);
+        assertEq(baseToken.balanceOf(OrderBook), orderBookBalance + 4 * DepositBT);
+        assertEq(baseToken.balanceOf(Alice), userBalance - 4 * DepositBT);
+        checkOrderQuantity(FirstOrderId, DepositBT);
+        checkOrderQuantity(SecondOrderId, 2 * DepositBT);
+        checkOrderQuantity(ThirdOrderId, DepositBT);
+    }
 
-    // function test_RevertSellOrderIfZeroPrice() public {
-    //     vm.expectRevert("Must be positive");
-    //     depositSellOrder(Alice, 10, 0);
-    //     checkOrderQuantity(Alice_Order, 0);
-    // }
+    // When buy order deposit is zero, revert
+    function test_RevertBuyOrderIfZeroDeposit() public {
+        vm.expectRevert("Not enough deposited");
+        depositBuyOrder(Alice, FirstPoolId, 0, FirstPoolId + 1);
+        checkOrderQuantity(FirstOrderId, 0);
+    }
 
-    // // When an identical order exists, increase deposit of that order
-    // function test_AggregateIdenticalBuyOrder() public {
-    //     depositBuyOrder(Alice, 3000, 90);
-    //     depositBuyOrder(Alice, 2000, 90);
-    //     assertEq(book.countOrdersOfUser(Alice), 1);
-    //     checkOrderQuantity(Alice_Order, 5000);
-    //     checkOrderQuantity(Alice_Order + 1, 0);
-    // }
+    function test_RevertSellOrderIfZeroDeposit() public setLowPrice() {
+        vm.expectRevert("Not enough deposited");
+        depositSellOrder(Alice, FirstPoolId, 0, FirstPoolId - 1);
+        checkOrderQuantity(FirstOrderId, 0);
+    }
 
-    // function test_AggregateIdenticalSellOrder() public {
-    //     depositSellOrder(Alice, 30, 110);
-    //     depositSellOrder(Alice, 20, 110);
-    //     (,, uint256 quantity1,,,) = book.orders(1);
-    //     (,, uint256 quantity2,,,) = book.orders(2);
-    //     assertEq(quantity1, 50 * WAD);
-    //     assertEq(quantity2, 0);
-    //     assertEq(book.countOrdersOfUser(Alice), 1);
-    //     checkOrderQuantity(Alice_Order, 50);
-    // }
-    
-    // // revert if 0 quantity via increaseDeposit() if same limit price
-    // function test_IncreaseBuyOrderZeroQuantity() public {
-    //     depositBuyOrder(Alice, 3000, 90);
-    //     vm.expectRevert("Must be positive");
-    //     depositBuyOrder(Alice, 0, 90);
-    //     checkOrderQuantity(Alice_Order, 3000);
-    // }
+    // When deposit is less than min deposit, revert
+    function test_RevertBuyOrderIfLessMinDeposit() public {
+        vm.expectRevert("Not enough deposited");
+        depositBuyOrder(Alice, FirstPoolId, 99 * WAD, FirstPoolId + 1);
+        checkOrderQuantity(FirstOrderId, 0);
+    }
 
-    // function test_IncreaseSellOrderZeroQuantity() public {
-    //     depositSellOrder(Alice, 30, 110);
-    //     setPriceFeed(80);
-    //     vm.expectRevert("Must be positive");
-    //     depositSellOrder(Alice, 0, 110);
-    //     checkOrderQuantity(Alice_Order, 30);
-    // }
+    function test_RevertSellOrderIfLessMinDeposit() public setLowPrice() {
+        vm.expectRevert("Not enough deposited");
+        depositSellOrder(Alice, FirstPoolId, 1 * WAD, FirstPoolId - 1);
+        checkOrderQuantity(FirstOrderId, 0);
+    }
 
-    // // increase Deposit correctly adjusts balances
-    // function test_IncreaseBuyOrderCheckBalances() public {
-    //     uint256 bookBalance = quoteToken.balanceOf(OrderBook);
-    //     uint256 userBalance = quoteToken.balanceOf(Alice);
-    //     depositBuyOrder(Alice, 2000, 90);
-    //     depositBuyOrder(Alice, 3000, 90);
-    //     assertEq(quoteToken.balanceOf(OrderBook), bookBalance + 5000 * WAD);
-    //     assertEq(quoteToken.balanceOf(Alice), userBalance - 5000 * WAD);
-    //     checkOrderQuantity(Alice_Order, 5000);
-    // }
+    // When identical buy order exists, increase deposit
+    function test_AggregateIdenticalBuyOrder() public {
+        depositBuyOrder(Alice, FirstPoolId, DepositQT, FirstPoolId + 1);
+        depositBuyOrder(Alice, FirstPoolId, 2 * DepositQT, FirstPoolId + 1);
+        checkOrderQuantity(FirstOrderId, 3 * DepositQT);
+        checkOrderQuantity(FirstOrderId + 1, 0);
+    }
 
-    // function test_IncreaseSellOrderCheckBalances() public {
-    //     uint256 bookBalance = baseToken.balanceOf(OrderBook);
-    //     uint256 userBalance = baseToken.balanceOf(Alice);
-    //     depositSellOrder(Alice, 20, 110);
-    //     depositSellOrder(Alice, 30, 110);
-    //     assertEq(baseToken.balanceOf(OrderBook), bookBalance + 50 * WAD);
-    //     assertEq(baseToken.balanceOf(Alice), userBalance - 50 * WAD);
-    //     checkOrderQuantity(Alice_Order, 50);
-    // }
+    // When identical sell order exists, increase deposit
+    function test_AggregateIdenticalSellOrder() public setLowPrice() {
+        depositSellOrder(Alice, FirstPoolId, DepositBT, FirstPoolId - 1);
+        depositSellOrder(Alice, FirstPoolId, 2 * DepositBT, FirstPoolId - 1);
+        checkOrderQuantity(FirstOrderId, 3 * DepositBT);
+        checkOrderQuantity(FirstOrderId + 1, 0);
+    }
 
-    // // add new order if same order but different maker
-    // function test_AddSameBuyOrderDifferentMaker() public {
-    //     depositBuyOrder(Alice, 3000, 90);
-    //     depositBuyOrder(Bob, 2000, 90);
-    //     checkOrderQuantity(1, 3000);
-    //     checkOrderQuantity(2, 2000);
-    //     assertEq(book.countOrdersOfUser(Alice), 1);
-    //     assertEq(book.countOrdersOfUser(Bob), 1);
-    //     checkOrderQuantity(Alice_Order, 3000);
-    //     checkOrderQuantity(Bob_Order, 2000);
-    // }
+    // Identical buy orders, except pairedPriceId => two separate orders
+    function test_SeparateNearIdenticalBuyOrder() public {
+        depositBuyOrder(Alice, FirstPoolId, DepositQT, FirstPoolId + 1);
+        depositBuyOrder(Alice, FirstPoolId, 2 * DepositQT, FirstPoolId + 2);
+        checkOrderQuantity(FirstOrderId, DepositQT);
+        checkOrderQuantity(FirstOrderId + 1, 2 * DepositQT);
+    }
 
-    // // add order id in depositIds in users
-    // function test_AddDepositIdInUsers() public {
-    //     checkUserDepositId(Alice, 0, 0);
-    //     depositBuyOrder(Alice, 3000, 90);
-    //     checkUserDepositId(Alice, 0, Alice_Order);
-    //     checkUserDepositId(Alice, 1, 0);
-    //     depositBuyOrder(Alice, 2000, 95);
-    //     checkUserDepositId(Alice, 0, Alice_Order);
-    //     checkUserDepositId(Alice, 1, Alice_Order + 1);
-    // }
+    // Identical sell orders, except pairedPriceId => two separate orders
+    function test_SeparateNearIdenticalSellOrder() public setLowPrice() {
+        depositSellOrder(Alice, FirstPoolId, DepositBT, FirstPoolId - 1);
+        depositSellOrder(Alice, FirstPoolId, 2 * DepositBT, FirstPoolId - 2);
+        checkOrderQuantity(FirstOrderId, DepositBT);
+        checkOrderQuantity(FirstOrderId + 1, 2 * DepositBT);
+    }
 
-    // // user posts more than max number of orders
-    // function test_OrdersForUserExceedLimit() public {
-        
-    //     uint256 maxOrders = book.MAX_ORDERS() - 1;
-    //     setPriceFeed(10 * LowPrice + 1);
-    //     for (uint256 i = 0; i <= maxOrders; i++) {
-    //         depositBuyOrder(Alice, DepositQT / 10, 10 * LowPrice / (1 + i));
-    //     }
-    //     for (uint256 i = 0; i < maxOrders; i++) {
-    //         checkOrderQuantity(i+1, DepositQT / 10);
-    //     }
-    //     vm.expectRevert("Max orders reached");
-    //     depositBuyOrder(Alice, DepositQT / 10, 10 * LowPrice / (1 + maxOrders + 1));
-    // }
+    // Identical buy order Deposit correctly adjusts balances
+    function test_IncreaseBuyOrderCheckBalances() public {
+        uint256 bookBalance = quoteToken.balanceOf(OrderBook);
+        uint256 userBalance = quoteToken.balanceOf(Alice);
+        depositBuyOrder(Alice, FirstPoolId, DepositQT, FirstPoolId + 1);
+        depositBuyOrder(Alice, FirstPoolId, 2 * DepositQT, FirstPoolId + 1);
+        assertEq(quoteToken.balanceOf(OrderBook), bookBalance + 3 * DepositQT);
+        assertEq(quoteToken.balanceOf(Alice), userBalance - 3 * DepositQT);
+    }
 
-    // // user switches from borrowable buy order to non borrowable
-    // function test_SwitchBuyToNonBorrowable() public {
-    //     depositBuyOrder(Alice, 3000, 90);
-    //     checkOrderIsBorrowable(Alice_Order);
-    //     makeOrderNonBorrowable(Alice, Alice_Order);
-    //     checkOrderIsNonBorrowable(Alice_Order);
-    // }
+    // Identical Deposit correctly adjusts balances
+    function test_IncreaseSellOrderCheckBalances() public setLowPrice() {
+        uint256 bookBalance = baseToken.balanceOf(OrderBook);
+        uint256 userBalance = baseToken.balanceOf(Alice);
+        depositSellOrder(Alice, FirstPoolId, DepositBT, FirstPoolId - 1);
+        depositSellOrder(Alice, FirstPoolId, 2 * DepositBT, FirstPoolId - 1);
+        assertEq(baseToken.balanceOf(OrderBook), bookBalance + 3 * DepositBT);
+        assertEq(baseToken.balanceOf(Alice), userBalance - 3 * DepositBT);
+    }
 
-    // // user switches from non borrowable buy order to borrowable
-    // function test_SwitchBuyToBorrowable() public {
-    //     depositBuyOrder(Alice, 3000, 90);
-    //     makeOrderNonBorrowable(Alice, Alice_Order);
-    //     makeOrderBorrowable(Alice, Alice_Order);
-    //     checkOrderIsBorrowable(Alice_Order);
-    // }
+    // add order id in depositIds in users
+    function test_AddDepositIdInUsers() public {
+        checkUserDepositId(Alice, 0, NoOrderId);
+        depositBuyOrder(Alice, FirstPoolId, DepositQT, FirstPoolId + 1);
+        checkUserDepositId(Alice, 0, FirstOrderId);
+        checkUserDepositId(Alice, 1, NoOrderId);
+        depositBuyOrder(Alice, FirstPoolId - 1, DepositQT, FirstPoolId);
+        checkUserDepositId(Alice, 0, FirstOrderId);
+        checkUserDepositId(Alice, 1, SecondOrderId);
+        checkUserDepositId(Alice, 2, NoOrderId);
+    }
 
-    // // user switches from borrowable sell order to non borrowable
-    // function test_SwitchSellToNonBorrowable() public {
-    //     depositSellOrder(Alice, 30, 110);
-    //     checkOrderIsBorrowable(Alice_Order);
-    //     makeOrderNonBorrowable(Alice, Alice_Order);
-    //     checkOrderIsNonBorrowable(Alice_Order);
-    // }
+    // user posts more than max number of orders
+    function test_OrdersForUserExceedLimit() public {
+        uint256 maxOrders = book.MAX_ORDERS() - 1;
+        for (uint256 i = 0; i <= maxOrders; i++) {
+            int24 j = int24(int256(i));
+            depositBuyOrder(Alice, FirstPoolId - j, DepositQT / maxOrders, FirstPoolId - j + 1);
+        }
+        for (uint256 i = 0; i <= maxOrders; i++) {
+            checkOrderQuantity(i+1, DepositQT / maxOrders);
+        }
+        int24 maxInt24 = int24(int256(maxOrders));
+        vm.expectRevert("Max orders reached");
+        depositBuyOrder(Alice, FirstPoolId - maxInt24 - 1, DepositQT / maxOrders, FirstPoolId - maxInt24);
+    }
 
-    // // user switches from non borrowable sell order to borrowable
-    // function test_SwitchSellToBorrowable() public {
-    //     depositSellOrder(Alice, 30, 110);
-    //     makeOrderNonBorrowable(Alice, Alice_Order);
-    //     makeOrderBorrowable(Alice, Alice_Order);
-    //     checkOrderIsBorrowable(Alice_Order);
-    // }
+    // revert if inconsistent paired prices in buy order
+    function test_RevertBuyOrderInconsistentPairedPrice() public {
+        vm.expectRevert("Inconsistent prices");
+        depositBuyOrder(Alice, FirstPoolId, DepositQT, FirstPoolId - 1);
+    }
 
-    // // filling a consistent paired price in buy order is ok
-    // function test_BuyOrderConsistentPairedPriceIsOk() public {
-    //     depositBuyOrderWithPairedPrice(Alice, 1000, 90, 110);
-    //     checkOrderPrice(Alice_Order, 90);
-    //     checkOrderPairedPrice(Alice_Order, 110);
-    // }
+    // revert if inconsistent paired prices in sell order
+    function test_RvertSellOrderInconsistentPairedPrice() public setLowPrice() {
+        vm.expectRevert("Inconsistent prices");
+        depositSellOrder(Alice, FirstPoolId, DepositBT, FirstPoolId + 1);
+    }
 
-    // // filling a consistent paired price in sell order is ok
-    // function test_SellOrderConsistentPairedPriceIsOk() public {
-    //     depositSellOrderWithPairedPrice(Alice, 10, 110, 90);
-    //     checkOrderPrice(Alice_Order, 110);
-    //     checkOrderPairedPrice(Alice_Order, 90);
-    // }
-    
-    // // Check that filling 0 in paired price while depositing sets buy order's paired price to limit price + 10%
-    // function test_SetBuyOrderPairedPriceToZeroOk() public {
-    //     depositBuyOrderWithPairedPrice(Alice, 1000, 90, 0);
-    //     checkOrderPairedPrice(Alice_Order, 90 + 90 / 10);
-    // }
+    // revert if same paired prices in buy order
+    function test_RevertBuyOrderSamePairedPrice() public {
+        vm.expectRevert("Inconsistent prices");
+        depositBuyOrder(Alice, FirstPoolId, DepositQT, FirstPoolId);
+    }
 
-    // // Check that filling 0 in paired price while depositing sets buy order's paired price to limit price - 10%
-    // function test_SetSellOrderPairedPriceToZeroOk() public {
-    //     depositSellOrderWithPairedPrice(Alice, 10, 110, 0);
-    //     checkOrderPairedPrice(Alice_Order, 110 - 110/11);
-    // }
+    // revert if same paired prices in sell order
+    function test_RevertSellOrderSamePairedPrice() public setLowPrice() {
+        vm.expectRevert("Inconsistent prices");
+        depositSellOrder(Alice, FirstPoolId, DepositBT, FirstPoolId);
+    }
 
-    // // filling an inconsistent paired price in buy order reverts
-    // function test_RevertBuyOrderInconsistentPairedPrice() public {
-    //     vm.expectRevert("Inconsistent prices");
-    //     depositBuyOrderWithPairedPrice(Alice, 1000, 90, 80);
-    // }
+    // User excess collateral is correct after deposit in buy order
+    function test_DepositBuyOrderExcessCollateral() public depositBuy(FirstPoolId) {
+        uint256 userEC = book.getUserExcessCollateral(Alice, 0, book.MAX_LTV());
+        assertEq(userEC, book.MAX_LTV() * DepositQT / book.limitPrice(FirstPoolId));
+    }
 
-    // // filling an inconsistent paired price in sell order reverts
-    // function test_RevertSellOrderInconsistentPairedPrice() public {
-    //     vm.expectRevert("Inconsistent prices");
-    //     depositSellOrderWithPairedPrice(Alice, 10, 110, 120);
-    // }
+    // User excess collateral is correct after deposit in sell order
+    function test_DepositSellOrderExcessCollateral() public setLowPrice() depositSell(FirstPoolId) {
+        uint256 userEC = book.getUserExcessCollateral(Bob, 0, book.MAX_LTV());
+        assertEq(userEC, book.MAX_LTV() * DepositBT / WAD);
+    }
 
     // // Paired price in buy order is used in paired limit order after taking
     // function test_BuyOrderPairedPricereportsOk() public {

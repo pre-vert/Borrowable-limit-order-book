@@ -8,7 +8,10 @@ import {console} from "forge-std/console.sol";
 
 contract DeployBook is Script {
 
-    uint256 initialPrice = 100;
+    // limit price of the genesis pool, either a buy order or sell order pool
+    // not to be confused with price feed
+    
+    uint256 initialPrice = 2000 * 10**18;
 
     function run() external returns (Book, Token, Token, uint256) {
         vm.startBroadcast();

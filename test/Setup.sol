@@ -12,38 +12,38 @@ contract Setup is StdCheats, Test {
     Book public book;
     Token public baseToken;
     Token public quoteToken;
-    uint256 initialPrice;
+    uint256 initialPriceWAD; // limit price in WAD of genesis pool
     DeployBook public deployBook;
 
+    // constants //
     bool constant public BuyOrder = true;
     bool constant public SellOrder = false;
     bool constant public InQuoteToken = true;
     bool constant public InBaseToken = false;
-    // bool constant public IsBorrowable = true;
-    // bool constant public IsNonBorrowable = false;
     uint256 constant public AccountNumber = 27;
     uint256 constant public ReceivedQuoteToken = 20000 * WAD;
     uint256 constant public ReceivedBaseToken = 200 * WAD;
     uint256 constant public YEAR = 365 days; // number of seconds in one year
     uint256 constant public DAY = 1 days; // number of seconds in one day
-    uint256 constant No_Order = 0;
-    uint256 constant Alice_Order = 1;
-    uint256 constant Bob_Order = 2;
-    uint256 constant Carol_Order = 3;
-    uint256 constant Dave_Order = 4;
+    uint256 constant NoOrderId = 0;
+    uint256 constant FirstOrderId = 1;
+    uint256 constant SecondOrderId = 2;
+    uint256 constant ThirdOrderId = 3;
+    uint256 constant FourthOrderId = 4;
+    int24 constant FirstPoolId = 0;
     uint256 constant Alice_Position = 1;
     uint256 constant Bob_Position = 1;
     uint256 constant Carol_Position = 2;
-    uint256 constant DepositQT = 1800;
-    uint256 constant DepositBT = 20;
-    uint256 constant TakeQT = 900;
-    uint256 constant TakeBT = 10;
-    int24 constant UltraLowPrice = -2;
-    int24 constant VeryLowPrice = -1;
-    int24 constant LowPrice = 0;
-    int24 constant HighPrice = 1;
-    int24 constant VeryHighPrice = 2;
-    int24 constant UltraHighPrice = 3;
+    uint256 constant DepositQT = 1818 * WAD;
+    uint256 constant DepositBT = 20 * WAD;
+    uint256 constant TakeQT = 900 * WAD;
+    uint256 constant TakeBT = 10 * WAD;
+    int24 constant UltraLowPriceId = -2;
+    int24 constant VeryLowPriceId = -1;
+    int24 constant LowPriceId = 0;
+    int24 constant HighPriceId = 1;
+    int24 constant VeryHighPriceId = 2;
+    int24 constant UltraHighPriceId = 3;
 
     address OrderBook;
     address Alice;
@@ -53,11 +53,31 @@ contract Setup is StdCheats, Test {
 
     mapping(uint256 => address) public acc;
 
+    modifier depositBuy(int24 _poolId) {
+        depositBuyOrder(Alice, _poolId, DepositQT, _poolId + 1);
+        _;
+    }
+
+    modifier depositSell(int24 _poolId) {
+        depositSellOrder(Bob, _poolId, DepositBT, _poolId - 1);
+        _;
+    }
+
+    modifier setLowPrice() {
+        setPriceFeed(initialPriceWAD / WAD - 1);
+        _;
+    }
+
+    modifier setHighPrice() {
+        setPriceFeed(initialPriceWAD / WAD + 1);
+        _;
+    }
+
     function setUp() public {
         deployBook = new DeployBook();
-        (book, quoteToken, baseToken, initialPrice) = deployBook.run();
-        // book.limitPrice[0] = initialPrice;
+        (book, quoteToken, baseToken, initialPriceWAD) = deployBook.run();
         fundingAccounts(AccountNumber);
+        setPriceFeed(2001);
     }
     
     // funding an army of traders
@@ -95,7 +115,7 @@ contract Setup is StdCheats, Test {
         int24 _pairedPoolId
     ) public {
         vm.prank(_user);
-        book.deposit( _poolId, _quantity * WAD, _pairedPoolId, BuyOrder);
+        book.deposit( _poolId, _quantity, _pairedPoolId, BuyOrder);
     }
 
     function depositSellOrder(
@@ -105,47 +125,27 @@ contract Setup is StdCheats, Test {
         int24 _pairedPoolId
     ) public {
         vm.prank(_user);
-        book.deposit(_poolId, _quantity * WAD, _pairedPoolId, SellOrder);
+        book.deposit(_poolId, _quantity, _pairedPoolId, SellOrder);
     }
-
-    // function depositBuyOrderWithPairedPrice(
-    //     address _user,
-    //     uint256 _quantity,
-    //     uint256 _price,
-    //     uint256 _pairedPrice
-    // ) public {
-    //     vm.prank(_user);
-    //     book.deposit(_quantity * WAD, _price * WAD, _pairedPrice * WAD, BuyOrder);
-    // }
-
-    // function depositSellOrderWithPairedPrice(
-    //     address _user,
-    //     uint256 _quantity,
-    //     uint256 _price,
-    //     uint256 _pairedPrice
-    //     ) public {
-    //     vm.prank(_user);
-    //     book.deposit(_quantity * WAD, _price * WAD, _pairedPrice * WAD, SellOrder, IsBorrowable);
-    // }
 
     function withdraw(address _user, uint256 _orderId, uint256 _quantity) public {
         vm.prank(_user);
-        book.withdraw(_orderId, _quantity * WAD);
+        book.withdraw(_orderId, _quantity);
     }
 
     function borrow(address _user, int24 _poolId, uint256 _quantity) public {
         vm.prank(_user);
-        book.borrow(_poolId, _quantity * WAD);
+        book.borrow(_poolId, _quantity);
     }
     
     function repay(address _user, uint256 _positionId, uint256 _quantity) public {
         vm.prank(_user);
-        book.repay(_positionId, _quantity * WAD);
+        book.repay(_positionId, _quantity);
     }
 
     function take(address _user, int24 _poolId, uint256 _quantity) public {
         vm.prank(_user);
-        book.take(_poolId, _quantity * WAD);
+        book.take(_poolId, _quantity);
     }
 
     function liquidateBorrower(address _user, uint256 _quantity) public {
@@ -166,7 +166,7 @@ contract Setup is StdCheats, Test {
     // check assets in order == _quantity
     function checkOrderQuantity(uint256 _orderId, uint256 _quantity) public {
         (,,, uint256 quantity,,) = book.orders(_orderId);
-        assertEq(quantity, _quantity * WAD);
+        assertEq(quantity, _quantity);
     }
 
     // check limit price in order
@@ -184,7 +184,7 @@ contract Setup is StdCheats, Test {
     // check assets borrowed in position = _quantity
     function checkBorrowingQuantity(uint256 _positionId, uint256 _quantity) public {
         (,, uint256 quantity,) = book.positions(_positionId);
-        assertEq(quantity, _quantity * WAD);
+        assertEq(quantity, _quantity);
     }
     
     function checkUserDepositId(address _user, uint256 _row, uint256 _orderId) public {
