@@ -9,6 +9,9 @@ import {MathLib, WAD} from "../lib/MathLib.sol";
 contract TestDeposit is Setup {
 
     // if new limit order, create order in mapping orders
+    // market price set initially at 2001
+    // deposit buy order at initial price = 2000 = limit price pool(0) < market price
+
     function test_DepositBuyOrder() public depositBuy(LowPriceId) {
         // vm.warp(0);
         (int24 poolId,
@@ -28,6 +31,10 @@ contract TestDeposit is Setup {
         assertEq(isBuyOrder, BuyOrder);
         assertEq(initialPriceWAD, book.limitPrice(FirstPoolId));
     }
+
+    // market price set initially at 2001
+    // set low price at 1999
+    // deposit sell order at initial price = 2000 > limit price pool(0)
 
     function test_DepositSellOrder() public setLowPrice() depositSell(FirstPoolId) {
         (int24 poolId,
@@ -141,7 +148,7 @@ contract TestDeposit is Setup {
 
     function test_RevertSellOrderIfLessMinDeposit() public setLowPrice() {
         vm.expectRevert("Not enough deposited");
-        depositSellOrder(Alice, FirstPoolId, 1 * WAD, FirstPoolId - 1);
+        depositSellOrder(Alice, FirstPoolId, 1 * WAD / 10, FirstPoolId - 1);
         checkOrderQuantity(FirstOrderId, 0);
     }
 
@@ -250,14 +257,14 @@ contract TestDeposit is Setup {
 
     // User excess collateral is correct after deposit in buy order
     function test_DepositBuyOrderExcessCollateral() public depositBuy(FirstPoolId) {
-        uint256 userEC = book.getUserExcessCollateral(Alice, 0, book.MAX_LTV());
-        assertEq(userEC, book.MAX_LTV() * DepositQT / book.limitPrice(FirstPoolId));
+        uint256 userEC = book.getUserExcessCollateral(Alice, 0, book.ALTV());
+        assertEq(userEC, book.ALTV() * DepositQT / book.limitPrice(FirstPoolId));
     }
 
     // User excess collateral is correct after deposit in sell order
     function test_DepositSellOrderExcessCollateral() public setLowPrice() depositSell(FirstPoolId) {
-        uint256 userEC = book.getUserExcessCollateral(Bob, 0, book.MAX_LTV());
-        assertEq(userEC, book.MAX_LTV() * DepositBT / WAD);
+        uint256 userEC = book.getUserExcessCollateral(Bob, 0, book.ALTV());
+        assertEq(userEC, book.ALTV() * DepositBT / WAD);
     }
 
     // // Paired price in buy order is used in paired limit order after taking

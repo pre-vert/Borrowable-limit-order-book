@@ -21,21 +21,24 @@ contract Setup is StdCheats, Test {
     bool constant public InQuoteToken = true;
     bool constant public InBaseToken = false;
     uint256 constant public AccountNumber = 27;
-    uint256 constant public ReceivedQuoteToken = 20000 * WAD;
+    uint256 constant public ReceivedQuoteToken = 400000 * WAD;
     uint256 constant public ReceivedBaseToken = 200 * WAD;
     uint256 constant public YEAR = 365 days; // number of seconds in one year
     uint256 constant public DAY = 1 days; // number of seconds in one day
+    uint256 constant FirstRow = 0;
+    uint256 constant SecondRow = 1;
     uint256 constant NoOrderId = 0;
     uint256 constant FirstOrderId = 1;
     uint256 constant SecondOrderId = 2;
     uint256 constant ThirdOrderId = 3;
     uint256 constant FourthOrderId = 4;
     int24 constant FirstPoolId = 0;
-    uint256 constant Alice_Position = 1;
-    uint256 constant Bob_Position = 1;
-    uint256 constant Carol_Position = 2;
-    uint256 constant DepositQT = 1818 * WAD;
-    uint256 constant DepositBT = 20 * WAD;
+    uint256 constant NoPositionId = 0;
+    uint256 constant FirstPositionId = 1;
+    uint256 constant SecondPositionId = 2;
+    uint256 constant ThirdPositionId = 3;
+    uint256 constant DepositQT = 20000 * WAD;
+    uint256 constant DepositBT = 10 * WAD;
     uint256 constant TakeQT = 900 * WAD;
     uint256 constant TakeBT = 10 * WAD;
     int24 constant UltraLowPriceId = -2;
@@ -64,7 +67,7 @@ contract Setup is StdCheats, Test {
     }
 
     modifier setLowPrice() {
-        setPriceFeed(initialPriceWAD / WAD - 1);
+        setPriceFeed(initialPriceWAD / WAD - 2);
         _;
     }
 
@@ -187,12 +190,14 @@ contract Setup is StdCheats, Test {
         assertEq(quantity, _quantity);
     }
     
+    // input row, starting at 0, returns order id
     function checkUserDepositId(address _user, uint256 _row, uint256 _orderId) public {
         assertEq(book.getUserDepositIds(_user)[_row], _orderId);
     }
 
-    function checkUserBorrowId(address _user, uint256 _row, uint256 _orderId) public {
-        assertEq(book.getUserBorrowFromIds(_user)[_row], _orderId);
+    // input row, starting 0, returns position id
+    function checkUserBorrowId(address _user, uint256 _row, uint256 _positionId) public {
+        assertEq(book.getUserBorrowFromIds(_user)[_row], _positionId);
     }
 
     function checkInstantRate(int24 _poolId) public {
