@@ -1,18 +1,14 @@
 # LendBook
 
-This repository contains the core Solidity contract of a new lending protocol in which lenders supply liquidity in limit orders.
-
-## Overview
-
-Other users can borrow the assets by posting collateral in limit orders. All orders are displayed in a limit order book and can be taken by traders. The main rule governing the protocol ensures that any position borrowing from a limit order must be closed when the limit order is executed. The alignment of the two events significantly streamlines the settlement process for both parties.
+This repository contains the core Solidity contract of a new lending protocol in which lenders supply liquidity in limit orders. Other users can borrow the assets by posting collateral in limit orders. All orders are displayed in a limit order book and can be taken by traders. All positions are liquidated when the limit orders from which the assets are borrowed are filled.
 
 ### Benefits
 
 The benefits of associating a limit price to the supplied liquidity are multiple:
 
 - stop loss orders with guaranteed stop price
-- zero liquidation costs
-- high leverage
+- low liquidation costs
+- high loan-to-value and leverage
 - leverage programmability
 - no risk of bad debt
 - minimized governance
