@@ -4,7 +4,7 @@ This repository contains the core Solidity contract of a new lending protocol in
 
 ### Benefits
 
-The benefits of appending a lending protocol to an order book are multiple:
+The benefits of associating a limit price to the supplied liquidity are multiple:
 
 - stop loss orders with guaranteed stop price
 - low liquidation costs
