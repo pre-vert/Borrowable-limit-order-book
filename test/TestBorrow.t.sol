@@ -9,7 +9,7 @@ contract TestBorrow is Setup {
 
     // ok if borrower is maker
     // market price set initially at 2001
-    // deposit buy order at initial price = 2000 = limit price pool(0) < market price
+    // deposit buy order at limit price = 2000 = limit price pool(0) < market price
     // deposit sell order price at 2200 = limit price pool(1) > market price 
 
     function test_BorrowBuyOrderOkIfMaker() public {
@@ -22,14 +22,14 @@ contract TestBorrow is Setup {
 
     // borrow reverts if non-existing buy order
     function test_BorrowNonExistingBuyOrder() public setLowPrice() depositSell(FirstPoolId) {
-        vm.expectRevert("Pool has no orders_1");
+        vm.expectRevert("Pool_empty_1");
         borrow(Bob, FirstPoolId - 1, DepositQT / 2);
     }
     
     // reverts if borrowing is zero
     function test_BorrowBuyOrderFailsIfZero() public 
         depositBuy(FirstPoolId) setLowPrice() depositSell(FirstPoolId + 1) {
-        vm.expectRevert("Must be positive");
+        vm.expectRevert("Borrow zero");
         borrow(Bob, FirstPoolId, 0);
     }
     
@@ -59,10 +59,10 @@ contract TestBorrow is Setup {
         borrow(Bob, FirstPoolId, DepositQT); 
     }
 
-    // Lender and borrower excess collaterals in quote and base token are correct
-    // Alice deposits buy order of 20,000 at initial price 2000 => EC = ALTV * 20000 / 2000 = 9.8
-    // Bob deposits sell order of 10 at initial price = 2200 => EC = ALTV * 10 = 9.8
-    // borrow 10000 => EC = EC - 10000 / 2000 = 9.8 - 5 = EC - 4.8
+    // Borrower excess collateral in base token is correct
+    // Alice deposits buy order of 20,000 at limit price 2000 => EC = ALTV * 20,000 / 2000 = 9.8
+    // Bob deposits sell order of 10 at limit price 2200 => EC = ALTV * 10 = 9.8
+    // borrows 20,000/2 at limit price 2000 => EC = EC - 20,000 / (2*2000) = 9.8 - 5 = 4.8
 
     function test_BorrowBuyOrderExcessCollateral() public depositBuy(FirstPoolId) depositSell(FirstPoolId + 1) {
         uint256 ALTV = book.ALTV();

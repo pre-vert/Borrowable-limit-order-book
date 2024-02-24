@@ -41,6 +41,8 @@ contract Setup is StdCheats, Test {
     uint256 constant DepositBT = 10 * WAD;
     uint256 constant TakeQT = 900 * WAD;
     uint256 constant TakeBT = 10 * WAD;
+    uint256 constant LowPrice = 2000 * 10**18 - 20 * WAD;
+    uint256 constant HighPrice = 2000 * 10**18 + 20 * WAD;
     int24 constant UltraLowPriceId = -2;
     int24 constant VeryLowPriceId = -1;
     int24 constant LowPriceId = 0;
@@ -67,12 +69,12 @@ contract Setup is StdCheats, Test {
     }
 
     modifier setLowPrice() {
-        setPriceFeed(initialPriceWAD / WAD - 2);
+        setPriceFeed(LowPrice / WAD);
         _;
     }
 
     modifier setHighPrice() {
-        setPriceFeed(initialPriceWAD / WAD + 1);
+        setPriceFeed(HighPrice / WAD);
         _;
     }
 
@@ -146,9 +148,9 @@ contract Setup is StdCheats, Test {
         book.repay(_positionId, _quantity);
     }
 
-    function take(address _user, int24 _poolId, uint256 _quantity) public {
+    function take(address _user, int24 _poolId, uint256 _takenQuantity) public {
         vm.prank(_user);
-        book.take(_poolId, _quantity);
+        book.take(_poolId, _takenQuantity);
     }
 
     function liquidateBorrower(address _user, uint256 _quantity) public {

@@ -23,14 +23,14 @@ contract TestWithdraw is Setup {
 
     // withdraw fails if removal of buy order is zero
     function testRemoveBuyOrderFailsIfZero() public depositBuy(FirstPoolId) {
-        vm.expectRevert("Must be positive");
+        vm.expectRevert("Remove zero");
         withdraw(Alice, FirstOrderId, 0);
         checkOrderQuantity(FirstOrderId, DepositQT);
     }
     
     // withdraw fails if removal of sell order is zero
     function testRemoveSellOrderFailsIfZero() public setLowPrice() depositSell(FirstPoolId) {
-        vm.expectRevert("Must be positive");
+        vm.expectRevert("Remove zero");
         withdraw(Alice, FirstOrderId, 0);
         checkOrderQuantity(FirstOrderId, DepositBT);
     }

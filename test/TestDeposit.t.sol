@@ -77,10 +77,10 @@ contract TestDeposit is Setup {
 
     // Deposit sell order correctly adjusts balances
     function test_DepositSellOrderCheckBalances() public setLowPrice() {
-        uint256 OrderBookBalance = baseToken.balanceOf(OrderBook);
+        uint256 orderBookBalance = baseToken.balanceOf(OrderBook);
         uint256 userBalance = baseToken.balanceOf(Bob);
         depositSellOrder(Bob, FirstPoolId, DepositBT, FirstPoolId - 1);
-        assertEq(baseToken.balanceOf(OrderBook), OrderBookBalance + DepositBT);
+        assertEq(baseToken.balanceOf(OrderBook), orderBookBalance + DepositBT);
         assertEq(baseToken.balanceOf(Bob), userBalance - DepositBT);
         checkOrderQuantity(FirstOrderId, DepositBT);
     }
