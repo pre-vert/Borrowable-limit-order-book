@@ -327,11 +327,17 @@ contract Book is IBook {
     )
         external
     {
+        
+        console.log("borrowed assets :", _quantity / WAD, "USDC");
+        displayPoolId(_poolId);
+        
         require(_quantity > 0, "Borrow zero");
         require(_poolHasAssets(_poolId), "Pool_empty_1");
         
         // pool's asset type, revert if no assets
         bool inQuote = _isQuote(_poolType(_poolId));
+
+        console.log("pool's asset type is buy order :", inQuote);
 
         // only quote tokens can be borrowed
         require(inQuote, "Cannot borrow_0");
@@ -347,6 +353,8 @@ contract Book is IBook {
         // cannot borrow more than available assets in pool to borrow
         require(_quantity <= _poolAvailableAssets(_poolId), "Borrow too much_2");
 
+        console.log("available assets in pool to borrow :", _poolAvailableAssets(_poolId) / WAD, "USDC");
+
         // update borrower's positions with accrued interest rate in all pools in which he borrows
         // updates borrower's required collateral and excess collateral
         _addInterestRateToUserPositions(msg.sender);
@@ -356,6 +364,8 @@ contract Book is IBook {
 
         // required collateral (in base tokens) to borrow _quantity (in quote tokens)
         uint256 requiredCollateral = _convert(_quantity, limitPrice[_poolId], inQuote, ROUNDUP);
+
+        console.log("required collateral :", requiredCollateral / WAD, "ETH");
 
         // check borrowed amount is collateralized enough by borrower's own orders
         require(getUserExcessCollateral(msg.sender, requiredCollateral, ALTV) > 0, "Borrow too much_3");
@@ -721,7 +731,7 @@ contract Book is IBook {
         // only buy orders accrue interest rate
         uint256 orderWeightedRate = _isBuyOrder ? pools[_poolId].timeUrWeightedRate : 1 * WAD;
         
-        // create new order in orders
+        // seed new order
         Order memory newOrder = Order(
             _poolId,
             _maker,
@@ -734,7 +744,9 @@ contract Book is IBook {
         newOrderId_ = lastOrderId;
         console.log("                  ** New order created **");
         console.log("                        New order id :", lastOrderId);
+        displayPoolId(_poolId);
 
+        // create new order in orders
         orders[newOrderId_] = newOrder;
         console.log("                        New order quantity :", orders[newOrderId_].quantity / WAD);
         console.log("                        New order is buy order :", orders[newOrderId_].isBuyOrder);
@@ -1258,7 +1270,7 @@ contract Book is IBook {
 
             if (orders[orderId].quantity == 0) {
                 users[_user].depositIds[i] = _orderId;
-                console.log("                        First available order id :", _orderId);
+                console.log("                        First row available in depositIds[] :", i, "over", MAX_ORDERS);
                 fillRow = true;
                 break;
             }
@@ -1304,7 +1316,6 @@ contract Book is IBook {
     )
         internal
     {
-        displayPoolId(_poolId);
         console.log("                     top order of pool before insertion:", pools[_poolId].topOrder);
         console.log("                     order id inserted in pool's orderIds[]:", _orderId);
         pools[_poolId].orderIds[pools[_poolId].topOrder] = _orderId;
@@ -1980,7 +1991,7 @@ contract Book is IBook {
             signe = "-";
             uint256PoolId = uint256(int256(-_poolId));
         }
-        console.log("                     Pool id :", signe, "", uint256PoolId);
+        console.log("                        Pool id :", signe, "", uint256PoolId);
     }
     
     // Add manual getter for depositIds for User, used in setup.sol for tests

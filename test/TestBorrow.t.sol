@@ -47,6 +47,27 @@ contract TestBorrow is Setup {
         checkBorrowingQuantity(FirstPositionId, DepositQT / 2); 
     }
 
+    // borrow of buy order collateralized by quote tokens correctly adjusts balances
+    // market price set initially at 2001
+    // Alice deposits buy order at 2000 (initialPriceWAD)
+    // price is set at 2201
+    // Bob deposits buy order at 2200 and borrows quote tokens from Alice
+
+    function test_BorrowBuyOrderWithQuoteTokens() public depositBuy(FirstPoolId) {
+        setPriceFeed(initialPriceWAD / WAD + 201);
+        depositBuyOrder(Bob, FirstPoolId + 1, DepositQT, FirstPoolId + 2);
+        uint256 bookBalance = quoteToken.balanceOf(OrderBook);
+        uint256 lenderBalance = quoteToken.balanceOf(Alice);
+        uint256 borrowerBalance = quoteToken.balanceOf(Bob);
+        borrow(Bob, FirstPoolId,  DepositQT / 2);
+        assertEq(quoteToken.balanceOf(OrderBook), bookBalance - DepositQT / 2);
+        assertEq(quoteToken.balanceOf(Alice), lenderBalance);
+        assertEq(quoteToken.balanceOf(Bob), borrowerBalance + DepositQT / 2);
+        checkOrderQuantity(FirstOrderId, DepositQT);
+        checkOrderQuantity(SecondOrderId, DepositQT);
+        checkBorrowingQuantity(FirstPositionId, DepositQT / 2); 
+    }
+
     // revert if borrow all assets in a pool
     function test_FailsIfBorrowAllDeposit() public depositBuy(FirstPoolId) depositSell(FirstPoolId + 1) {
         vm.expectRevert("Borrow too much_2");
