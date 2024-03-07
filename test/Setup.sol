@@ -12,17 +12,18 @@ contract Setup is StdCheats, Test {
     Book public book;
     Token public baseToken;
     Token public quoteToken;
-    uint256 initialPriceWAD; // limit price in WAD of genesis pool
     DeployBook public deployBook;
 
     // constants //
+    uint256 genesisLimitPriceWAD; // initial limit price in WAD of genesis pool = 2000
     bool constant public BuyOrder = true;
     bool constant public SellOrder = false;
     bool constant public InQuoteToken = true;
     bool constant public InBaseToken = false;
-    uint256 constant public AccountNumber = 27;
-    uint256 constant public ReceivedQuoteToken = 400000 * WAD;
-    uint256 constant public ReceivedBaseToken = 200 * WAD;
+    uint256 constant public B = 1111111110;
+    uint256 constant public AccountNumber = 102;
+    uint256 constant public ReceivedQuoteToken = 10000000 * WAD;
+    uint256 constant public ReceivedBaseToken = 5000 * WAD;
     uint256 constant public YEAR = 365 days; // number of seconds in one year
     uint256 constant public DAY = 1 days; // number of seconds in one day
     uint256 constant FirstRow = 0;
@@ -32,7 +33,7 @@ contract Setup is StdCheats, Test {
     uint256 constant SecondOrderId = 2;
     uint256 constant ThirdOrderId = 3;
     uint256 constant FourthOrderId = 4;
-    int24 constant FirstPoolId = 0;
+    // uint256 constant FirstPoolId = GenPoolId;
     uint256 constant NoPositionId = 0;
     uint256 constant FirstPositionId = 1;
     uint256 constant SecondPositionId = 2;
@@ -41,30 +42,33 @@ contract Setup is StdCheats, Test {
     uint256 constant DepositBT = 10 * WAD;
     uint256 constant TakeQT = 900 * WAD;
     uint256 constant TakeBT = 10 * WAD;
-    uint256 constant LowPrice = 2000 * 10**18 - 20 * WAD;
-    uint256 constant HighPrice = 2000 * 10**18 + 20 * WAD;
-    int24 constant UltraLowPriceId = -2;
-    int24 constant VeryLowPriceId = -1;
-    int24 constant LowPriceId = 0;
-    int24 constant HighPriceId = 1;
-    int24 constant VeryHighPriceId = 2;
-    int24 constant UltraHighPriceId = 3;
+    uint256 constant LowPrice = 1980 * WAD;
+    uint256 constant HighPrice = 2020 * WAD;
+    uint256 constant UltraLowPrice = 1800 * WAD;
+    uint256 constant UltraHighPrice = 2300 * WAD;
+    // uint256 constant UltraLowPriceId = -2;
+    // uint256 constant VeryLowPriceId = -1;
+    // uint256 constant LowPriceId = 0;
+    // uint256 constant HighPriceId = 1;
+    // uint256 constant VeryHighPriceId = 2;
+    // uint256 constant UltraHighPriceId = 3;
 
     address OrderBook;
     address Alice;
     address Bob;
     address Carol;
     address Dave;
+    address Takashi;
 
     mapping(uint256 => address) public acc;
 
-    modifier depositBuy(int24 _poolId) {
-        depositBuyOrder(Alice, _poolId, DepositQT, _poolId + 1);
+    modifier depositBuy(uint256 _poolId) {
+        depositBuyOrder(Alice, _poolId, DepositQT, _poolId + 3);
         _;
     }
 
-    modifier depositSell(int24 _poolId) {
-        depositSellOrder(Bob, _poolId, DepositBT, _poolId - 1);
+    modifier depositSell(uint256 _poolId) {
+        depositSellOrder(Bob, _poolId, DepositBT, _poolId - 3);
         _;
     }
 
@@ -80,26 +84,28 @@ contract Setup is StdCheats, Test {
 
     function setUp() public {
         deployBook = new DeployBook();
-        (book, quoteToken, baseToken, initialPriceWAD) = deployBook.run();
+        (book, quoteToken, baseToken, genesisLimitPriceWAD) = deployBook.run();
         fundingAccounts(AccountNumber);
         setPriceFeed(2001);
     }
     
     // funding an army of traders
     function fundingAccounts(uint256 _accountNumber) public {
-        for (uint8 i = 1; i <= _accountNumber; i++) {
+        for (uint256 i = 1; i <= _accountNumber; i++) {
             _receiveTokens(i, ReceivedQuoteToken, ReceivedBaseToken);
-            _allowTokens(i, 2 * ReceivedQuoteToken, 2 * ReceivedBaseToken);
+            _allowTokens(i, AccountNumber * ReceivedQuoteToken, AccountNumber * ReceivedBaseToken);
         }
         OrderBook = address(book);
         Alice = acc[1];
         Bob = acc[2];
         Carol = acc[3];
         Dave = acc[4];
+        Takashi = acc[AccountNumber];
     }
 
     function _receiveTokens(uint256 _userId, uint256 _quoteTokens, uint256 _baseTokens) internal {
-        acc[_userId] = makeAddr(vm.toString(_userId));
+        // acc[_userId] = makeAddr(vm.toString(_userId));
+        acc[_userId] = vm.addr(_userId);
         vm.startPrank(address(msg.sender)); // contract deployer
         quoteToken.transfer(acc[_userId], _quoteTokens);
         baseToken.transfer(acc[_userId], _baseTokens);
@@ -113,11 +119,15 @@ contract Setup is StdCheats, Test {
         vm.stopPrank();
     }
 
+    function setPriceFeed(uint256 _price) public {
+        book.setPriceFeed(_price * WAD);
+    }
+    
     function depositBuyOrder(
         address _user,
-        int24 _poolId,
+        uint256 _poolId,
         uint256 _quantity,
-        int24 _pairedPoolId
+        uint256 _pairedPoolId
     ) public {
         vm.prank(_user);
         book.deposit( _poolId, _quantity, _pairedPoolId, BuyOrder);
@@ -125,9 +135,9 @@ contract Setup is StdCheats, Test {
 
     function depositSellOrder(
         address _user,
-        int24 _poolId,
+        uint256 _poolId,
         uint256 _quantity,
-        int24 _pairedPoolId
+        uint256 _pairedPoolId
     ) public {
         vm.prank(_user);
         book.deposit(_poolId, _quantity, _pairedPoolId, SellOrder);
@@ -138,7 +148,7 @@ contract Setup is StdCheats, Test {
         book.withdraw(_orderId, _quantity);
     }
 
-    function borrow(address _user, int24 _poolId, uint256 _quantity) public {
+    function borrow(address _user, uint256 _poolId, uint256 _quantity) public {
         vm.prank(_user);
         book.borrow(_poolId, _quantity);
     }
@@ -148,7 +158,7 @@ contract Setup is StdCheats, Test {
         book.repay(_positionId, _quantity);
     }
 
-    function take(address _user, int24 _poolId, uint256 _takenQuantity) public {
+    function take(address _user, uint256 _poolId, uint256 _takenQuantity) public {
         vm.prank(_user);
         book.take(_poolId, _takenQuantity);
     }
@@ -156,10 +166,6 @@ contract Setup is StdCheats, Test {
     function liquidateBorrower(address _user, uint256 _quantity) public {
         vm.prank(_user);
         book.liquidateBorrower(_user, _quantity);
-    }
-
-    function setPriceFeed(uint256 _price) public {
-        book.setPriceFeed(_price * WAD);
     }
 
     // check maker of order
@@ -175,14 +181,14 @@ contract Setup is StdCheats, Test {
     }
 
     // check limit price in order
-    function checkPoolId(uint256 _orderId, int24 _poolId) public {
-        (int24 poolId,,,,,) = book.orders(_orderId);
+    function checkPoolId(uint256 _orderId, uint256 _poolId) public {
+        (uint256 poolId,,,,,) = book.orders(_orderId);
         assertEq(poolId, _poolId);
     }
 
     // check paired pool id in order
-    function checkOrderPairedPrice(uint256 _orderId, int24 _pairedPoolId) public {
-        (,, int24 pairedPoolId,,,) = book.orders(_orderId);
+    function checkOrderPairedPrice(uint256 _orderId, uint256 _pairedPoolId) public {
+        (,, uint256 pairedPoolId,,,) = book.orders(_orderId);
         assertEq(pairedPoolId, _pairedPoolId);
     }
 
@@ -190,6 +196,18 @@ contract Setup is StdCheats, Test {
     function checkBorrowingQuantity(uint256 _positionId, uint256 _quantity) public {
         (,, uint256 quantity,) = book.positions(_positionId);
         assertEq(quantity, _quantity);
+    }
+
+    // check assets borrowed in position = _quantity
+    function checkPoolDeposits(uint256 _poolId, uint256 _totalDeposits) public {
+        (uint256 deposits,,,,,,,,) = book.pools(_poolId);
+        assertEq(deposits, _totalDeposits);
+    }
+    
+    // check assets borrowed in position = _quantity
+    function checkPoolBorrows(uint256 _poolId, uint256 _totalBorrows) public {
+        (, uint256 borrows,,,,,,,) = book.pools(_poolId);
+        assertEq(borrows, _totalBorrows);
     }
     
     // input row, starting at 0, returns order id
@@ -202,7 +220,7 @@ contract Setup is StdCheats, Test {
         assertEq(book.getUserBorrowFromIds(_user)[_row], _positionId);
     }
 
-    function checkInstantRate(int24 _poolId) public {
+    function checkInstantRate(uint256 _poolId) public {
         uint256 annualRate = book.ALPHA() + book.BETA() * book.getUtilizationRate(_poolId) / WAD;
         assertEq(book.getInstantRate(_poolId), annualRate / YEAR);
         console.log("Utilization rate in buy order market (1e04): ",
@@ -211,12 +229,12 @@ contract Setup is StdCheats, Test {
             book.getInstantRate(_poolId) * 1e5 * YEAR / WAD);
     }
 
-    // function changeLimitPrice(address _user, uint256 _orderId, int24 _poolId) public {
+    // function changeLimitPrice(address _user, uint256 _orderId, uint256 _poolId) public {
     //     vm.prank(_user);
     //     book.changeLimitPrice(_orderId, _poolId);
     // }
 
-    function changePairedPrice(address _user, uint256 _orderId, int24 _pairedPoolId) public {
+    function changePairedPrice(address _user, uint256 _orderId, uint256 _pairedPoolId) public {
         vm.prank(_user);
         book.changePairedPrice(_orderId, _pairedPoolId);
     }

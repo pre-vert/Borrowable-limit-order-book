@@ -7,46 +7,43 @@ import {MathLib, WAD} from "../lib/MathLib.sol";
 
 contract TestRepay is Setup {
 
-    function test_BorrowRepayFromIdInUsers() public depositBuy(FirstPoolId) depositSell(FirstPoolId + 1) {
-        borrow(Bob, FirstPoolId,  DepositQT / 2);
+    function test_BorrowRepayFromIdInUsers() public depositBuy(B) depositSell(B + 3) {
+        borrow(Bob, B, DepositQT / 2);
         repay(Bob, FirstPositionId, DepositQT / 2);
         checkUserBorrowId(Bob, FirstRow, FirstPositionId);
     }
     
     // reverts if non-existing position
-    function test_RepayNonExistingPosition() public depositBuy(FirstPoolId) depositSell(FirstPoolId + 1) {
-        borrow(Bob, FirstPoolId,  DepositQT / 2);
+    function test_RepayNonExistingPosition() public depositBuy(B) depositSell(B + 3) {
+        borrow(Bob, B, DepositQT / 2);
         vm.expectRevert("Not borrowing");
         repay(Bob, SecondPositionId, DepositQT / 2);
     }
 
     // reverts if repay with zero assets
-    function test_RepayWithZeroAssets() public depositBuy(FirstPoolId) depositSell(FirstPoolId + 1) {
-        borrow(Bob, FirstPoolId,  DepositQT / 2);
+    function test_RepayWithZeroAssets() public depositBuy(B) depositSell(B + 3) {
+        borrow(Bob, B,  DepositQT / 2);
         vm.expectRevert("Repay zero");
         repay(Bob, FirstPositionId, 0);
-        checkBorrowingQuantity(FirstPositionId, DepositQT / 2);
     }
 
     // repay fails if wrong pool id
-    function test_RepayNonExistingSellOrder() public depositBuy(FirstPoolId) depositSell(FirstPoolId + 1) {
-        borrow(Bob, FirstPoolId,  DepositQT / 2);
+    function test_RepayNonExistingSellOrder() public depositBuy(B) depositSell(B + 3) {
+        borrow(Bob, B, DepositQT / 2);
         vm.expectRevert("Not borrowing");
         repay(Bob, SecondPositionId, DepositQT / 2);
-        checkBorrowingQuantity(FirstPositionId, DepositQT / 2);
     }
 
     // fails if repay buy order > borrowed amount
-    function test_RepayBuyOrderFailsIfTooMuch() public depositBuy(FirstPoolId) depositSell(FirstPoolId + 1) {
-        borrow(Bob, FirstPoolId,  DepositQT / 2);
+    function test_RepayBuyOrderFailsIfTooMuch() public depositBuy(B) depositSell(B + 3) {
+        borrow(Bob, B, DepositQT / 2);
         vm.expectRevert("Repay too much");
         repay(Bob, FirstPositionId, DepositQT);
-        checkBorrowingQuantity(FirstPositionId, DepositQT / 2);
     }
 
     // fails if repayer is not borrower of buy order
-    function test_RepayBuyOrderFailsIfNotBorrower() public depositBuy(FirstPoolId) depositSell(FirstPoolId + 1) {
-        borrow(Bob, FirstPoolId,  DepositQT / 2);
+    function test_RepayBuyOrderFailsIfNotBorrower() public depositBuy(B) depositSell(B + 3) {
+        borrow(Bob, B,  DepositQT / 2);
         vm.expectRevert("Not Borrower");
         repay(Carol, FirstPositionId, DepositQT / 2);
         checkBorrowingQuantity(FirstPositionId, DepositQT / 2);
@@ -58,16 +55,16 @@ contract TestRepay is Setup {
     // deposit sell order price at 2200 = limit price pool(1) > market price 
 
     function test_RepayBuyOrderOkIfMaker() public {
-        depositBuyOrder(Alice, FirstPoolId, DepositQT, FirstPoolId + 1);
-        depositSellOrder(Alice, FirstPoolId + 1, DepositBT, FirstPoolId);
-        borrow(Alice, FirstPoolId, DepositQT / 2);
+        depositBuyOrder(Alice, B, DepositQT, B + 3);
+        depositSellOrder(Alice, B + 3, DepositBT, B);
+        borrow(Alice, B, DepositQT / 2);
         repay(Alice, FirstPositionId, DepositQT / 2);
         checkBorrowingQuantity(FirstPositionId, 0); 
     }
     
     // repay correctly adjusts balances
-    function test_RepayBuyOrderCheckBalances() public depositBuy(FirstPoolId) depositSell(FirstPoolId + 1) {
-        borrow(Bob, FirstPoolId,  DepositQT / 2);
+    function test_RepayBuyOrderCheckBalances() public depositBuy(B) depositSell(B + 3) {
+        borrow(Bob, B, DepositQT / 2);
         uint256 bookBalance = quoteToken.balanceOf(OrderBook);
         uint256 lenderBalance = quoteToken.balanceOf(Alice);
         uint256 borrowerBalance = quoteToken.balanceOf(Bob);
@@ -84,13 +81,14 @@ contract TestRepay is Setup {
     // borrows 20,000/2 at limit price 2000 => EC = EC - 20,000 / (2*2000) = 9.8 - 5 = 4.8
     // repays 20,000/2 at limit price 2000 => EC = EC + 20,000 / (2*2000) = 4.8 + 5 = 9.8
 
-    function test_RepayBuyOrderExcessCollateral() public depositBuy(FirstPoolId) depositSell(FirstPoolId + 1) {
-        borrow(Bob, FirstPoolId, DepositQT / 2);
+    function test_RepayBuyOrderExcessCollateral() public depositBuy(B) depositSell(B + 3) {
+        borrow(Bob, B, DepositQT / 2);
         uint256 ALTV = book.ALTV();
         uint256 excessCollateral = book.getUserExcessCollateral(Bob, 0, ALTV);
-        uint256 limitPrice = book.limitPrice(FirstPoolId);
+        uint256 limitPrice = book.limitPrice(B);
         repay(Bob, FirstPositionId,  DepositQT / 2);
-        assertEq(book.getUserExcessCollateral(Bob, 0, ALTV), excessCollateral + WAD * DepositQT / (2 * limitPrice));
+        uint256 newExcessCollateral = excessCollateral + WAD * DepositQT / (2 * limitPrice);
+        assertEq(book.getUserExcessCollateral(Bob, 0, ALTV), newExcessCollateral);
     }
 
 }

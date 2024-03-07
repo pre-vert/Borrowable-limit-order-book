@@ -9,7 +9,7 @@ import "../lib/ERC20.sol";
 import {WAD} from "../lib/MathLib.sol";
 
 contract Token is ERC20 {
-    uint256 public constant INITIAL_SUPPLY = 100000000 * WAD;
+    uint256 public constant INITIAL_SUPPLY = 1e15 * WAD;
 
     constructor(
         string memory _name,

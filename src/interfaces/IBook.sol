@@ -9,7 +9,7 @@ interface IBook {
     /// @param _pairedPoolId id of pool in which the assets taken are reposted
     /// @param _isBuyOrder true for buy orders, false for sell orders
 
-    function deposit(int24 _poolId, uint256 _quantity, int24 _pairedPoolId, bool _isBuyOrder) external;
+    function deposit(uint256 _poolId, uint256 _quantity, uint256 _pairedPoolId, bool _isBuyOrder) external;
 
     /// @notice lets user partially or fully remove her liquidity from the book
     ///         Only non-borrowed assets can be removed from pool
@@ -24,7 +24,7 @@ interface IBook {
     /// @param _poolId id of the pool which assets are borrowed
     /// @param _quantity quantity of assets borrowed from the order
 
-    function borrow(int24 _poolId, uint256 _quantity) external;
+    function borrow(uint256 _poolId, uint256 _quantity) external;
 
     /// @notice lets users decrease or close a borrowing position
     /// @param _orderId id of pool which borrowed assets are paid back by user
@@ -43,7 +43,7 @@ interface IBook {
     /// @param _poolId id of pool which available assets are taken
     /// @param _takenQuantity amount of quote assets received by taker in exchange of base assets
 
-    function take(int24 _poolId, uint256 _takenQuantity) external;
+    function take(uint256 _poolId, uint256 _takenQuantity) external;
 
     /// @notice liquidate borrowing positions from users whose excess collateral is zero or negative
     ///         iterate on borrower's positions
@@ -57,22 +57,22 @@ interface IBook {
     /// @param _orderId id of order which limit price is changed
     /// @param _newPoolId id of pool with new limit price
     
-    // function changeLimitPrice(uint256 _orderId, int24 _newPoolId) external;
+    // function changeLimitPrice(uint256 _orderId, uint256 _newPoolId) external;
 
     /// @notice let maker change limit price of her order
     /// @param _orderId id of order which paired limit price is changed
     /// @param _newPairedPoolId id of pool with new paired limit price
     
-    function changePairedPrice(uint256 _orderId, int24 _newPairedPoolId) external;
+    function changePairedPrice(uint256 _orderId, uint256 _newPairedPoolId) external;
 
     //** EVENTS **//
 
     event Deposit(
         address maker,
-        int24 poolId,
+        uint256 poolId,
         uint256 orderId,
         uint256 quantity,
-        int24 pairedPoolId,
+        uint256 pairedPoolId,
         bool isBuyOrder
     );
 
@@ -83,10 +83,9 @@ interface IBook {
 
     event Borrow(
         address borrower,
-        int24 poolId,
+        uint256 poolId,
         uint256 positionId,
-        uint256 quantity,
-        bool isBuyOrder
+        uint256 quantity
     );
 
     event Repay(
@@ -96,7 +95,7 @@ interface IBook {
 
     event Take(
         address taker,
-        int24 poolId,
+        uint256 poolId,
         uint256 quantity,
         bool inQuote
     );
@@ -108,11 +107,11 @@ interface IBook {
 
     // event ChangeLimitPrice(
     //     uint256 orderId,
-    //     int24 newPoolId
+    //     uint256 newPoolId
     // );
 
     event ChangePairedPrice(
         uint256 orderId,
-        int24 newPairedPollId
+        uint256 newPairedPollId
     );
 }

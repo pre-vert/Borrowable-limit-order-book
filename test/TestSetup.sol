@@ -6,7 +6,7 @@ import {Setup} from "./Setup.sol";
 import {StdCheats} from "forge-std/StdCheats.sol";
 
 contract testSetup is Setup {
-
+    
     function testTransferTokenUSER() public {
         assertEq(ReceivedQuoteToken, quoteToken.balanceOf(Alice));
         assertEq(ReceivedBaseToken, baseToken.balanceOf(Alice));

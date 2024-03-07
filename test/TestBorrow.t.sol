@@ -13,32 +13,38 @@ contract TestBorrow is Setup {
     // deposit sell order price at 2200 = limit price pool(1) > market price 
 
     function test_BorrowBuyOrderOkIfMaker() public {
-        depositBuyOrder(Alice, FirstPoolId, DepositQT, FirstPoolId + 1);
-        depositSellOrder(Alice, FirstPoolId + 1, DepositBT, FirstPoolId);
-        borrow(Alice, FirstPoolId, DepositQT / 2);
+        depositBuyOrder(Alice, B, DepositQT, B + 1);
+        depositSellOrder(Alice, B + 3, DepositBT, B + 2);
+        borrow(Alice, B , DepositQT / 2);
         checkOrderQuantity(FirstOrderId, DepositQT);
         checkBorrowingQuantity(FirstPositionId, DepositQT / 2); 
     }
 
-    // borrow reverts if non-existing buy order
-    function test_BorrowNonExistingBuyOrder() public setLowPrice() depositSell(FirstPoolId) {
-        vm.expectRevert("Pool_empty_1");
-        borrow(Bob, FirstPoolId - 1, DepositQT / 2);
+    // borrow reverts if borrow base tokens in sell order pool
+    function test_BorrowRevertsIfBaseTokens() public depositSell(B + 3) depositSell(B + 5) {
+        vm.expectRevert("Cannot borrow_0");
+        borrow(Bob, B + 3, DepositBT / 2);
+    }
+
+    // borrow reverts if pool empty
+    function test_BorrowNonExistingBuyOrder() public setLowPrice() depositSell(B + 1) {
+        vm.expectRevert("Cannot borrow_0");
+        borrow(Bob, B - 1, DepositQT / 2);
     }
     
     // reverts if borrowing is zero
     function test_BorrowBuyOrderFailsIfZero() public 
-        depositBuy(FirstPoolId) setLowPrice() depositSell(FirstPoolId + 1) {
+        depositBuy(B) setLowPrice() depositSell(B + 1) {
         vm.expectRevert("Borrow zero");
-        borrow(Bob, FirstPoolId, 0);
+        borrow(Bob, B, 0);
     }
     
     // borrow of buy order correctly adjusts balances
-    function test_BorrowBuyOrderCheckBalances() public depositBuy(FirstPoolId) depositSell(FirstPoolId + 1) {
+    function test_BorrowBuyOrderCheckBalances() public depositBuy(B) depositSell(B + 3) {
         uint256 bookBalance = quoteToken.balanceOf(OrderBook);
         uint256 lenderBalance = quoteToken.balanceOf(Alice);
         uint256 borrowerBalance = quoteToken.balanceOf(Bob);
-        borrow(Bob, FirstPoolId,  DepositQT / 2);
+        borrow(Bob, B, DepositQT / 2);
         assertEq(quoteToken.balanceOf(OrderBook), bookBalance - DepositQT / 2);
         assertEq(quoteToken.balanceOf(Alice), lenderBalance);
         assertEq(quoteToken.balanceOf(Bob), borrowerBalance + DepositQT / 2);
@@ -47,19 +53,19 @@ contract TestBorrow is Setup {
         checkBorrowingQuantity(FirstPositionId, DepositQT / 2); 
     }
 
-    // borrow of buy order collateralized by quote tokens correctly adjusts balances
+    // borrow of buy order collateralized by quote tokens in buy orders correctly adjusts balances
     // market price set initially at 2001
     // Alice deposits buy order at 2000 (initialPriceWAD)
     // price is set at 2201
     // Bob deposits buy order at 2200 and borrows quote tokens from Alice
 
-    function test_BorrowBuyOrderWithQuoteTokens() public depositBuy(FirstPoolId) {
-        setPriceFeed(initialPriceWAD / WAD + 201);
-        depositBuyOrder(Bob, FirstPoolId + 1, DepositQT, FirstPoolId + 2);
+    function test_BorrowBuyOrderWithQuoteTokens() public depositBuy(B) {
+        setPriceFeed(genesisLimitPriceWAD / WAD + 201);
+        depositBuyOrder(Bob, B + 2, DepositQT, B + 3);
         uint256 bookBalance = quoteToken.balanceOf(OrderBook);
         uint256 lenderBalance = quoteToken.balanceOf(Alice);
         uint256 borrowerBalance = quoteToken.balanceOf(Bob);
-        borrow(Bob, FirstPoolId,  DepositQT / 2);
+        borrow(Bob, B, DepositQT / 2);
         assertEq(quoteToken.balanceOf(OrderBook), bookBalance - DepositQT / 2);
         assertEq(quoteToken.balanceOf(Alice), lenderBalance);
         assertEq(quoteToken.balanceOf(Bob), borrowerBalance + DepositQT / 2);
@@ -69,15 +75,9 @@ contract TestBorrow is Setup {
     }
 
     // revert if borrow all assets in a pool
-    function test_FailsIfBorrowAllDeposit() public depositBuy(FirstPoolId) depositSell(FirstPoolId + 1) {
+    function test_FailsIfBorrowAllDeposit() public depositBuy(B) depositSell(B + 3) {
         vm.expectRevert("Borrow too much_2");
-        borrow(Bob, FirstPoolId, DepositQT); 
-    }
-
-    // revert if borrow more than available assets in a pool
-    function test_FailsIfBorrowMoreThanDeposit() public depositBuy(FirstPoolId) depositSell(FirstPoolId + 1) {
-        vm.expectRevert("Borrow too much_2");
-        borrow(Bob, FirstPoolId, DepositQT); 
+        borrow(Bob, B, DepositQT); 
     }
 
     // Borrower excess collateral in base token is correct
@@ -85,26 +85,26 @@ contract TestBorrow is Setup {
     // Bob deposits sell order of 10 at limit price 2200 => EC = ALTV * 10 = 9.8
     // borrows 20,000/2 at limit price 2000 => EC = EC - 20,000 / (2*2000) = 9.8 - 5 = 4.8
 
-    function test_BorrowBuyOrderExcessCollateral() public depositBuy(FirstPoolId) depositSell(FirstPoolId + 1) {
+    function test_BorrowBuyOrderExcessCollateral() public depositBuy(B) depositSell(B + 3) {
         uint256 ALTV = book.ALTV();
         uint256 excessCollateral = book.getUserExcessCollateral(Bob, 0, ALTV);
-        uint256 limitPrice = book.limitPrice(FirstPoolId);
-        borrow(Bob, FirstPoolId, DepositQT / 2);
+        uint256 limitPrice = book.limitPrice(B);
+        borrow(Bob, B , DepositQT / 2);
         assertEq(book.getUserExcessCollateral(Bob, 0, ALTV), excessCollateral - WAD * DepositQT / (2 * limitPrice));
     }
 
     // Bob borrows from Alice's sell order, borrowFromIds array correctly updates
-    function test_BorrowFromIdInUsers() public depositBuy(FirstPoolId) depositSell(FirstPoolId + 1) {
+    function test_BorrowFromIdInUsers() public depositBuy(B) depositSell(B + 3) {
         checkUserBorrowId(Bob, FirstRow, NoPositionId);
-        borrow(Bob, FirstPoolId, DepositQT / 2);
+        borrow(Bob, B, DepositQT / 2);
         checkUserBorrowId(Bob, FirstRow, FirstPositionId);
         checkUserBorrowId(Bob, SecondRow, NoPositionId);
     }
 
-    // Bob borrows twice from same pool, borrowing positions should be aggregated
-    function test_BorrowTwiceFromSamePool() public depositBuy(FirstPoolId) depositSell(FirstPoolId + 1) {
-        borrow(Bob, FirstPoolId, DepositQT / 4);
-        borrow(Bob, FirstPoolId, DepositQT / 4);
+    // As Bob borrows twice from same pool, borrowing positions should be aggregated
+    function test_BorrowTwiceFromSamePool() public depositBuy(B) depositSell(B + 3) {
+        borrow(Bob, B, DepositQT / 4);
+        borrow(Bob, B, DepositQT / 4);
         checkUserBorrowId(Bob, FirstRow, FirstPositionId);
         checkUserBorrowId(Bob, SecondRow, NoPositionId);
         checkBorrowingQuantity(FirstPositionId, DepositQT / 2);
@@ -113,9 +113,9 @@ contract TestBorrow is Setup {
 
     // Bob borrows twice from two distinct pools, borrowing positions should not be aggregated
     function test_BorrowTwiceFromDifferentPool() public 
-        depositBuy(FirstPoolId) depositBuy(FirstPoolId - 1) depositSell(FirstPoolId + 1) {
-        borrow(Bob, FirstPoolId, DepositQT / 4);
-        borrow(Bob, FirstPoolId - 1, DepositQT / 4);
+        depositBuy(B) depositBuy(B - 2) depositSell(B + 3) {
+        borrow(Bob, B, DepositQT / 4);
+        borrow(Bob, B - 2, DepositQT / 4);
         checkUserBorrowId(Bob, FirstRow, FirstPositionId);
         checkUserBorrowId(Bob, SecondRow, SecondPositionId);
         checkBorrowingQuantity(FirstPositionId, DepositQT / 4);
@@ -129,33 +129,55 @@ contract TestBorrow is Setup {
 
     function test_PositionsForUserExceedLimit() public {
         uint256 maxPositions = book.MAX_POSITIONS();
-        uint256 borrowedQuantity = DepositBT * 5 / (maxPositions+2);
-        setPriceFeed(initialPriceWAD / WAD - 2);
-        depositSellOrder(Alice, FirstPoolId, 3 * DepositBT, FirstPoolId - 1);
-        for (uint256 i = 2; i <= (maxPositions+1); i++) {
-            int24 j = int24(int256(i));
-            depositBuyOrder(acc[i], FirstPoolId - j + 1, DepositQT, FirstPoolId);
-            borrow(Alice, FirstPoolId - j + 1, borrowedQuantity);
-            checkBorrowingQuantity(i-1, borrowedQuantity);
+        uint256 borrowedQuantity = DepositBT * 5 / (maxPositions + 2);
+        setPriceFeed(genesisLimitPriceWAD / WAD - 2);
+        depositSellOrder(Alice, B + 1, 3 * DepositBT, B - 2);
+        setPriceFeed(genesisLimitPriceWAD / WAD + 2);
+        for (uint256 i = 2; i <= (maxPositions + 1); i++) {
+            depositBuyOrder(acc[i], B - 2 * (i - 2), DepositQT, B + 3);
+            borrow(Alice, B - 2 * (i - 2), borrowedQuantity);
+            checkBorrowingQuantity(i - 1, borrowedQuantity);
         }
-        uint256 agentId = maxPositions+2;
-        int24 agentIdInt24 = int24(int256(agentId));
-        depositBuyOrder(acc[agentId], FirstPoolId - agentIdInt24 + 1, DepositQT, FirstPoolId);
+        uint256 agentId = maxPositions + 2;
+        depositBuyOrder(acc[agentId], B - 2 * (agentId - 2), DepositQT, B + 3);
         vm.expectRevert("Max positions reached");
-        borrow(Alice, FirstPoolId - agentIdInt24 + 1, borrowedQuantity);
+        borrow(Alice, B - 2 * (agentId - 2), borrowedQuantity);
     }
 
     // borrower of buy order is maker correctly adjusts balances
-    function test_MakerBorrowsHerBuyOrderCheckBalances() public depositBuy(FirstPoolId) {
-        depositSellOrder(Alice, FirstPoolId + 1, DepositBT, FirstPoolId);
+    function test_MakerBorrowsHerBuyOrderCheckBalances() public depositBuy(B) {
+        depositSellOrder(Alice, B + 3, DepositBT, B +2);
         uint256 bookBalance = quoteToken.balanceOf(OrderBook);
         uint256 lenderBorrowerBalance = quoteToken.balanceOf(Alice);
-        borrow(Alice, FirstPoolId, DepositQT / 2);
+        borrow(Alice, B, DepositQT / 2);
         assertEq(quoteToken.balanceOf(OrderBook), bookBalance - DepositQT / 2);
         assertEq(quoteToken.balanceOf(Alice), lenderBorrowerBalance + DepositQT / 2);
         checkOrderQuantity(FirstOrderId, DepositQT);
         checkOrderQuantity(SecondOrderId, DepositBT);
         checkBorrowingQuantity(FirstPositionId, DepositQT / 2);
+    }
+
+    // take pool of borrowed quotes collateralized by quotes correctly adjust balances
+    // price 2001: Alice deposits 20,000 in buy order at 2000
+    // price 2201: Bob deposits 20,000 in buy order at 2200 and borrows 10,000 from Alice
+    
+    function test_TakeBorrowWithQuoteTokens() public depositBuy(B) {
+        setPriceFeed(genesisLimitPriceWAD / WAD + 201);
+        depositBuyOrder(Bob, B + 2, DepositQT, B + 3);
+        uint256 bookBaseBalance = baseToken.balanceOf(OrderBook);
+        uint256 bookQuoteBalance = quoteToken.balanceOf(OrderBook);
+        uint256 makerBaseBalance = baseToken.balanceOf(Alice);
+        uint256 makerQuoteBalance = quoteToken.balanceOf(Alice);
+        uint256 borrowerBaseBalance = baseToken.balanceOf(Bob);
+        uint256 borrowerQuoteBalance = quoteToken.balanceOf(Bob);
+        borrow(Bob, B, DepositQT / 2);
+        assertEq(baseToken.balanceOf(OrderBook), bookBaseBalance);
+        assertEq(quoteToken.balanceOf(OrderBook), bookQuoteBalance - DepositQT / 2);
+        assertEq(baseToken.balanceOf(Alice), makerBaseBalance);
+        assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance);
+        assertEq(baseToken.balanceOf(Bob), borrowerBaseBalance);
+        assertEq(quoteToken.balanceOf(Bob), borrowerQuoteBalance + DepositQT / 2);
+        checkBorrowingQuantity(FirstPositionId, DepositQT / 2); 
     }
     
     // // test liquidate a huge number of positions at once

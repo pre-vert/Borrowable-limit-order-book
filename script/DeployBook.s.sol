@@ -11,14 +11,14 @@ contract DeployBook is Script {
     // limit price of the genesis pool, either a buy order or sell order pool
     // not to be confused with price feed
     
-    uint256 initialPrice = 2000 * 10**18;
+    uint256 genesisLimitPrice = 2000 * 10**18;
 
     function run() external returns (Book, Token, Token, uint256) {
         vm.startBroadcast();
         Token baseToken = new Token("BaseToken", "BTK");
         Token quoteToken = new Token("QuoteToken", "QTK");
-        Book book = new Book(address(quoteToken), address(baseToken), initialPrice);
+        Book book = new Book(address(quoteToken), address(baseToken), genesisLimitPrice);
         vm.stopBroadcast();
-        return (book, quoteToken, baseToken, initialPrice);
+        return (book, quoteToken, baseToken, genesisLimitPrice);
     }
 }
