@@ -23,7 +23,7 @@ contract Book is IBook {
     /// - borrow: borrow quote tokens from buy order pools
     /// - repay: pay back borrow in buy order pools
     /// - take: allow users to fill limit orders at limit price when profitable, may liquidate positions along the way
-    /// - changeLimitPrice: allow user to change order's limit price (disabled)
+    /// - changeLimitPrice: allow user to change order's limit price (disabled for now)
     /// - changePairedPrice: allow user to change order's paired limit price
     /// - liquidateBorrower: allow users to liquidate borrowers close to undercollateralization
     
@@ -583,7 +583,11 @@ contract Book is IBook {
         emit Take(msg.sender, _poolId, _takenQuantity, inQuote);
     }
 
-    /// @inheritdoc IBook
+    // Liquidate borrowing positions from users whose excess collateral is zero or negative
+    // - iterate on borrower's positions
+    // - cancel debt in quote tokens and seize an equivalent amount of deposits in base tokens at discount
+    /// _suppliedQuotes: quantity of quote assets supplied by liquidator in exchange of base collateral assets
+    // needed : a protection against dust
 
     function liquidateBorrower(
         address _borrower,
@@ -1480,7 +1484,7 @@ contract Book is IBook {
         uint256[MAX_ORDERS] memory orderIds = users[_user].depositIds;
         for (uint256 i = 0; i < MAX_ORDERS; i++) {
 
-            uint256 orderId = orderIds[i]; // position id from which user borrows assets
+            uint256 orderId = orderIds[i];      // position id from which user borrows assets
 
             // look for buy order deposits to calculate interest rate
             if (orders[orderId].isBuyOrder && orders[orderId].quantity > 0) {
@@ -2062,7 +2066,7 @@ contract Book is IBook {
     // used in tests
     function countOrdersOfUser(address _user)
         public view
-        returns (uint256 count)
+        returns (uint256 count) 
     {
         count = 0;
         uint256[MAX_ORDERS] memory depositIds = users[_user].depositIds;
