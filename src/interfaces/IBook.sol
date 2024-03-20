@@ -32,14 +32,6 @@ interface IBook {
     
     function repay(uint256 _orderId, uint256 _quantity) external;
 
-    /// @notice Let users take limit orders in pool. Taking quote assets, even 0:
-    ///         - liquidates a number of positions borrowing from the order
-    ///         - seize collateral orders for the exact amount of liquidated assets
-    ///         - take available quote assets in exchange of base assets at pool's limit price
-    ///         Take base assets:
-    ///         - take available base assets in exchange of quote assets
-    ///         - pay back makers' open positions with received quote assets
-    ///         For both assets, repost assets in the book as new orders at a pre-specified limit price
     /// @param _poolId id of pool which available assets are taken
     /// @param _takenQuantity amount of quote assets received by taker in exchange of base assets
 
@@ -104,11 +96,6 @@ interface IBook {
         address borrower,
         uint256 reducedDebt
     );
-
-    // event ChangeLimitPrice(
-    //     uint256 orderId,
-    //     uint256 newPoolId
-    // );
 
     event ChangePairedPrice(
         uint256 orderId,

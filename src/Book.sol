@@ -17,13 +17,12 @@ contract Book is IBook {
     using MathLib for uint256;
     using SafeERC20 for IERC20;
 
-    /// @notice the contract has 8 external functions:
+    /// @notice the contract has 7 external functions:
     /// - deposit: deposit assets in pool in base or quote tokens
     /// - withdraw: remove assets from pool in base or quote tokens
     /// - borrow: borrow quote tokens from buy order pools
     /// - repay: pay back borrow in buy order pools
     /// - take: allow users to fill limit orders at limit price when profitable, may liquidate positions along the way
-    /// - changeLimitPrice: allow user to change order's limit price (disabled for now)
     /// - changePairedPrice: allow user to change order's paired limit price
     /// - liquidateBorrower: allow users to liquidate borrowers close to undercollateralization
     
@@ -40,14 +39,8 @@ contract Book is IBook {
     uint256 constant public MAX_ORDERS = 6;
     // How many positions a user can open in different pools
     uint256 constant public MAX_POSITIONS = 3; 
-    // Minimum liquidation rounds
+    // Minimum liquidation rounds after take() is called
     uint256 constant public MIN_ROUNDS = 3;
-    // Minimum deposited base tokens : 0.2 ETH = to put in constructor
-    uint256 constant public MIN_DEPOSIT_BASE = WAD / 5; 
-    // Minimum deposited quote tokens = in constructor
-    uint256 constant public MIN_DEPOSIT_QUOTE = 200 * WAD;
-    // Price step for placing orders: +/- 10% = to put in the contructor
-    uint256 constant public PRICE_STEP = 11 * WAD / 10;
     // id for non existing order or position in arrays
     uint256 constant private ABSENT = type(uint256).max;
     // applies to token type (ease reading in function attributes)
@@ -61,8 +54,6 @@ contract Book is IBook {
     // IRM parameter = 0.015
     uint256 public constant BETA = 15 * WAD / 1000;
     // uint256 public constant GAMMA = 10 * WAD / 1000; // IRM parameter =  0.01
-    // liquidation LTV = 99% = to put in the constructor
-    uint256 public constant LLTV = 99 * WAD / 100;
     // ALTV = 98% = to put in the constructor
     uint256 public constant ALTV = 98 * WAD / 100;
     // PHI = 90% with available liquidity = PHI * (sum deposits) - (sum borrows)
@@ -154,7 +145,6 @@ contract Book is IBook {
 
     // outputs pool's limit price
     // same limit price for adjacent buy orders' and sell orders' pools
-
     mapping(uint256 poolId => uint256) public limitPrice; 
 
     mapping(uint256 orderId => Order) public orders;
@@ -163,17 +153,42 @@ contract Book is IBook {
 
     // *** VARIABLES *** //
 
-    uint256 private lastOrderId = 1; // initial order id (0 for non existing orders)
-    uint256 private lastPositionId = 1; // initial position id (0 for non existing positions)
+    // initial order id (0 for non existing orders)
+    uint256 private lastOrderId = 1;
+    // initial position id (0 for non existing positions)
+    uint256 private lastPositionId = 1;
+    // Oracle price (simulated)
     uint256 public priceFeed;
+    // Price step for placing orders (defined in constructor)
+    uint256 public priceStep;
+    // Minimum deposited base tokens (defined in constructor)
+    uint256 public minDepositBase;
+    // Minimum deposited quote tokens (defined in constructor)
+    uint256 public minDepositQuote;
+    // liquidation LTV (defined in constructor)
+    uint256 public liquidationLTV;
 
     // *** CONSTRUCTOR *** //
  
-    constructor(address _quoteToken, address _baseToken, uint256 _startingLimitPrice) {
+    constructor(
+        address _quoteToken,
+        address _baseToken,
+        uint256 _startingLimitPrice,
+        uint256 _priceStep,
+        uint256 _minDepositBase,
+        uint256 _minDepositQuote,
+        uint256 _liquidationLTV
+    ) {
         quoteToken = IERC20(_quoteToken);
         baseToken = IERC20(_baseToken);
-        limitPrice[GenesisPoolId] = _startingLimitPrice; // initial limit price for the genesis buy order pool
+        // initial limit price for the genesis buy order pool:
+        limitPrice[GenesisPoolId] = _startingLimitPrice;
+        priceStep = _priceStep;
+        minDepositBase = _minDepositBase;
+        minDepositQuote = _minDepositQuote;
+        liquidationLTV = _liquidationLTV;
     }
+
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                  EXTERNAL FUNCTIONS                        */
@@ -200,8 +215,8 @@ contract Book is IBook {
         require(_isQuotePool(_pairedPoolId) != _isBuyOrder, "Paired in wrong pool");
 
         // pool and paired pool have a price or are adjacent to a pool id with a price        
-        require(_priceExists(_poolId), "Limit price too far");
-        require(_priceExists(_pairedPoolId), "Paired price too far");
+        require(_priceExist(_poolId), "Limit price too far");
+        require(_priceExist(_pairedPoolId), "Paired price too far");
 
         // limit price and paired limit price are in right order
         require(_consistent(_poolId, _pairedPoolId), "Inconsistent prices");
@@ -305,12 +320,12 @@ contract Book is IBook {
                     _addInterestRateToUserDeposits(msg.sender);
 
                     uint256 outQuantity = _convert(_removedQuantity, limitPrice[order.poolId], IN_QUOTE, ROUNDUP);
-                    require(getUserExcessCollateral(msg.sender, outQuantity, ALTV) > 0, "Remove too much_2");
+                    require(getUserExcessCollateral(msg.sender, outQuantity) > 0, "Remove too much_2");
                 }
             }
 
             // if remove base assets
-            else require(getUserExcessCollateral(msg.sender, _removedQuantity, ALTV) > 0, "Remove too much_2");
+            else require(getUserExcessCollateral(msg.sender, _removedQuantity) > 0, "Remove too much_2");
         }
 
         // withdraw no more than deposit net of min deposit if partial = discutable
@@ -374,7 +389,7 @@ contract Book is IBook {
         console.log("required collateral :", requiredCollateral / WAD, "ETH");
 
         // check borrowed amount is collateralized enough by borrower's own orders
-        require(getUserExcessCollateral(msg.sender, requiredCollateral, ALTV) > 0, "Borrow too much_3");
+        require(getUserExcessCollateral(msg.sender, requiredCollateral) > 0, "Borrow too much_3");
 
         // find if borrower has already a position in pool
         uint256 positionId_ = _getPositionIdInborrowIdsOfUser(msg.sender, _poolId);
@@ -454,20 +469,28 @@ contract Book is IBook {
         emit Repay(_positionId, _quantity);
     }
 
-    /// @inheritdoc IBook
+    // Let users take limit orders in pool
+    // Taking quote assets, even 0:
+    // - liquidates a number of positions borrowing from the order
+    // - seize collateral orders for the exact amount of liquidated assets
+    // - take available quote assets in exchange of base assets at pool's limit price
+    // Taking base assets:
+    // - take available base assets in exchange of quote assets
+    // - pay back makers' open positions with received quote assets
+    // For both assets, repost assets in the book as new orders at a pre-specified limit price
 
     // take()
     // _updateAggregates()               | update pool's total borrows and total deposits with interest rate
     //  ├── Take quote tokens            | if take borrowable quote tokens:
-    //  │   ├── _liquidatePositions()    | liquidate positions one after one
-    //  │   |   ├── _closePosition()     |    liquidate one position
-    //  │   |   └── _seizeCollateral()   |    seize collateral for the exact amount liquidated
-    //  │   └── _closeOrders()           | close orders for amount of base assets received from taker and liquidated borrowers
-    //  │       └── _repostLiquidity()   | repost base tokens received by lenders in sell orders
+    //  │   ├── _liquidatePositions()    |    liquidate positions one after one
+    //  │   |   ├── _closePosition()     |       liquidate one position in full
+    //  │   |   └── _seizeCollateral()   |       seize collateral for the exact amount liquidated
+    //  │   └── _closeOrders()           |    close orders for amount of base assets received from taker and liquidated borrowers
+    //  │       └── _repostLiquidity()   |       repost base tokens received by lenders in sell orders
     //  ├── Take base tokens             | if take collateral base tokens:
-    //  │   └── _takeOrders()            | take orders one after one
-    //  │       ├── _reduceUserDebt()    | if order is collateral, repay debt with quote tokens received from taker
-    //  │       └── _repostLiquidity()   | repost quote tokens received by lenders in buy order
+    //  │   └── _takeOrders()            |    take orders one after one
+    //  │       ├── _reduceUserDebt()    |       if order is collateral, repay debt with quote tokens received from taker
+    //  │       └── _repostLiquidity()   |       repost quote tokens received by lenders in buy order
     //  ├── _transferFrom()              | transfer base or quote tokens from taker to contract
     //  └── _transferTo()                | transfer  tokens of opposit teype from contract to taker
 
@@ -538,10 +561,10 @@ contract Book is IBook {
             // then, liquidate positions:
             // - delete borrow
             // - seize borrower's collateral
-            //  until:
+            // until:
             // - MIN_ROUNDS positions have been liquidated, and min canceled debt is reached
             // - or no more position to liquidate
-            // returns total liquidated assets (quote tokens)
+            // returns total liquidated assets (expressed in quote tokens at limit price)
 
             uint256 liquidatedQuotes = 0;
             
@@ -554,7 +577,7 @@ contract Book is IBook {
 
             uint256 closedAmount = _closeOrders(_poolId, _takenQuantity + liquidatedQuotes);
 
-            // if _takenQuantity has been set to high, closedAmount < _takenQuantity + liquidatedQuotes 
+            // if _takenQuantity has been set too high, closedAmount < _takenQuantity + liquidatedQuotes 
 
             takenAssets = _substract(closedAmount, liquidatedQuotes, "err_01", !RECOVER);
             console.log("Taken assets :", takenAssets / WAD);
@@ -605,7 +628,7 @@ contract Book is IBook {
         _addInterestRateToUserDeposits(msg.sender);
         
         // borrower's excess collateral must be zero or negative
-        require(getUserExcessCollateral(msg.sender, 0, LLTV) == 0, "Positive net wealth");
+        require(getUserExcessCollateral(msg.sender, 0) == 0, "Positive net wealth");
 
         // reduce user's borrowing positions possibly as high as _suppliedQuotes
         uint256 reducedDebt = _reduceUserDebt(_borrower, _suppliedQuotes);
@@ -625,81 +648,6 @@ contract Book is IBook {
 
         emit LiquidateBorrower(msg.sender, reducedDebt);
     }
-
-    // /// @inheritdoc IBook
-
-    // function changeLimitPrice(
-    //     uint256 _orderId,
-    //     uint256 _newPoolId
-    // )
-    //     external
-    // {
-    //     Order memory order = orders[_orderId];
-
-    //     // reverts if position is not found
-    //     require(order.quantity > 0, "No order");
-
-    //     // revert if new limit price and paired limit price are in wrong order
-    //     require(_consistent(_newPoolId, order.pairedPoolId, order.isBuyOrder), "Inconsistent limit prices");
-
-    //     // revert if new limit price makes order profitable
-    //     require(!_profitable(_newPoolId), "New price at loss");
-
-    //     // asset type of new pool must be the same as asset type of previous pool, or of no type if empty
-    //     require(_sameType(order.isBuyOrder, _isQuotePool(_newPoolId)), "asset type mismatch_2");
-        
-    //     // newPoolId must have a price or be adjacent to a pool id with a price        
-    //     require(_priceExists(_newPoolId), "New price too far");
-
-    //     // if quote (borrowable) tokens, check if pool has enough available liquidity
-
-    //     if (order.isBuyOrder) {
-        
-    //         // update pool's total borrow, total deposits
-    //         // increment TWIR/TUWIR before calculating pool's availale assets
-    //         _updateAggregates(order.poolId);
-
-    //         // withdraw no more than available assets in pool
-    //         require(order.quantity <= _poolAvailableAssets(order.poolId), "Remove too much_3");
-
-    //         // add interest rate to existing deposit
-    //         // reset deposit's interest rate to zero
-    //         // updates how much assets can be withdrawn (used in _removableFromOrder() infra)
-    //         _addInterestRateToDeposit(_orderId);
-    //     }
-
-    //     // if base (collateral) tokens,
-    //     // check that withdrawal does not undercollateralize maker's positions
-
-    //     else
-    //     {
-    //         // update borrower's positions with accrued interest rate in all pools in which he borrows
-    //         // updates borrower's required collateral and excess collateral
-    //         _addInterestRateToUserPositions(msg.sender);
-
-    //         // excess collateral must remain positive after removal
-    //         require(getUserExcessCollateral(msg.sender, _removedQuantity, ALTV) > 0, "Remove too much_3");
-    //     }
-
-    //     // withdraw no more than deposit net of min deposit if partial
-    //     require(_removableFromOrder(_orderId, _removedQuantity), "Remove too much_1");
-
-    //     // reduce quantity in order, possibly to zero
-    //     orders[_orderId].quantity -= _removedQuantity;
-
-    //     // reduce total deposits in pool
-    //     pools[order.poolId].deposits -= _removedQuantity;
-
-    //     _transferTo(msg.sender, _removedQuantity, order.isBuyOrder);
-
-    //     emit Withdraw(_orderId, _removedQuantity);
-
-
-
-    //     orders[_orderId].poolId = _newPoolId;
-
-    //     emit ChangeLimitPrice(_orderId, _newPoolId);
-    // }
 
     /// @inheritdoc IBook
     function changePairedPrice(
@@ -723,7 +671,7 @@ contract Book is IBook {
         require(_consistent(order.poolId, _newPairedPoolId), "Inconsistent prices");
         
         // newPoolId must have a price or be adjacent to a pool id with a price   
-        require(_priceExists(_newPairedPoolId), "Paired price too far");
+        require(_priceExist(_newPairedPoolId), "Paired price too far");
 
         // paired pool must not be profitable to fill (ongoing or potential liquidation)
         require(!_profitable(_newPairedPoolId), "Ongoing liquidation");
@@ -1518,6 +1466,8 @@ contract Book is IBook {
         internal view
         returns (bool)
     {
+        console.log("priceFeed in profitable() :", priceFeed / WAD);
+        
         if (_isQuotePool(_poolId)) return (priceFeed < limitPrice[_poolId]);
         else return (priceFeed > limitPrice[_poolId]);
     }
@@ -1531,133 +1481,46 @@ contract Book is IBook {
     }
 
     // check if pool has a price
-    // else create a price if nearby an existing pool
+    // else create a price if not too far from an existing pool (stepMax left and right)
     // else return false
-
-    function _priceExists(uint256 _poolId)
+    
+    function _priceExist(uint256 _poolId)
         internal
         returns (bool priceExists_)
     {
-        console.log("_poolId : ", _poolId);
+        console.log("check _poolId in priceExists : ", _poolId);
         console.log("limitPrice[_poolId] before creation: ", limitPrice[_poolId] / WAD);
-        
-        bool quotePool = _isQuotePool(_poolId);
-        priceExists_ = false;
-        
-        // if no defined price for the pool, search left and right
+
+        // max number of price steps to create a new pool
+        uint256 stepMax = 5;
+               
+        // if no defined price for the pool, search left and right further and further away
+  
         if (limitPrice[_poolId] == 0) {
-            
-            if (limitPrice[_poolId + 1] > 0) {
-                if (quotePool) limitPrice[_poolId] = limitPrice[_poolId + 1];
-                else limitPrice[_poolId] = limitPrice[_poolId + 1].wMulDown(PRICE_STEP);
-            }
-
-            else if (limitPrice[_poolId - 1] > 0) {
-                if(quotePool) {
-                    limitPrice[_poolId] = limitPrice[_poolId - 1].wDivDown(PRICE_STEP);
+            for (uint256 step = 1; step <= stepMax; step++) {
+                if (limitPrice[_poolId - step] > 0) {
+                    for (uint256 i = step; i > 0; i--) {
+                        if ((_poolId - i + 1) % 2 == 0) {
+                            limitPrice[_poolId - i + 1] = limitPrice[_poolId - i].wMulDown(priceStep);
+                        } else {
+                            limitPrice[_poolId - i + 1] = limitPrice[_poolId - i];
+                        }  
+                    }
+                    break;
                 }
-                else {
-                    limitPrice[_poolId] = limitPrice[_poolId - 1];
+                else if (limitPrice[_poolId + step] > 0) {
+                    for (uint256 i = step; i > 0; i--) {
+                        if ((_poolId + i) % 2 == 0) {
+                            limitPrice[_poolId + i - 1] = limitPrice[_poolId + i].wDivDown(priceStep);
+                        } else {
+                            limitPrice[_poolId + i - 1] = limitPrice[_poolId + i];
+                        }  
+                    }
+                    break;
                 }
             }
-            
-            else if (limitPrice[_poolId + 2] > 0) {
-                if (quotePool) {
-                    limitPrice[_poolId + 1] = limitPrice[_poolId + 2].wDivDown(PRICE_STEP);
-                    limitPrice[_poolId] = limitPrice[_poolId + 1];
-                }
-                else {
-                    limitPrice[_poolId + 1] = limitPrice[_poolId + 2];
-                    limitPrice[_poolId] = limitPrice[_poolId + 1].wDivDown(PRICE_STEP);
-                }  
-            }
-
-            else if (limitPrice[_poolId - 2] > 0) {
-                if (quotePool) {
-                    limitPrice[_poolId - 1] = limitPrice[_poolId - 2];
-                    limitPrice[_poolId] = limitPrice[_poolId - 1].wMulDown(PRICE_STEP);
-                }
-                else {
-                    limitPrice[_poolId - 1] = limitPrice[_poolId - 2].wMulDown(PRICE_STEP);
-                    limitPrice[_poolId] = limitPrice[_poolId - 1];
-                }  
-            }
-
-            else if (limitPrice[_poolId + 3] > 0) {
-                if (quotePool) {
-                    limitPrice[_poolId + 2] = limitPrice[_poolId + 3];
-                    limitPrice[_poolId + 1] = limitPrice[_poolId + 2].wDivDown(PRICE_STEP);
-                    limitPrice[_poolId] = limitPrice[_poolId + 1];
-                }
-                else {
-                    limitPrice[_poolId + 2] = limitPrice[_poolId + 3].wDivDown(PRICE_STEP);
-                    limitPrice[_poolId + 1] = limitPrice[_poolId + 2];
-                    limitPrice[_poolId] = limitPrice[_poolId + 1].wDivDown(PRICE_STEP);
-                }  
-            }
-
-            else if (limitPrice[_poolId - 3] > 0) {
-                if (quotePool) {
-                    limitPrice[_poolId - 2] = limitPrice[_poolId - 3].wMulDown(PRICE_STEP);
-                    limitPrice[_poolId - 1] = limitPrice[_poolId - 2];
-                    limitPrice[_poolId] = limitPrice[_poolId - 1].wMulDown(PRICE_STEP);
-                }
-                else {
-                    limitPrice[_poolId - 2] = limitPrice[_poolId - 3];
-                    limitPrice[_poolId - 1] = limitPrice[_poolId - 2].wMulDown(PRICE_STEP);
-                    limitPrice[_poolId] = limitPrice[_poolId - 1];
-                }  
-            }
-
-            else if (limitPrice[_poolId + 4] > 0) {
-                if (quotePool) {
-                    limitPrice[_poolId + 3] = limitPrice[_poolId + 4].wDivDown(PRICE_STEP);
-                    limitPrice[_poolId + 2] = limitPrice[_poolId + 3];
-                    limitPrice[_poolId + 1] = limitPrice[_poolId + 2].wDivDown(PRICE_STEP);
-                    limitPrice[_poolId] = limitPrice[_poolId + 1];
-                }
-                else {
-                    limitPrice[_poolId + 3] = limitPrice[_poolId + 4];
-                    limitPrice[_poolId + 2] = limitPrice[_poolId + 3].wDivDown(PRICE_STEP);
-                    limitPrice[_poolId + 1] = limitPrice[_poolId + 2];
-                    limitPrice[_poolId] = limitPrice[_poolId + 1].wDivDown(PRICE_STEP);
-                }  
-            }
-
-            else if (limitPrice[_poolId - 4] > 0) {
-                if (quotePool) {
-                    limitPrice[_poolId - 3] = limitPrice[_poolId - 4];
-                    limitPrice[_poolId - 2] = limitPrice[_poolId - 3].wMulDown(PRICE_STEP);
-                    limitPrice[_poolId - 1] = limitPrice[_poolId - 2];
-                    limitPrice[_poolId] = limitPrice[_poolId - 1].wMulDown(PRICE_STEP);
-                }
-                else {
-                    limitPrice[_poolId - 3] = limitPrice[_poolId - 4].wMulDown(PRICE_STEP);
-                    limitPrice[_poolId - 2] = limitPrice[_poolId - 3];
-                    limitPrice[_poolId - 1] = limitPrice[_poolId - 2].wMulDown(PRICE_STEP);
-                    limitPrice[_poolId] = limitPrice[_poolId - 1];
-                }  
-            }
-
-            else if (limitPrice[_poolId - 5] > 0) {
-                if (quotePool) {
-                    limitPrice[_poolId - 4] = limitPrice[_poolId - 5].wMulDown(PRICE_STEP);
-                    limitPrice[_poolId - 3] = limitPrice[_poolId - 4];
-                    limitPrice[_poolId - 2] = limitPrice[_poolId - 3].wMulDown(PRICE_STEP);
-                    limitPrice[_poolId - 1] = limitPrice[_poolId - 2];
-                    limitPrice[_poolId] = limitPrice[_poolId - 1].wMulDown(PRICE_STEP);
-                }
-                else {
-                    limitPrice[_poolId - 4] = limitPrice[_poolId - 5];
-                    limitPrice[_poolId - 3] = limitPrice[_poolId - 4].wMulDown(PRICE_STEP);
-                    limitPrice[_poolId - 2] = limitPrice[_poolId - 3];
-                    limitPrice[_poolId - 1] = limitPrice[_poolId - 2].wMulDown(PRICE_STEP);
-                    limitPrice[_poolId] = limitPrice[_poolId - 1];
-                }  
-            }
-
-            
         }
+
         priceExists_ = (limitPrice[_poolId] > 0);
 
         console.log("limitPrice[_poolId] after creation: ", limitPrice[_poolId] / WAD);
@@ -1708,7 +1571,7 @@ contract Book is IBook {
         }
     }
 
-    // return false if desired quantity cannot be withdrawn
+    // returns false if desired quantity cannot be withdrawn
     function _removableFromOrder(
         uint256 _orderId,
         uint256 _quantity // removed quantity
@@ -1731,7 +1594,7 @@ contract Book is IBook {
         return (PHI.wMulDown(pools[_poolId].deposits) - pools[_poolId].borrows).maximum(0);
     }
 
-    // return false if desired quantity is not possible to take
+    // returns false if desired quantity is not possible to take
     function _takable(
         uint256 _poolId,
         uint256 _takenQuantity,
@@ -1746,7 +1609,7 @@ contract Book is IBook {
         else return false;
     }
 
-    // return false if desired quantity is not possible to remove
+    // returns false if desired quantity is not possible to remove
     function _removableFromPool(
         uint256 _poolId,
         uint256 _removedQuantity
@@ -1849,13 +1712,12 @@ contract Book is IBook {
     // excess collateral (EC) expressed in base token, must be positive
     // EC = scaleDown * total deposits by user (base assets + elligible quote assets) - required collateral (RC)
     // scaleDown is ALTV if assert user's EC or LLTV is assert liquidate
-    // return EC if reducing user's EC maintains EC > 0 or zero otherwise
+    // returns EC if reducing user's EC maintains EC > 0 or zero otherwise
     // RC is computed with interest rate added to borrowed assets
 
     function getUserExcessCollateral(
         address _user,
-        uint256 _reducedQuantity,
-        uint256 _scaleDown
+        uint256 _reducedQuantity
     )
         public view
         returns (uint256 excessCollateral)
@@ -1868,17 +1730,17 @@ contract Book is IBook {
 
         (uint256 requiredCollateral, uint256 quoteToCollateral) = getUserRequiredCollateral(_user);
 
-        console.log("base deposits :", baseDeposits / WAD, "ETH");
-        console.log("eligible quote collateral in base assets :", quoteToCollateral / WAD, "ETH");
-        console.log("required collateral before borrow :", requiredCollateral / WAD, "ETH");
-        console.log("scale down % :", 100 * _scaleDown / WAD);
-        console.log("scaled down collateral x 100 :", 100 * _scaleDown.wMulDown(baseDeposits + quoteToCollateral) / WAD, "ETH");
-        console.log("reduced quantity :", _reducedQuantity / WAD, "ETH");
+        // console.log("base deposits :", baseDeposits / WAD, "ETH");
+        // console.log("eligible quote collateral in base assets :", quoteToCollateral / WAD, "ETH");
+        // console.log("required collateral before borrow :", requiredCollateral / WAD, "ETH");
+        // console.log("scale down % :", 100 * liquidationLTV / WAD);
+        // console.log("scaled down collateral x 100 :", 100 * liquidationLTV.wMulDown(baseDeposits + quoteToCollateral) / WAD, "ETH");
+        // console.log("reduced quantity :", _reducedQuantity / WAD, "ETH");
 
         // is user EC > 0 return, else return 0
         
-        if (_scaleDown.wMulDown(baseDeposits + quoteToCollateral) > requiredCollateral + _reducedQuantity) 
-            excessCollateral = _scaleDown.wMulDown(baseDeposits + quoteToCollateral) 
+        if (liquidationLTV.wMulDown(baseDeposits + quoteToCollateral) > requiredCollateral + _reducedQuantity) 
+            excessCollateral = liquidationLTV.wMulDown(baseDeposits + quoteToCollateral) 
                 - requiredCollateral - _reducedQuantity;
         else excessCollateral = 0;
 
@@ -1996,10 +1858,10 @@ contract Book is IBook {
     }
 
     function minDeposit(bool _isBuyOrder)
-        public pure
+        public view
         returns (uint256)
     {
-        return _isBuyOrder == true ? MIN_DEPOSIT_QUOTE : MIN_DEPOSIT_BASE;
+        return _isBuyOrder == true ? minDepositQuote : minDepositBase;
     }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/

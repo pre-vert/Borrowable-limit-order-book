@@ -15,7 +15,6 @@ contract Setup is StdCheats, Test {
     DeployBook public deployBook;
 
     // constants //
-    uint256 genesisLimitPriceWAD; // initial limit price in WAD of genesis pool = 2000
     bool constant public BuyOrder = true;
     bool constant public SellOrder = false;
     bool constant public InQuoteToken = true;
@@ -33,7 +32,6 @@ contract Setup is StdCheats, Test {
     uint256 constant SecondOrderId = 2;
     uint256 constant ThirdOrderId = 3;
     uint256 constant FourthOrderId = 4;
-    // uint256 constant FirstPoolId = GenPoolId;
     uint256 constant NoPositionId = 0;
     uint256 constant FirstPositionId = 1;
     uint256 constant SecondPositionId = 2;
@@ -42,17 +40,17 @@ contract Setup is StdCheats, Test {
     uint256 constant DepositBT = 10 * WAD;
     uint256 constant TakeQT = 900 * WAD;
     uint256 constant TakeBT = 10 * WAD;
-    uint256 constant LowPrice = 1980 * WAD;
-    uint256 constant HighPrice = 2020 * WAD;
-    uint256 constant UltraLowPrice = 1800 * WAD;
-    uint256 constant UltraHighPrice = 2300 * WAD;
-    // uint256 constant UltraLowPriceId = -2;
-    // uint256 constant VeryLowPriceId = -1;
-    // uint256 constant LowPriceId = 0;
-    // uint256 constant HighPriceId = 1;
-    // uint256 constant VeryHighPriceId = 2;
-    // uint256 constant UltraHighPriceId = 3;
+    uint256 constant LowPrice = 3960 * WAD;
+    uint256 constant HighPrice = 4040 * WAD;
+    uint256 constant UltraLowPrice = 3500 * WAD;
+    uint256 constant UltraHighPrice = 4500 * WAD;
 
+    // variables //
+    uint256 public genesisLimitPriceWAD; // initial limit price in WAD of genesis pool = 4000
+    uint256 public priceStep;
+    uint256 public minDepositBase;
+    uint256 public minDepositQuote;
+    uint256 public liquidationLTV;
     address OrderBook;
     address Alice;
     address Bob;
@@ -82,11 +80,30 @@ contract Setup is StdCheats, Test {
         _;
     }
 
+    modifier setUltraLowPrice() {
+        setPriceFeed(UltraLowPrice / WAD);
+        _;
+    }
+
+    modifier setUltraHighPrice() {
+        setPriceFeed(UltraHighPrice / WAD);
+        _;
+    }
+
     function setUp() public {
         deployBook = new DeployBook();
-        (book, quoteToken, baseToken, genesisLimitPriceWAD) = deployBook.run();
+        (
+            book, 
+            quoteToken,
+            baseToken,
+            genesisLimitPriceWAD,
+            minDepositBase,
+            minDepositQuote,
+            liquidationLTV
+        )
+        = deployBook.run();
         fundingAccounts(AccountNumber);
-        setPriceFeed(2001);
+        setPriceFeed(genesisLimitPriceWAD / WAD + 1);
     }
     
     // funding an army of traders

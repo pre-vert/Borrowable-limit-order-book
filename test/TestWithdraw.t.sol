@@ -83,14 +83,14 @@ contract TestWithdraw is Setup {
     // Withdraw buy order, user excess collateral is correct
     function test_WithdrawBuyOrderExcessCollateral() public depositBuy(B) {
         withdraw(Alice, FirstOrderId, DepositQT);
-        uint256 userEC = book.getUserExcessCollateral(Alice, 0, book.ALTV());
+        uint256 userEC = book.getUserExcessCollateral(Alice, 0);
         assertEq(userEC, 0);
     }
 
     // Withdraw sell order, user excess collateral is correct
     function test_WithdrawSellOrderExcessCollateral() public setLowPrice() depositSell(B + 1) {
         withdraw(Bob, FirstOrderId, DepositBT);
-        uint256 userEC = book.getUserExcessCollateral(Bob, 0, book.ALTV());
+        uint256 userEC = book.getUserExcessCollateral(Bob, 0);
         assertEq(userEC, 0);
     }
 }

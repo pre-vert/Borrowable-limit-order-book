@@ -72,10 +72,10 @@ contract TestPool is Setup {
     }
 
     // deposit first buy order + 2 seeds the genesis pool correctly
-    // market price = 2001; limit price of pool + 2 is 2200
+    // market price = 4001; limit price of pool + 2 is 4400
     
     function test_DepositBuyPlusTwoCreatesPool() public {
-        setPriceFeed(2201);
+        setPriceFeed(4401);
         depositBuyOrder(Alice, B + 2, DepositQT, B + 3);
         assertEq(book.limitPrice(B + 2), genesisLimitPriceWAD + genesisLimitPriceWAD / 10);
     }
@@ -101,7 +101,7 @@ contract TestPool is Setup {
     }
 
     function test_DepositSellBuyOrderPlusUnCreatesPool() public 
-        setLowPrice() depositSell(B + 1) setHighPrice() depositBuy(B + 2) {
+        setLowPrice() depositSell(B + 1) setUltraHighPrice() depositBuy(B + 2) {
         assertEq(book.limitPrice(B), genesisLimitPriceWAD);
     }
 
@@ -117,7 +117,7 @@ contract TestPool is Setup {
 
     // deposit buy order 2 times above genesis limit price seeds the pool correctly
     function test_DepositBuyAboveTwiceCreatesPool() public {
-        setPriceFeed(2500);
+        setPriceFeed(5000);
         depositBuyOrder(Alice, B + 4, DepositQT, B + 5);
         uint256 intPrice = genesisLimitPriceWAD + genesisLimitPriceWAD / 10;
         assertEq(book.limitPrice(B + 4), intPrice + intPrice / 10);

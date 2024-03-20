@@ -83,12 +83,11 @@ contract TestRepay is Setup {
 
     function test_RepayBuyOrderExcessCollateral() public depositBuy(B) depositSell(B + 3) {
         borrow(Bob, B, DepositQT / 2);
-        uint256 ALTV = book.ALTV();
-        uint256 excessCollateral = book.getUserExcessCollateral(Bob, 0, ALTV);
+        uint256 excessCollateral = book.getUserExcessCollateral(Bob, 0);
         uint256 limitPrice = book.limitPrice(B);
         repay(Bob, FirstPositionId,  DepositQT / 2);
         uint256 newExcessCollateral = excessCollateral + WAD * DepositQT / (2 * limitPrice);
-        assertEq(book.getUserExcessCollateral(Bob, 0, ALTV), newExcessCollateral);
+        assertEq(book.getUserExcessCollateral(Bob, 0), newExcessCollateral);
     }
 
 }

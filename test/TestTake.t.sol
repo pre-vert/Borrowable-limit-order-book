@@ -169,11 +169,11 @@ contract TestTake is Setup {
     }
 
     // Taking borrowed buy order succeeds and correctly adjuts balances + order is reposted as a sell order
-    // Alice posts in a buy order 20,000 at limit price 2000, Bob deposits 10 ETH and borrows 8,000 from Alice
-    // Takashi takes available USDC in buy order, receives 12,000 and gives 12,000/2000 = 6 ETH
-    // Alice gets from Bob and Takashi 4 + 6 = 10 ETH, which are reposted in a sell order at 2200
+    // Alice posts 20,000 in a buy order at limit price 4000, Bob deposits 10 ETH and borrows 8,000 from Alice
+    // Takashi takes available USDC in buy order, receives 12,000 and gives 12,000/4000 = 3 ETH
+    // Alice gets from Bob and Takashi 2 + 3 = 5 ETH, which are reposted in a sell order at 4400
     // book's base balance before take: 10 ETH for Bob
-    // book's base balance after take: (10 - 4) for Bob and 10 for Alice = 16 ETH => variation = 16 - 10 = 6 ETH
+    // book's base balance after take: (10 - 2) for Bob and 5 for Alice = 13 ETH => variation = 13 - 10 = 3 ETH
     // book's quote balance before take: 12,000 (20,000 USDC for Alice - 8,000 sent to Bob)
     // book's quote balance after take: 0 (12,000 received by taker)
     
@@ -200,7 +200,7 @@ contract TestTake is Setup {
         assertEq(baseToken.balanceOf(Takashi), takerBaseBalance - 3 * aliceGets / 5);
         assertEq(quoteToken.balanceOf(Takashi), takerQuoteBalance + 3 * DepositQT / 5);
         checkOrderQuantity(FirstOrderId, 0);
-        checkOrderQuantity(SecondOrderId, DepositBT - 4 * DepositBT / 10);
+        checkOrderQuantity(SecondOrderId, DepositBT - 2 * DepositBT / 10);
         checkOrderQuantity(ThirdOrderId, aliceGets);
         checkBorrowingQuantity(FirstPositionId, 0);
     }
@@ -214,26 +214,26 @@ contract TestTake is Setup {
     }
 
     // take pool of borrowed quotes collateralized by quotes correctly adjust balances
-    // price 2001: Alice deposits 20,000 in buy order at 2000
-    // price 2201: Bob deposits 20,000 in buy order at 2200
+    // price 4001: Alice deposits 20,000 in buy order at 4000
+    // price 4401: Bob deposits 20,000 in buy order at 4400
     // He borrows 2 * 20,000 / 5 = 8,000 from Alice
-    // price 2101: Takashi takes Bob's buy order at 2200
-    // => Bob gets 20,000/2200 = 9.1 ETH replaced in sell order at 2400
-    // price 1900: Takashi takes Alice's buy order => Bob's collateral 8,000/2000 = 4 ETH is transferred to Alice
-    // Bob's residual assets in sell order is 20,000/2200 - 8,000/2000 = 9.1 - 4 = 5.1 ETH
+    // price 4201: Takashi takes Bob's buy order at 4400
+    // => Bob gets 20,000/4400 = 4.55 ETH replaced in sell order at 4400
+    // price 3900: Takashi takes Alice's buy order => Bob's collateral 8,000/4000 = 2 ETH is transferred to Alice
+    // Bob's residual assets in sell order is 20,000/2200 - 8,000/2000 = 4.55 - 2 = 2.55 ETH
     // book base balance : base tokens received from taker are reposted as sell orders
     // book quote balance : minus quote tokens sent to takers
     
     function test_TakeBorrowWithQuoteTokensThenTake() public depositBuy(B) {
-        setPriceFeed(genesisLimitPriceWAD / WAD + 201);
+        setPriceFeed(4401);
         depositBuyOrder(Bob, B + 2, DepositQT, B + 3);
         uint256 borrowedAssets = 2 * DepositQT / 5;
         borrow(Bob, B, borrowedAssets);
-        setPriceFeed(genesisLimitPriceWAD / WAD - 100);
+        setPriceFeed(4201);
         take(Takashi, B + 2, DepositQT);
         uint256 bobGets = WAD * DepositQT / book.limitPrice(B + 2);
         checkOrderQuantity(ThirdOrderId, bobGets);
-        setPriceFeed(genesisLimitPriceWAD / WAD - 100);
+        setPriceFeed(3900);
         uint256 bookBaseBalance = baseToken.balanceOf(OrderBook);
         uint256 bookQuoteBalance = quoteToken.balanceOf(OrderBook);
         uint256 makerBaseBalance = baseToken.balanceOf(Alice);

@@ -138,7 +138,7 @@ contract TestDeposit is Setup {
 
     // Three buy orders correctly adjusts external balances
     function test_DepositThreeOrders() public {
-        setPriceFeed(2100);
+        setPriceFeed(4100);
         uint256 orderBookBalance = quoteToken.balanceOf(OrderBook);
         uint256 userBalance = quoteToken.balanceOf(Alice);
         depositBuyOrder(Alice, B, DepositQT, B + 1);
@@ -290,14 +290,14 @@ contract TestDeposit is Setup {
 
     // User excess collateral is correct after deposit in buy order
     function test_DepositBuyOrderExcessCollateral() public depositBuy(B) {
-        uint256 userEC = book.getUserExcessCollateral(Alice, 0, book.ALTV());
-        assertEq(userEC, book.ALTV() * DepositQT / book.limitPrice(B));
+        uint256 userEC = book.getUserExcessCollateral(Alice, 0);
+        assertEq(userEC, liquidationLTV * DepositQT / book.limitPrice(B));
     }
 
     // User excess collateral is correct after deposit in sell order
     function test_DepositSellOrderExcessCollateral() public setLowPrice() depositSell(B + 1) {
-        uint256 userEC = book.getUserExcessCollateral(Bob, 0, book.ALTV());
-        assertEq(userEC, book.ALTV() * DepositBT / WAD);
+        uint256 userEC = book.getUserExcessCollateral(Bob, 0);
+        assertEq(userEC, liquidationLTV * DepositBT / WAD);
     }
 
     // // Paired price in buy order is used in paired limit order after taking
