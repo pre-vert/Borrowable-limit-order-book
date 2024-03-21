@@ -18,8 +18,7 @@ contract TestDeposit is Setup {
         address maker,
         uint256 pairedPoolId,
         uint256 quantity,
-        uint256 orderWeightedRate,
-        bool isBuyOrder
+        uint256 orderWeightedRate
         )
         = book.orders(FirstOrderId);
         assertEq(poolId, B);
@@ -27,7 +26,6 @@ contract TestDeposit is Setup {
         assertEq(pairedPoolId, B + 3);
         assertEq(quantity, DepositQT);
         assertEq(orderWeightedRate, orderWeightedRate);
-        assertEq(isBuyOrder, BuyOrder);
         assertEq(genesisLimitPriceWAD, book.limitPrice(B));
     }
 
@@ -40,15 +38,13 @@ contract TestDeposit is Setup {
         address maker,
         uint256 pairedPoolId,
         uint256 quantity,
-        uint256 orderWeightedRate,
-        bool isBuyOrder)
+        uint256 orderWeightedRate)
         = book.orders(FirstOrderId);
         assertEq(poolId, B + 1);
         assertEq(maker, Bob);
         assertEq(pairedPoolId, B - 2);
         assertEq(quantity, DepositBT);
         assertEq(orderWeightedRate, WAD);
-        assertEq(isBuyOrder, SellOrder);
         assertEq(genesisLimitPriceWAD, book.limitPrice(B));
     }
 
@@ -70,18 +66,6 @@ contract TestDeposit is Setup {
         checkUserDepositId(Alice, 1, SecondOrderId);
     }
 
-    // Deposit buy order in wrong pool reverts
-    function test_DepositBuyOrderInWrongPoolReverts() public {
-        vm.expectRevert("Order in wrong pool");
-        depositBuyOrder(Alice, B + 1, DepositQT, B);
-    }
-
-    // Deposit sell order in wrong pool reverts
-    function test_DepositSellOrderInWrongPoolReverts() public {
-        vm.expectRevert("Order in wrong pool");
-        depositSellOrder(Alice, B, DepositBT, B + 1);
-    }
-
     // Choose paired buy order in same pool is ok
     function test_ChoosePairedBuyOrderInSamePoolIsOk() public {
         depositBuyOrder(Alice, B, DepositQT, B + 1);
@@ -94,13 +78,13 @@ contract TestDeposit is Setup {
 
     // Choose paired buy order in wrong pool reverts
     function test_ChoosePairedBuyOrderInWrongPoolReverts() public {
-        vm.expectRevert("Paired in wrong pool");
+        vm.expectRevert("Wrong paired pool");
         depositBuyOrder(Alice, B, DepositQT, B + 2);
     }
 
     // Choose paired sell order in wrong pool reverts
     function test_ChoosePairedSellOrderInWrongPoolReverts() public {
-        vm.expectRevert("Paired in wrong pool");
+        vm.expectRevert("Wrong paired pool");
         depositSellOrder(Alice, B + 1, DepositBT, B - 1);
     }
 
@@ -278,20 +262,20 @@ contract TestDeposit is Setup {
 
     // revert if same paired prices in buy order
     function test_RevertBuyOrderSamePairedPrice() public {
-        vm.expectRevert("Paired in wrong pool");
+        vm.expectRevert("Wrong paired pool");
         depositBuyOrder(Alice, B, DepositQT, B);
     }
 
     // revert if same paired prices in sell order
     function test_RevertSellOrderSamePairedPrice() public setLowPrice() {
-        vm.expectRevert("Paired in wrong pool");
+        vm.expectRevert("Wrong paired pool");
         depositSellOrder(Alice, B + 1, DepositBT, B + 1);
     }
 
     // User excess collateral is correct after deposit in buy order
     function test_DepositBuyOrderExcessCollateral() public depositBuy(B) {
         uint256 userEC = book.getUserExcessCollateral(Alice, 0);
-        assertEq(userEC, liquidationLTV * DepositQT / book.limitPrice(B));
+        assertEq(userEC, 0);
     }
 
     // User excess collateral is correct after deposit in sell order

@@ -53,27 +53,6 @@ contract TestBorrow is Setup {
         checkBorrowingQuantity(FirstPositionId, DepositQT / 2); 
     }
 
-    // borrow of buy order collateralized by quote tokens in buy orders correctly adjusts balances
-    // market price set initially at 4001
-    // Alice deposits buy order at 4000 (initialPriceWAD)
-    // price is set at 4401
-    // Bob deposits buy order at 4400 and borrows quote tokens from Alice
-
-    function test_BorrowBuyOrderWithQuoteTokens() public depositBuy(B) {
-        setPriceFeed(4401);
-        depositBuyOrder(Bob, B + 2, DepositQT, B + 3);
-        uint256 bookBalance = quoteToken.balanceOf(OrderBook);
-        uint256 lenderBalance = quoteToken.balanceOf(Alice);
-        uint256 borrowerBalance = quoteToken.balanceOf(Bob);
-        borrow(Bob, B, DepositQT / 2);
-        assertEq(quoteToken.balanceOf(OrderBook), bookBalance - DepositQT / 2);
-        assertEq(quoteToken.balanceOf(Alice), lenderBalance);
-        assertEq(quoteToken.balanceOf(Bob), borrowerBalance + DepositQT / 2);
-        checkOrderQuantity(FirstOrderId, DepositQT);
-        checkOrderQuantity(SecondOrderId, DepositQT);
-        checkBorrowingQuantity(FirstPositionId, DepositQT / 2); 
-    }
-
     // revert if borrow all assets in a pool
     function test_FailsIfBorrowAllDeposit() public depositBuy(B) depositSell(B + 3) {
         vm.expectRevert("Borrow too much_2");
@@ -81,15 +60,15 @@ contract TestBorrow is Setup {
     }
 
     // Borrower excess collateral in base token is correct
-    // Alice deposits buy order of 20,000 at limit price 2000 => EC = ALTV * 20,000 / 2000 = 9.8
-    // Bob deposits sell order of 10 at limit price 2200 => EC = ALTV * 10 = 9.8
-    // borrows 20,000/2 at limit price 2000 => EC = EC - 20,000 / (2*2000) = 9.8 - 5 = 4.8
+    // Alice deposits buy order of 20,000 at limit price 4000 => EC = 20,000 / 4000 = 5
+    // Bob deposits sell order of 10 at limit price 4400 => EC = 10
+    // borrows 20,000/2 at limit price 4000 => EC = 10 - LLTV * 10,000 / 4000 = 10 - 0.96 * 2.5 = 7.6
 
     function test_BorrowBuyOrderExcessCollateral() public depositBuy(B) depositSell(B + 3) {
         uint256 excessCollateral = book.getUserExcessCollateral(Bob, 0);
         uint256 limitPrice = book.limitPrice(B);
         borrow(Bob, B , DepositQT / 2);
-        assertEq(book.getUserExcessCollateral(Bob, 0), excessCollateral - WAD * DepositQT / (2 * limitPrice));
+        assertEq(book.getUserExcessCollateral(Bob, 0), excessCollateral - liquidationLTV * WAD * DepositQT / (2 * limitPrice));
     }
 
     // Bob borrows from Alice's sell order, borrowFromIds array correctly updates
@@ -156,29 +135,6 @@ contract TestBorrow is Setup {
         checkBorrowingQuantity(FirstPositionId, DepositQT / 2);
     }
 
-    // take pool of borrowed quotes collateralized by quotes correctly adjust balances
-    // price 4001: Alice deposits 20,000 in buy order at 4000
-    // price 4401: Bob deposits 20,000 in buy order at 4400 and borrows 10,000 from Alice
-    
-    function test_TakeBorrowWithQuoteTokens() public depositBuy(B) {
-        setPriceFeed(4401);
-        depositBuyOrder(Bob, B + 2, DepositQT, B + 3);
-        uint256 bookBaseBalance = baseToken.balanceOf(OrderBook);
-        uint256 bookQuoteBalance = quoteToken.balanceOf(OrderBook);
-        uint256 makerBaseBalance = baseToken.balanceOf(Alice);
-        uint256 makerQuoteBalance = quoteToken.balanceOf(Alice);
-        uint256 borrowerBaseBalance = baseToken.balanceOf(Bob);
-        uint256 borrowerQuoteBalance = quoteToken.balanceOf(Bob);
-        borrow(Bob, B, DepositQT / 2);
-        assertEq(baseToken.balanceOf(OrderBook), bookBaseBalance);
-        assertEq(quoteToken.balanceOf(OrderBook), bookQuoteBalance - DepositQT / 2);
-        assertEq(baseToken.balanceOf(Alice), makerBaseBalance);
-        assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance);
-        assertEq(baseToken.balanceOf(Bob), borrowerBaseBalance);
-        assertEq(quoteToken.balanceOf(Bob), borrowerQuoteBalance + DepositQT / 2);
-        checkBorrowingQuantity(FirstPositionId, DepositQT / 2); 
-    }
-    
     // // test liquidate a huge number of positions at once
     // // max_position 0 take() 150101 gas diff 108747/5 = 21749 (au lieu de 5843*5 = 29215)
     // // max_position 5 take() 258848 gas

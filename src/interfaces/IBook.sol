@@ -7,9 +7,8 @@ interface IBook {
     /// @param _poolId id of pool in which user deposits
     /// @param _quantity The quantity of assets deposited (quoteToken for buy orders, baseToken for sell orders)
     /// @param _pairedPoolId id of pool in which the assets taken are reposted
-    /// @param _isBuyOrder true for buy orders, false for sell orders
 
-    function deposit(uint256 _poolId, uint256 _quantity, uint256 _pairedPoolId, bool _isBuyOrder) external;
+    function deposit(uint256 _poolId, uint256 _quantity, uint256 _pairedPoolId) external;
 
     /// @notice lets user partially or fully remove her liquidity from the book
     ///         Only non-borrowed assets can be removed from pool
@@ -27,10 +26,10 @@ interface IBook {
     function borrow(uint256 _poolId, uint256 _quantity) external;
 
     /// @notice lets users decrease or close a borrowing position
-    /// @param _orderId id of pool which borrowed assets are paid back by user
+    /// @param _positionId id of position repaid by user
     /// @param _quantity quantity of assets paid back
     
-    function repay(uint256 _orderId, uint256 _quantity) external;
+    function repay(uint256 _positionId, uint256 _quantity) external;
 
     /// @param _poolId id of pool which available assets are taken
     /// @param _takenQuantity amount of quote assets received by taker in exchange of base assets
@@ -40,16 +39,14 @@ interface IBook {
     /// @notice liquidate borrowing positions from users whose excess collateral is zero or negative
     ///         iterate on borrower's positions
     ///         cancel debt in quote tokens and seize an equivalent amount of deposits in base tokens at discount
-    /// @param  _borrower borrower whose positions are liquidated
+    /// @param  _user borrower whose positions are liquidated
     /// @param _suppliedQuotes: quantity of quote assets supplied by liquidator in exchange of base collateral assets
 
-    function liquidateBorrower(address _borrower, uint256 _suppliedQuotes) external;
+    function liquidateUser(address _user, uint256 _suppliedQuotes) external;
 
     /// @notice let maker change limit price of her order
     /// @param _orderId id of order which limit price is changed
     /// @param _newPoolId id of pool with new limit price
-    
-    // function changeLimitPrice(uint256 _orderId, uint256 _newPoolId) external;
 
     /// @notice let maker change limit price of her order
     /// @param _orderId id of order which paired limit price is changed
@@ -64,8 +61,7 @@ interface IBook {
         uint256 poolId,
         uint256 orderId,
         uint256 quantity,
-        uint256 pairedPoolId,
-        bool isBuyOrder
+        uint256 pairedPoolId
     );
 
     event Withdraw(

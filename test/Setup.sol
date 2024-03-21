@@ -147,7 +147,7 @@ contract Setup is StdCheats, Test {
         uint256 _pairedPoolId
     ) public {
         vm.prank(_user);
-        book.deposit( _poolId, _quantity, _pairedPoolId, BuyOrder);
+        book.deposit( _poolId, _quantity, _pairedPoolId);
     }
 
     function depositSellOrder(
@@ -157,7 +157,7 @@ contract Setup is StdCheats, Test {
         uint256 _pairedPoolId
     ) public {
         vm.prank(_user);
-        book.deposit(_poolId, _quantity, _pairedPoolId, SellOrder);
+        book.deposit(_poolId, _quantity, _pairedPoolId);
     }
 
     function withdraw(address _user, uint256 _orderId, uint256 _quantity) public {
@@ -182,30 +182,30 @@ contract Setup is StdCheats, Test {
 
     function liquidateBorrower(address _user, uint256 _quantity) public {
         vm.prank(_user);
-        book.liquidateBorrower(_user, _quantity);
+        book.liquidateUser(_user, _quantity);
     }
 
     // check maker of order
     function checkOrderMaker(uint256 _orderId, address _maker) public {
-        (, address maker,,,,) = book.orders(_orderId);
+        (, address maker,,,) = book.orders(_orderId);
         assertEq(maker, _maker);
     }
 
     // check assets in order == _quantity
     function checkOrderQuantity(uint256 _orderId, uint256 _quantity) public {
-        (,,, uint256 quantity,,) = book.orders(_orderId);
+        (,,, uint256 quantity,) = book.orders(_orderId);
         assertEq(quantity, _quantity);
     }
 
     // check limit price in order
     function checkPoolId(uint256 _orderId, uint256 _poolId) public {
-        (uint256 poolId,,,,,) = book.orders(_orderId);
+        (uint256 poolId,,,,) = book.orders(_orderId);
         assertEq(poolId, _poolId);
     }
 
     // check paired pool id in order
     function checkOrderPairedPrice(uint256 _orderId, uint256 _pairedPoolId) public {
-        (,, uint256 pairedPoolId,,,) = book.orders(_orderId);
+        (,, uint256 pairedPoolId,,) = book.orders(_orderId);
         assertEq(pairedPoolId, _pairedPoolId);
     }
 
