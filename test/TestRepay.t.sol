@@ -76,18 +76,19 @@ contract TestRepay is Setup {
     }
 
     // Borrower excess collateral in base token is correct
-    // Alice deposits buy order of 20,000 at limit price 2000 => EC = ALTV * 20,000 / 2000 = 9.8
-    // Bob deposits sell order of 10 at limit price 2200 => EC = ALTV * 10 = 9.8
-    // borrows 20,000/2 at limit price 2000 => EC = EC - 20,000 / (2*2000) = 9.8 - 5 = 4.8
-    // repays 20,000/2 at limit price 2000 => EC = EC + 20,000 / (2*2000) = 4.8 + 5 = 9.8
+    // Alice deposits buy order of 20,000 at limit price 4000
+    // Bob deposits sell order of 10 at limit price 4400 => EC = 10
+    // borrows 20,000/2 at limit price 4000 => EC = 10 - 20,000 / (2*4000*0.96) = 10 - 2.5/0.96 = 10 - 2.6 = 7.4 ETH
+    // repays 20,000/4 at limit price 4000 => EC = 7.4 + 20,000 / (4*4000*0.96) = 7.4 + 1.25/0.96 = 7.4 + 1.3 = 8.7
 
     function test_RepayBuyOrderExcessCollateral() public depositBuy(B) depositSell(B + 3) {
         borrow(Bob, B, DepositQT / 2);
-        uint256 excessCollateral = book.getUserExcessCollateral(Bob, 0);
+        (, uint256 excessCollateral) = book.getUserExcessCollateral(Bob, 0);
         uint256 limitPrice = book.limitPrice(B);
-        repay(Bob, FirstPositionId,  DepositQT / 2);
-        uint256 newExcessCollateral = excessCollateral + WAD * DepositQT / (2 * limitPrice);
-        assertEq(book.getUserExcessCollateral(Bob, 0), newExcessCollateral);
+        repay(Bob, FirstPositionId,  DepositQT / 4);
+        uint256 newExcessCollateral = excessCollateral + WAD * WAD * DepositQT / (4 * limitPrice * liquidationLTV);
+        (, uint256 bookExcessCollateral) = book.getUserExcessCollateral(Bob, 0);
+        assertEq(bookExcessCollateral, newExcessCollateral);
     }
 
 }

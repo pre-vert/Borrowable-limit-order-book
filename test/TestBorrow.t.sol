@@ -60,15 +60,17 @@ contract TestBorrow is Setup {
     }
 
     // Borrower excess collateral in base token is correct
-    // Alice deposits buy order of 20,000 at limit price 4000 => EC = 20,000 / 4000 = 5
-    // Bob deposits sell order of 10 at limit price 4400 => EC = 10
-    // borrows 20,000/2 at limit price 4000 => EC = 10 - LLTV * 10,000 / 4000 = 10 - 0.96 * 2.5 = 7.6
+    // Alice deposits buy order of 20,000 USDC at limit price 4000 => EC = 20,000 / 4000 = 5
+    // Bob deposits sell order of 10 ETH at limit price 4400 => EC = 10 ETH
+    // borrows 20,000/2 at limit price 4000 => EC = 10 - 20,000 / (2 * 4000 * LLTV) = 10 - 0.96 * 2.5 = 7.6
 
     function test_BorrowBuyOrderExcessCollateral() public depositBuy(B) depositSell(B + 3) {
-        uint256 excessCollateral = book.getUserExcessCollateral(Bob, 0);
+        (, uint256 excessCollateral) = book.getUserExcessCollateral(Bob, 0);
         uint256 limitPrice = book.limitPrice(B);
         borrow(Bob, B , DepositQT / 2);
-        assertEq(book.getUserExcessCollateral(Bob, 0), excessCollateral - liquidationLTV * WAD * DepositQT / (2 * limitPrice));
+        uint256 neededCollateral = WAD * DepositQT / (2 * limitPrice);
+        (, uint256 newExcessCollateral) = book.getUserExcessCollateral(Bob, 0);
+        assertEq(newExcessCollateral, excessCollateral - MathLib.wDivUp(neededCollateral, liquidationLTV));
     }
 
     // Bob borrows from Alice's sell order, borrowFromIds array correctly updates

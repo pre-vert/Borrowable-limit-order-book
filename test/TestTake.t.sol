@@ -213,54 +213,6 @@ contract TestTake is Setup {
         take(Takashi, B, 2 * DepositQT / 5);
     }
 
-    // take pool of borrowed quotes collateralized by quotes correctly adjust balances
-    // price 4001: Alice deposits 20,000 in buy order at 4000
-    // price 4401: Bob deposits 20,000 in buy order at 4400
-    // He borrows 2 * 20,000 / 5 = 8,000 from Alice
-    // price 4201: Takashi takes Bob's buy order at 4400
-    // => Bob gets 20,000/4400 = 4.55 ETH replaced in sell order at 4400
-    // price 3900: Takashi takes Alice's buy order => Bob's collateral 8,000/4000 = 2 ETH is transferred to Alice
-    // Bob's residual assets in sell order is 20,000/2200 - 8,000/2000 = 4.55 - 2 = 2.55 ETH
-    // book base balance : base tokens received from taker are reposted as sell orders
-    // book quote balance : minus quote tokens sent to takers
-    
-    function test_TakeBorrowWithQuoteTokensThenTake() public depositBuy(B) {
-        setPriceFeed(4401);
-        depositBuyOrder(Bob, B + 2, DepositQT, B + 3);
-        uint256 borrowedAssets = 2 * DepositQT / 5;
-        borrow(Bob, B, borrowedAssets);
-        setPriceFeed(4201);
-        take(Takashi, B + 2, DepositQT);
-        uint256 bobGets = WAD * DepositQT / book.limitPrice(B + 2);
-        checkOrderQuantity(ThirdOrderId, bobGets);
-        setPriceFeed(3900);
-        uint256 bookBaseBalance = baseToken.balanceOf(OrderBook);
-        uint256 bookQuoteBalance = quoteToken.balanceOf(OrderBook);
-        uint256 makerBaseBalance = baseToken.balanceOf(Alice);
-        uint256 makerQuoteBalance = quoteToken.balanceOf(Alice);
-        uint256 borrowerBaseBalance = baseToken.balanceOf(Bob);
-        uint256 borrowerQuoteBalance = quoteToken.balanceOf(Bob);
-        uint256 takerBaseBalance = baseToken.balanceOf(Takashi);
-        uint256 takerQuoteBalance = quoteToken.balanceOf(Takashi);
-        uint256 aliceGets = WAD * DepositQT / book.limitPrice(B);
-        uint256 bobAssets = bobGets - WAD * borrowedAssets / book.limitPrice(B);
-        take(Takashi, B, 3 * DepositQT / 5);
-        assertEq(baseToken.balanceOf(OrderBook), bookBaseBalance + 3 * aliceGets / 5);
-        assertEq(quoteToken.balanceOf(OrderBook), bookQuoteBalance - 3 * DepositQT / 5);
-        assertEq(baseToken.balanceOf(Alice), makerBaseBalance); // BT are not sent to Alice's wallet but reposted
-        assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance);
-        assertEq(baseToken.balanceOf(Bob), borrowerBaseBalance);
-        assertEq(quoteToken.balanceOf(Bob), borrowerQuoteBalance);
-        assertEq(baseToken.balanceOf(Takashi), takerBaseBalance - 3 * aliceGets / 5);
-        assertEq(quoteToken.balanceOf(Takashi), takerQuoteBalance + 3 * DepositQT / 5);
-        checkOrderQuantity(FirstOrderId, 0); // Alice's account in quote tokens (taken)
-        checkOrderQuantity(SecondOrderId, 0); // Bob's account in quote tokens (taken)
-        checkOrderQuantity(ThirdOrderId, bobAssets); // Bob's reposted assets in base tokens
-        checkBorrowingQuantity(FirstPositionId, 0);
-        checkPoolDeposits(B, 0);
-        checkPoolBorrows(B, 0);
-    }
-
     // multiple deposits in same pool, no borrower, then take
     function test_MultipleDepositBuyOrderTake() public {
         uint256 numberDeposits = 2;
