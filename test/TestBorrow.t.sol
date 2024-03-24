@@ -65,11 +65,11 @@ contract TestBorrow is Setup {
     // borrows 20,000/2 at limit price 4000 => EC = 10 - 20,000 / (2 * 4000 * LLTV) = 10 - 0.96 * 2.5 = 7.6
 
     function test_BorrowBuyOrderExcessCollateral() public depositBuy(B) depositSell(B + 3) {
-        (, uint256 excessCollateral) = book.getUserExcessCollateral(Bob, 0);
+        (, uint256 excessCollateral) = book.viewUserExcessCollateral(Bob, 0);
         uint256 limitPrice = book.limitPrice(B);
         borrow(Bob, B , DepositQT / 2);
         uint256 neededCollateral = WAD * DepositQT / (2 * limitPrice);
-        (, uint256 newExcessCollateral) = book.getUserExcessCollateral(Bob, 0);
+        (, uint256 newExcessCollateral) = book.viewUserExcessCollateral(Bob, 0);
         assertEq(newExcessCollateral, excessCollateral - MathLib.wDivUp(neededCollateral, liquidationLTV));
     }
 

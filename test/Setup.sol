@@ -238,12 +238,12 @@ contract Setup is StdCheats, Test {
     }
 
     function checkInstantRate(uint256 _poolId) public {
-        uint256 annualRate = book.ALPHA() + book.BETA() * book.getUtilizationRate(_poolId) / WAD;
-        assertEq(book.getInstantRate(_poolId), annualRate / YEAR);
+        uint256 annualRate = book.ALPHA() + book.BETA() * book.viewUtilizationRate(_poolId) / WAD;
+        assertEq(book.viewLendingRate(_poolId), annualRate / YEAR);
         console.log("Utilization rate in buy order market (1e04): ",
-            book.getUtilizationRate(_poolId) * 1e4 / WAD);
+            book.viewUtilizationRate(_poolId) * 1e4 / WAD);
         console.log("Annualized rate in buy order market (1e05): ",
-            book.getInstantRate(_poolId) * 1e5 * YEAR / WAD);
+            book.viewLendingRate(_poolId) * 1e5 * YEAR / WAD);
     }
 
     // function changeLimitPrice(address _user, uint256 _orderId, uint256 _poolId) public {

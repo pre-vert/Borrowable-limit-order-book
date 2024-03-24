@@ -298,7 +298,7 @@ contract Book is IBook {
             // withdraw no more than full liquidity in pool or lets min deposit if partial
             require(_removableFromPool(order.poolId, _removedQuantity), "Remove too much_1");
 
-            //// console.log("Available assets in pool before withdra :", poolAvailableAssets_(order.poolId) / WAD, "USDC");
+            //// console.log("Available assets in pool before withdra :", viewPoolAvailableAssets(order.poolId) / WAD, "USDC");
 
             // add interest rate to existing deposit
             // reset deposit's interest rate to zero
@@ -312,7 +312,7 @@ contract Book is IBook {
         // if user is a borrower who removes collateral assets
         // interest rate is added to all user's position
 
-        else require(isUserExcessCollateralPositive(msg.sender, _removedQuantity), "Remove too much_2");
+        else require(_isUserExcessCollateralPositive(msg.sender, _removedQuantity), "Remove too much_2");
 
         // withdraw no more than deposit net of min deposit if partial
         require(_removableFromOrder(_orderId, _removedQuantity), "Remove too much_3");
@@ -367,9 +367,9 @@ contract Book is IBook {
         _updateAggregates(_poolId);
 
         // cannot borrow more than available assets in pool to borrow
-        require(_quantity <= poolAvailableAssets_(_poolId), "Borrow too much_2");
+        require(_quantity <= viewPoolAvailableAssets(_poolId), "Borrow too much_2");
 
-        // console.log("Borrowable assets in pool before borrow :", poolAvailableAssets_(_poolId) / WAD, "USDC");
+        // console.log("Borrowable assets in pool before borrow :", viewPoolAvailableAssets(_poolId) / WAD, "USDC");
 
         // scaled up required collateral (in base tokens) to borrow _quantity (in quote tokens)
         uint256 scaledUpRequiredCollateral = 
@@ -378,7 +378,7 @@ contract Book is IBook {
         // console.log("Additional required collateral x 100:", 100 * scaledUpRequiredCollateral / WAD, "ETH");
 
         // check borrowed amount is collateralized enough by borrower's own orders
-        require(isUserExcessCollateralPositive(msg.sender, scaledUpRequiredCollateral), "Borrow too much_3");
+        require(_isUserExcessCollateralPositive(msg.sender, scaledUpRequiredCollateral), "Borrow too much_3");
 
         // find if borrower has already a position in pool
         uint256 positionId_ = _getPositionIdInborrowIdsOfUser(msg.sender, _poolId);
@@ -404,7 +404,7 @@ contract Book is IBook {
         // add _quantity to pool's total borrow
         pools[_poolId].borrows += _quantity;
 
-        // console.log("Borrowable assets in pool after borrow :", poolAvailableAssets_(_poolId) / WAD, "USDC");
+        // console.log("Borrowable assets in pool after borrow :", viewPoolAvailableAssets(_poolId) / WAD, "USDC");
 
         _transferTo(msg.sender, _quantity, IN_QUOTE);
 
@@ -535,7 +535,7 @@ contract Book is IBook {
         if (inQuote) {
             
             // pool's utilization rate (before debts cancelation)
-            uint256 utilizationRate = getUtilizationRate(_poolId);
+            uint256 utilizationRate = viewUtilizationRate(_poolId);
             // console.log("utilizationRate :", 100 * utilizationRate / WAD, "%");
 
             // nothing to take if 100 % utilization rate
@@ -614,13 +614,11 @@ contract Book is IBook {
         uint256 _suppliedQuotes
     )
         external
-    {
-        require(isBorrower(_user), "Not a borrower");
-        
+    {      
         // borrower's excess collateral must be zero or negative
         // interest rate is added to all user's position before
 
-        require(!isUserExcessCollateralPositive(_user, 0), "Positive net wealth");
+        require(!_isUserExcessCollateralPositive(_user, 0), "Positive net wealth");
 
         // reduce user's borrowing positions possibly as high as _suppliedQuotes
         uint256 reducedDebt = _reduceUserDebt(_user, _suppliedQuotes);
@@ -1329,12 +1327,12 @@ contract Book is IBook {
         // compute (n_t - n_{t-1}) * IR_{t-1} / N
         // IR_{t-1} annual interest rate
         // N number of seconds in a year (integer)
-        // IR_{t-1} / N instant rate
+        // IR_{t-1} / N is instant rate
 
-        uint256 borrowRate = elapsedTime * getInstantRate(_poolId);
+        uint256 borrowRate = elapsedTime * viewBorrowingRate(_poolId) / YEAR;
 
         // deposit interest rate is borrow rate scaled down by UR
-        uint256 depositRate = borrowRate.wMulDown(getUtilizationRate(_poolId));
+        uint256 depositRate = borrowRate.wMulDown(viewUtilizationRate(_poolId));
 
         // add IR_{t-1} (n_t - n_{t-1})/N to TWIR_{t-2} in pool
         // => get TWIR_{t-1} the time-weighted interest rate from inception to present (in WAD)
@@ -1495,6 +1493,40 @@ contract Book is IBook {
         // console.log("limitPrice[_poolId] after creation: ", limitPrice[_poolId] / WAD);
     }
 
+    function _addInterestRateToUserPositions(address _borrower)
+        internal
+    {
+        uint256[MAX_POSITIONS] memory borrowIds = users[_borrower].borrowIds;
+
+        for (uint256 i = 0; i < MAX_POSITIONS; i++) {
+
+            Position memory position = positions[borrowIds[i]];
+            
+            // look for borrowing positions to calculate required collateral
+            if (position.borrowedAssets > 0) {
+
+                // update pool's total borrow and total deposits
+                // increment TWIR/TUWIR before changes in pool's UR and calculating user's excess collateral
+                _updateAggregates(position.poolId);
+                
+                // add interest rate to borrowed quantity, update TWIR_t to TWIR_T to reset interest rate to zero
+                _addInterestRateToPosition(borrowIds[i]);
+            }
+        }
+    }
+
+    function _isUserExcessCollateralPositive(
+        address _user,
+        uint256 _reducedCollateral
+    )
+        internal
+        returns (bool)
+    {
+        _addInterestRateToUserPositions(_user);
+        (bool isPositive,) = viewUserExcessCollateral(_user, _reducedCollateral);
+        return isPositive;
+    }
+
 
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
@@ -1548,18 +1580,9 @@ contract Book is IBook {
         internal view
         returns (bool)
     {
-        if (pools[_poolId].borrows == 0 || _removedQuantity <= poolAvailableAssets_(_poolId))
+        if (pools[_poolId].borrows == 0 || _removedQuantity <= viewPoolAvailableAssets(_poolId))
             return true;
         else return false;
-    }
-
-    /// @notice pool's available assets are sum deposits, scaled down by PHI - sum of borrow
-    
-    function poolAvailableAssets_(uint256 _poolId)
-        public view
-        returns (uint256)
-    {
-        return (PHI.wMulDown(pools[_poolId].deposits) - pools[_poolId].borrows).maximum(0);
     }
 
     /// return false if desired quantity is not possible to take
@@ -1572,7 +1595,7 @@ contract Book is IBook {
         internal view
         returns (bool)
     {
-        uint256 availableAssets = poolAvailableAssets_(_poolId);
+        uint256 availableAssets = viewPoolAvailableAssets(_poolId);
         
         if (_takenQuantity == availableAssets || _takenQuantity + _minDeposit <= availableAssets) return true;
         else return false;
@@ -1666,7 +1689,41 @@ contract Book is IBook {
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                  PUBLIC VIEW FUNCTIONS                     */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+  
+    function viewDeposit(uint256 _orderId)
+        public view
+        returns (uint256, address, uint256, uint256)
+    {
+        Order storage order = orders[_orderId];
+        return (
+            order.poolId,
+            order.maker,
+            order.pairedPoolId,
+            order.quantity
+        );
+    }
 
+    function viewBorrow(uint256 _positionId)
+        public view
+        returns (uint256, address borrower_, uint256)
+    {
+        Position storage position = positions[_positionId];
+        return (
+            position.poolId, 
+            position.borrower,
+            position.borrowedAssets
+        );
+    }
+    
+    /// @notice pool's available assets are sum deposits, scaled down by PHI - sum of borrow
+    
+    function viewPoolAvailableAssets(uint256 _poolId)
+        public view
+        returns (uint256)
+    {
+        return (PHI.wMulDown(pools[_poolId].deposits) - pools[_poolId].borrows).maximum(0);
+    }
+    
     /// @notice return excess collateral (EC) in base tokens after deduction of _reduced collateral (RC) or 0 if negative
     /// RC can originate from withdraw funds or borrow funds
     /// before call, interest rate has been added to deposits (if in quote) and borrow (if any)
@@ -1676,7 +1733,7 @@ contract Book is IBook {
     /// required collateral is computed with interest rate added to borrowed assets
     /// no need to call _updateAggregates() before
 
-    function getUserExcessCollateral(
+    function viewUserExcessCollateral(
         address _user,
         uint256 _reducedCollateral
     )
@@ -1686,12 +1743,12 @@ contract Book is IBook {
             uint256 excessCollateral_
         )
     {
-        // console.log("   Enter getUserExcessCollateral()");
+        // console.log("   Enter viewUserExcessCollateral()");
         
-        // console.log("      Pre-action collateral deposit x 100:", 100 * getUserTotalDeposits(_user, !IN_QUOTE) / WAD, "ETH");
+        // console.log("      Pre-action collateral deposit x 100:", 100 * viewUserTotalDeposits(_user, !IN_QUOTE) / WAD, "ETH");
 
         // net collateral in base (collateral) tokens : // sum all user's deposits in collateral (base) tokens (on accruing interest rate)
-        uint256 netCollateral = getUserTotalDeposits(_user, !IN_QUOTE) - _reducedCollateral;
+        uint256 netCollateral = viewUserTotalDeposits(_user, !IN_QUOTE) - _reducedCollateral;
         uint256 userRequiredCollateral = getUserRequiredCollateral(_user);
 
         // console.log("      (Total deposit - reduced collateral) x 100 :", 100 * netCollateral / WAD, "ETH");
@@ -1699,7 +1756,7 @@ contract Book is IBook {
 
         // console.log("      Final excess collateral x 100:", 100 * (netCollateral - userRequiredCollateral) / WAD, "ETH");
 
-        // console.log("   Exit getUserExcessCollateral()");
+        // console.log("   Exit viewUserExcessCollateral()");
 
         // is user EC > 0 return EC, else return 0
         if (netCollateral >= userRequiredCollateral) {
@@ -1709,43 +1766,12 @@ contract Book is IBook {
         else excessCollateral_ = userRequiredCollateral -  netCollateral;
     }
 
-    /// @dev _updateAggregates() is called in _addInterestRateToUserPositions
     
-    function isUserExcessCollateralPositive(
-        address _user,
-        uint256 _reducedCollateral
-    )
-        public
-        returns (bool)
-    {
-        _addInterestRateToUserPositions(_user);
-        (bool isPositive,) = getUserExcessCollateral(_user, _reducedCollateral);
-        return isPositive;
-    }
-
-
-    // return true if user is borrower
-    function isBorrower(address _borrower)
-        public view
-        returns (bool borrow_)
-    {
-        uint256[MAX_POSITIONS] memory borrowIds = users[_borrower].borrowIds;
-
-        for (uint256 i = 0; i < MAX_POSITIONS; i++) {
-
-            Position memory position = positions[borrowIds[i]];
-
-            if (position.borrowedAssets > 0) {
-                borrow_ = true;
-                break;
-            }
-        }
-    }
     
     /// @notice aggregate required collateral over all borrowing positions
     /// composed of borrows + borrowing rate, converted at limit prices
     /// returns required collateral in base assets needed to secure user's debt in quote assets
-    /// addInterestRateToUserPositions() has been called before
+    /// @dev addInterestRateToUserPositions() has been called before, which calls _updateAggregates() 
 
     function getUserRequiredCollateral(address _borrower)
         private view
@@ -1779,33 +1805,12 @@ contract Book is IBook {
         // console.log("      Exit getUserRequiredCollateral()");
     }
 
-    /// @notice should be called before any getUserExcessCollateral()
+    /// @notice should be called before any viewUserExcessCollateral()
 
-    function _addInterestRateToUserPositions(address _borrower)
-        internal
-    {
-        uint256[MAX_POSITIONS] memory borrowIds = users[_borrower].borrowIds;
-
-        for (uint256 i = 0; i < MAX_POSITIONS; i++) {
-
-            Position memory position = positions[borrowIds[i]];
-            
-            // look for borrowing positions to calculate required collateral
-            if (position.borrowedAssets > 0) {
-
-                // update pool's total borrow and total deposits
-                // increment TWIR/TUWIR before changes in pool's UR and calculating user's excess collateral
-                _updateAggregates(position.poolId);
-                
-                // add interest rate to borrowed quantity, update TWIR_t to TWIR_T to reset interest rate to zero
-                _addInterestRateToPosition(borrowIds[i]);
-            }
-        }
-    }
     
-    // get UR = total borrow / total net assets in pool (in WAD)
+    // UR = total borrow / total net assets in pool (in WAD)
 
-    function getUtilizationRate(uint256 _poolId)
+    function viewUtilizationRate(uint256 _poolId)
         public view
         returns (uint256 utilizationRate_)
     {
@@ -1815,20 +1820,28 @@ contract Book is IBook {
         else utilizationRate_ = pool.borrows.mulDivUp(WAD, pool.deposits);
     }
     
-    // get instant rate r_t (in seconds) for pool
-    // must be multiplied by 60 * 60 * 24 * 365 / WAD to get annualized rate
+    // view annualized borrowing interest rate for pool
 
-    function getInstantRate(uint256 _poolId)
+    function viewBorrowingRate(uint256 _poolId)
         public view
-        returns (uint256 instantRate)
+        returns (uint256)
     {
-        instantRate = (ALPHA + BETA.wMulDown(getUtilizationRate(_poolId))) / YEAR;
+        return ALPHA + BETA.wMulDown(viewUtilizationRate(_poolId));
+    }
+
+    // view annualized lending rate for pool, which is borrowing interest rate multiplied by UR
+
+    function viewLendingRate(uint256 _poolId)
+        public view
+        returns (uint256)
+    {
+        return viewBorrowingRate(_poolId).wMulDown(viewUtilizationRate(_poolId));
     }
 
     // sum all assets deposited by a given user in quote or base token
     // remark : several deposits with different paired pool id can be in the same pool
 
-    function getUserTotalDeposits(
+    function viewUserTotalDeposits(
         address _user,
         bool _inQuote
     )
@@ -1913,18 +1926,6 @@ contract Book is IBook {
         returns (uint256[MAX_POSITIONS] memory)
     {
         return users[_user].borrowIds;
-    }
-
-    // used in tests
-    function countOrdersOfUser(address _user)
-        public view
-        returns (uint256 count) 
-    {
-        count = 0;
-        uint256[MAX_ORDERS] memory depositIds = users[_user].depositIds;
-        for (uint256 i = 0; i < MAX_ORDERS; i++) {
-            if (orders[depositIds[i]].quantity > 0) count ++;
-        }
     }
 
 }

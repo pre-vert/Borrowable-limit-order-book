@@ -274,13 +274,13 @@ contract TestDeposit is Setup {
 
     // User excess collateral is correct after deposit in buy order
     function test_DepositBuyOrderExcessCollateral() public depositBuy(B) {
-       (, uint256 userEC) = book.getUserExcessCollateral(Alice, 0);
+       (, uint256 userEC) = book.viewUserExcessCollateral(Alice, 0);
         assertEq(userEC, 0);
     }
 
     // User excess collateral is correct after deposit in sell order
     function test_DepositSellOrderExcessCollateral() public setLowPrice() depositSell(B + 1) {
-        (, uint256 userEC) = book.getUserExcessCollateral(Bob, 0);
+        (, uint256 userEC) = book.viewUserExcessCollateral(Bob, 0);
         assertEq(userEC, DepositBT);
     }
 
