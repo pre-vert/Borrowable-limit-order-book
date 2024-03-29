@@ -146,22 +146,22 @@ contract Book is IBook {
 
     // *** VARIABLES *** //
 
-    IERC20 public quoteToken;
-    IERC20 public baseToken;
+    IERC20 immutable public quoteToken;
+    IERC20 immutable public baseToken;
+    // Price step for placing orders (defined in constructor)
+    uint256 immutable public priceStep;
+    // Minimum deposited base tokens (defined in constructor)
+    uint256 immutable public minDepositBase;
+    // Minimum deposited quote tokens (defined in constructor)
+    uint256 immutable public minDepositQuote;
+    // liquidation LTV (defined in constructor)
+    uint256 immutable public liquidationLTV;
     // initial order id (0 for non existing orders)
     uint256 private lastOrderId = 1;
     // initial position id (0 for non existing positions)
     uint256 private lastPositionId = 1;
     // Oracle price (simulated)
     uint256 public priceFeed;
-    // Price step for placing orders (defined in constructor)
-    uint256 public priceStep;
-    // Minimum deposited base tokens (defined in constructor)
-    uint256 public minDepositBase;
-    // Minimum deposited quote tokens (defined in constructor)
-    uint256 public minDepositQuote;
-    // liquidation LTV (defined in constructor)
-    uint256 public liquidationLTV;
 
     // *** CONSTRUCTOR *** //
  
@@ -216,7 +216,7 @@ contract Book is IBook {
         require(_consistent(_poolId, _pairedPoolId), "Inconsistent prices");
         
         // minimal quantity deposited
-        require(_quantity >= minDeposit(isBuyOrder), "Not enough deposited");
+        require(_quantity >= viewMinDeposit(isBuyOrder), "Not enough deposited");
         
         // pool must not be profitable to fill (ongoing or potential liquidation)
         require(!_profitable(_poolId), "Ongoing liquidation");
@@ -1329,7 +1329,7 @@ contract Book is IBook {
         // N number of seconds in a year (integer)
         // IR_{t-1} / N is instant rate
 
-        uint256 borrowRate = elapsedTime * viewBorrowingRate(_poolId) / YEAR;
+        uint256 borrowRate = elapsedTime * borrowingInstantRate(_poolId) / YEAR;
 
         // deposit interest rate is borrow rate scaled down by UR
         uint256 depositRate = borrowRate.wMulDown(viewUtilizationRate(_poolId));
@@ -1565,7 +1565,7 @@ contract Book is IBook {
         uint256 available = orders[_orderId].quantity;
         bool isBuyOrder = _isQuotePool(orders[_orderId].poolId);
 
-        if (_quantity == available || _quantity + minDeposit(isBuyOrder) < available) return true;
+        if (_quantity == available || _quantity + viewMinDeposit(isBuyOrder) < available) return true;
         else return false;
     }
 
@@ -1686,88 +1686,15 @@ contract Book is IBook {
         }
     }
 
-    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
-    /*                  PUBLIC VIEW FUNCTIONS                     */
-    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
-  
-    function viewDeposit(uint256 _orderId)
-        public view
-        returns (uint256, address, uint256, uint256)
-    {
-        Order storage order = orders[_orderId];
-        return (
-            order.poolId,
-            order.maker,
-            order.pairedPoolId,
-            order.quantity
-        );
-    }
+    /// return instant borrowing interest rate for pool    
 
-    function viewBorrow(uint256 _positionId)
-        public view
-        returns (uint256, address borrower_, uint256)
-    {
-        Position storage position = positions[_positionId];
-        return (
-            position.poolId, 
-            position.borrower,
-            position.borrowedAssets
-        );
-    }
-    
-    /// @notice pool's available assets are sum deposits, scaled down by PHI - sum of borrow
-    
-    function viewPoolAvailableAssets(uint256 _poolId)
-        public view
+    function borrowingInstantRate(uint256 _poolId)
+        internal view
         returns (uint256)
     {
-        return (PHI.wMulDown(pools[_poolId].deposits) - pools[_poolId].borrows).maximum(0);
-    }
-    
-    /// @notice return excess collateral (EC) in base tokens after deduction of _reduced collateral (RC) or 0 if negative
-    /// RC can originate from withdraw funds or borrow funds
-    /// before call, interest rate has been added to deposits (if in quote) and borrow (if any)
-    /// If withdraw : EC = total deposits in collateral assets - RC - required collateral / LLTV
-    /// If borrow : EC = total deposits in collateral assets - (required collateral + RC) / LLTV
-    /// In case of borrow, RC is scaled up by LLTV before the getUserCollateral call
-    /// required collateral is computed with interest rate added to borrowed assets
-    /// no need to call _updateAggregates() before
-
-    function viewUserExcessCollateral(
-        address _user,
-        uint256 _reducedCollateral
-    )
-        public view
-        returns (
-            bool isPositive_,
-            uint256 excessCollateral_
-        )
-    {
-        // console.log("   Enter viewUserExcessCollateral()");
-        
-        // console.log("      Pre-action collateral deposit x 100:", 100 * viewUserTotalDeposits(_user, !IN_QUOTE) / WAD, "ETH");
-
-        // net collateral in base (collateral) tokens : // sum all user's deposits in collateral (base) tokens (on accruing interest rate)
-        uint256 netCollateral = viewUserTotalDeposits(_user, !IN_QUOTE) - _reducedCollateral;
-        uint256 userRequiredCollateral = getUserRequiredCollateral(_user);
-
-        // console.log("      (Total deposit - reduced collateral) x 100 :", 100 * netCollateral / WAD, "ETH");
-        // console.log("      Pre-action required collateral x 100:", 100 * userRequiredCollateral / WAD, "ETH");
-
-        // console.log("      Final excess collateral x 100:", 100 * (netCollateral - userRequiredCollateral) / WAD, "ETH");
-
-        // console.log("   Exit viewUserExcessCollateral()");
-
-        // is user EC > 0 return EC, else return 0
-        if (netCollateral >= userRequiredCollateral) {
-            isPositive_ = true;
-            excessCollateral_ = netCollateral - userRequiredCollateral;
-        }
-        else excessCollateral_ = userRequiredCollateral -  netCollateral;
+        return ALPHA + BETA.wMulDown(viewUtilizationRate(_poolId));
     }
 
-    
-    
     /// @notice aggregate required collateral over all borrowing positions
     /// composed of borrows + borrowing rate, converted at limit prices
     /// returns required collateral in base assets needed to secure user's debt in quote assets
@@ -1805,10 +1732,111 @@ contract Book is IBook {
         // console.log("      Exit getUserRequiredCollateral()");
     }
 
-    /// @notice should be called before any viewUserExcessCollateral()
-
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                  PUBLIC VIEW FUNCTIONS                     */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+  
+    // /// @return order's pool id, maker's address, paired pool id and deposited quantity
     
-    // UR = total borrow / total net assets in pool (in WAD)
+    // function viewDeposit(uint256 _orderId)
+    //     public view
+    //     returns (uint256, address, uint256, uint256)
+    // {
+    //     Order memory order = orders[_orderId];
+    //     return (
+    //         order.poolId,
+    //         order.maker,
+    //         order.pairedPoolId,
+    //         order.quantity
+    //     );
+    // }
+
+    // /// @return position's pool id, borrower's address and borrowed quantity
+    
+    // function viewBorrow(uint256 _positionId)
+    //     public view
+    //     returns (uint256, address, uint256)
+    // {
+    //     Position memory position = positions[_positionId];
+    //     return (
+    //         position.poolId, 
+    //         position.borrower,
+    //         position.borrowedAssets
+    //     );
+    // }
+
+    /// @return user.depositIds the fixed-size array of user's order id
+    
+    function viewUserDeposits(address _user)
+        public view
+        returns (uint256[MAX_ORDERS] memory)
+    {
+        User memory user = users[_user];
+        return (user.depositIds);
+    }
+    
+    /// @return user.borrowIds the fixed-size array of user's position id
+    
+    function viewUserBorrows(address _user)
+        public view
+        returns (uint256[MAX_POSITIONS] memory)
+    {
+        User memory user = users[_user];
+        return (user.borrowIds);
+    }
+    
+    /// @return pool's available assets left to borrow
+    /// @notice pool's available assets are sum deposits, scaled down by PHI - sum of borrow
+    
+    function viewPoolAvailableAssets(uint256 _poolId)
+        public view
+        returns (uint256)
+    {
+        return (PHI.wMulDown(pools[_poolId].deposits) - pools[_poolId].borrows).maximum(0);
+    }
+    
+    /// @notice return excess collateral (EC) in base tokens after deduction of _reduced collateral (RC)
+    /// EC is always positive, the signis given by the bool _isPositive
+    /// RC can originate from withdraw funds or borrow funds
+    /// before call, interest rate has been added to deposits (if in quote) and borrow (if any)
+    /// If withdraw : EC = total deposits in collateral assets - RC - required collateral / LLTV
+    /// If borrow : EC = total deposits in collateral assets - (required collateral + RC) / LLTV
+    /// In case of borrow, RC is scaled up by LLTV before the getUserCollateral call
+    /// required collateral is computed with interest rate added to borrowed assets
+    /// no need to call _updateAggregates() before
+
+    function viewUserExcessCollateral(
+        address _user,
+        uint256 _reducedCollateral
+    )
+        public view
+        returns (
+            bool isPositive_,
+            uint256 excessCollateral_
+        )
+    {
+        // console.log("   Enter viewUserExcessCollateral()");
+        // console.log("      Pre-action collateral deposit x 100:", 100 * viewUserTotalDeposits(_user, !IN_QUOTE) / WAD, "ETH");
+
+        // net collateral in base (collateral) tokens : // sum all user's deposits in collateral (base) tokens (on accruing interest rate)
+        uint256 netCollateral = viewUserTotalDeposits(_user, !IN_QUOTE) - _reducedCollateral;
+        uint256 userRequiredCollateral = getUserRequiredCollateral(_user);
+
+        // console.log("      (Total deposit - reduced collateral) x 100 :", 100 * netCollateral / WAD, "ETH");
+        // console.log("      Pre-action required collateral x 100:", 100 * userRequiredCollateral / WAD, "ETH");
+        // console.log("      Final excess collateral x 100:", 100 * (netCollateral - userRequiredCollateral) / WAD, "ETH");
+        // console.log("   Exit viewUserExcessCollateral()");
+
+        // is user EC > 0 return EC, else return 0
+        if (netCollateral >= userRequiredCollateral) {
+            isPositive_ = true;
+            excessCollateral_ = netCollateral - userRequiredCollateral;
+        }
+        else excessCollateral_ = userRequiredCollateral -  netCollateral;
+    }
+    
+    /// @notice UR = total borrow / total net assets in pool (in WAD)
+    /// should be called before any viewUserExcessCollateral()
 
     function viewUtilizationRate(uint256 _poolId)
         public view
@@ -1819,14 +1847,14 @@ contract Book is IBook {
         else if (pool.borrows >= pool.deposits) utilizationRate_ = 1 * WAD;
         else utilizationRate_ = pool.borrows.mulDivUp(WAD, pool.deposits);
     }
-    
+
     // view annualized borrowing interest rate for pool
 
     function viewBorrowingRate(uint256 _poolId)
         public view
         returns (uint256)
     {
-        return ALPHA + BETA.wMulDown(viewUtilizationRate(_poolId));
+        return borrowingInstantRate(_poolId).wTaylorCompoundedUp();
     }
 
     // view annualized lending rate for pool, which is borrowing interest rate multiplied by UR
@@ -1860,7 +1888,7 @@ contract Book is IBook {
         }
     }
 
-    function minDeposit(bool _isBuyOrder)
+    function viewMinDeposit(bool _isBuyOrder)
         public view
         returns (uint256)
     {
