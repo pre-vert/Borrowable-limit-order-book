@@ -67,14 +67,14 @@ contract TestWithdraw is Setup {
 
     // withdrawable quantity from buy order is correct
     function test_RemoveBuyOrderOutable() public depositBuy(B) {
-        uint256 minDeposit = book.minDeposit(BuyOrder);
+        uint256 minDeposit = book.viewMinDeposit(BuyOrder);
         vm.expectRevert("Remove too much_3");
         withdraw(Alice, FirstOrderId, DepositQT - minDeposit / 2);
     }
 
     // withdrawable quantity from sell order is correct
     function test_RemoveSellOrderOutable() public setLowPrice() depositSell(B + 1) {
-        uint256 minDeposit = book.minDeposit(SellOrder);
+        uint256 minDeposit = book.viewMinDeposit(SellOrder);
         console.log("minDeposit : ", minDeposit);
         vm.expectRevert("Remove too much_3");
         withdraw(Bob, FirstOrderId, DepositBT - minDeposit / 2);

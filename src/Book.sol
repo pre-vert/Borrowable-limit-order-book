@@ -272,7 +272,7 @@ contract Book is IBook {
         
         require(_removedQuantity > 0, "Remove zero");
         
-        Order memory order = orders[_orderId];
+        Order memory order = orders[_orderId];        // SLOAD: loads order's 5 children from storage
         
         // order must have funds to begin with
         require(order.quantity > 0, "No order");
