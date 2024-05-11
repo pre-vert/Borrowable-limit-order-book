@@ -144,6 +144,6 @@ contract TestPool is Setup {
     // deposit sell order 3x above genesis limit price reverts
     function test_DepositSellAboveThriceReverts() public setLowPrice() {
         vm.expectRevert("Limit price too far");
-        depositSellOrder(Alice, B + 7, DepositQT, B + 6);
+        depositSellOrder(Alice, B + 7, DepositQT);
     }
 }

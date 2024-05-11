@@ -2,6 +2,16 @@
 
 ## 1. Things to do
 
+progressive liquidation costs (high for low amount)
+
+adaptative curve
+https://docs.morpho.org/concepts/morpho-blue/core-concepts/irm/
+
+replacement
+https://discord.com/channels/1159035200001540198/1231138149632184320/1231139864590680135
+
+trade fees
+
 ### 1.1 Connect to a lending layer for a minimal return
 
 Assets deposited as collateral, are relocated in a risk-free base layer, like Aave or Morpho Blue, to earn a minimal return.

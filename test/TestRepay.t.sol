@@ -56,7 +56,7 @@ contract TestRepay is Setup {
 
     function test_RepayBuyOrderOkIfMaker() public {
         depositBuyOrder(Alice, B, DepositQT, B + 3);
-        depositSellOrder(Alice, B + 3, DepositBT, B);
+        depositSellOrder(Alice, B + 3, DepositBT);
         borrow(Alice, B, DepositQT / 2);
         repay(Alice, FirstPositionId, DepositQT / 2);
         checkBorrowingQuantity(FirstPositionId, 0); 

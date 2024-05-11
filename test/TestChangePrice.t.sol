@@ -53,7 +53,7 @@ contract TestChangePrice is Setup {
 
     // // ChangeLimitPrice() with a new limit price changes sell order's limit price
     // function test_ChangeSellOrderLimitPrice() public {
-    //     depositSellOrder(Alice, 1, 10, -1);
+    //     depositSellOrder(Alice, 1, 10);
     //     changeLimitPrice(Alice, Alice_Order, 2);
     //     checkPoolId(Alice_Order, 2);
     // }
@@ -67,7 +67,7 @@ contract TestChangePrice is Setup {
 
     // // When caller is not maker of sell order, revert
     // function test_RevertSellOrderIfNotMaker() public {
-    //     depositSellOrder(Alice, 1, 10, -1);
+    //     depositSellOrder(Alice, 1, 10);
     //     vm.expectRevert("Only maker can modify order");
     //     changeLimitPrice(Carol, Alice_Order, 2);
     // }
@@ -82,7 +82,7 @@ contract TestChangePrice is Setup {
 
     // // When new sell order's limit price makes it immediately profitable, revert
     // function test_RevertSellOrderIfNotConsistent() public {
-    //     depositSellOrder(Alice, 1, 10, -1);
+    //     depositSellOrder(Alice, 1, 10);
     //     setPriceFeed(120);
     //     vm.expectRevert("New price at loss");
     //     changeLimitPrice(Alice, Alice_Order, 0);

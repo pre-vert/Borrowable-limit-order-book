@@ -14,7 +14,7 @@ contract TestBorrow is Setup {
 
     function test_BorrowBuyOrderOkIfMaker() public {
         depositBuyOrder(Alice, B, DepositQT, B + 1);
-        depositSellOrder(Alice, B + 3, DepositBT, B + 2);
+        depositSellOrder(Alice, B + 3, DepositBT);
         borrow(Alice, B , DepositQT / 2);
         checkOrderQuantity(FirstOrderId, DepositQT);
         checkBorrowingQuantity(FirstPositionId, DepositQT / 2); 
@@ -111,7 +111,7 @@ contract TestBorrow is Setup {
         uint256 maxPositions = book.MAX_POSITIONS();
         uint256 borrowedQuantity = DepositBT * 5 / (maxPositions + 2);
         setPriceFeed(genesisLimitPriceWAD / WAD - 2);
-        depositSellOrder(Alice, B + 1, 3 * DepositBT, B - 2);
+        depositSellOrder(Alice, B + 1, 3 * DepositBT);
         setPriceFeed(genesisLimitPriceWAD / WAD + 2);
         for (uint256 i = 2; i <= (maxPositions + 1); i++) {
             depositBuyOrder(acc[i], B - 2 * (i - 2), DepositQT, B + 3);
@@ -126,7 +126,7 @@ contract TestBorrow is Setup {
 
     // borrower of buy order is maker correctly adjusts balances
     function test_MakerBorrowsHerBuyOrderCheckBalances() public depositBuy(B) {
-        depositSellOrder(Alice, B + 3, DepositBT, B +2);
+        depositSellOrder(Alice, B + 3, DepositBT);
         uint256 bookBalance = quoteToken.balanceOf(OrderBook);
         uint256 lenderBorrowerBalance = quoteToken.balanceOf(Alice);
         borrow(Alice, B, DepositQT / 2);
@@ -147,7 +147,7 @@ contract TestBorrow is Setup {
     //     uint256 maxPosition = book.MAX_POSITIONS() - 1;
     //     depositBuyOrder(Alice, ReceivedQuoteToken / WAD, LowPrice);
     //     for (uint256 i = 2; i <= (maxPosition+1); i++) {
-    //         depositSellOrder(acc[i], DepositBT, HighPrice);
+    //         depositSellOrder(acc[i], DepositBT);
     //         borrow(acc[i], Alice_Order, DepositQT / 10);
     //     }
     //     setPriceFeed(UltraLowPrice);

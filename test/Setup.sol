@@ -66,7 +66,7 @@ contract Setup is StdCheats, Test {
     }
 
     modifier depositSell(uint256 _poolId) {
-        depositSellOrder(Bob, _poolId, DepositBT, _poolId - 3);
+        depositSellOrder(Bob, _poolId, DepositBT);
         _;
     }
 
@@ -153,11 +153,10 @@ contract Setup is StdCheats, Test {
     function depositSellOrder(
         address _user,
         uint256 _poolId,
-        uint256 _quantity,
-        uint256 _pairedPoolId
+        uint256 _quantity
     ) public {
         vm.prank(_user);
-        book.deposit(_poolId, _quantity, _pairedPoolId);
+        book.deposit(_poolId, _quantity, 0);
     }
 
     function withdraw(address _user, uint256 _orderId, uint256 _quantity) public {
@@ -175,9 +174,14 @@ contract Setup is StdCheats, Test {
         book.repay(_positionId, _quantity);
     }
 
-    function take(address _user, uint256 _poolId, uint256 _takenQuantity) public {
+    function takeQuoteTokens(address _user, uint256 _poolId, uint256 _takenQuantity) public {
         vm.prank(_user);
-        book.take(_poolId, _takenQuantity);
+        book.takeQuoteTokens(_poolId, _takenQuantity);
+    }
+
+    function takeBaseTokens(address _user, uint256 _poolId, uint256 _takenQuantity) public {
+        vm.prank(_user);
+        book.takeBaseTokens(_poolId, _takenQuantity);
     }
 
     function liquidateBorrower(address _user, uint256 _quantity) public {

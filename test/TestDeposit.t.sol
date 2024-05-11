@@ -42,7 +42,7 @@ contract TestDeposit is Setup {
         = book.orders(FirstOrderId);
         assertEq(poolId, B + 1);
         assertEq(maker, Bob);
-        assertEq(pairedPoolId, B - 2);
+        assertEq(pairedPoolId, 0);
         assertEq(quantity, DepositBT);
         assertEq(orderWeightedRate, WAD);
         assertEq(genesisLimitPriceWAD, book.limitPrice(B));
@@ -73,19 +73,13 @@ contract TestDeposit is Setup {
 
     // Choose paired sell order in same pool is ok
     function test_ChoosePairedSellOrderInSamePoolIsOk() public setLowPrice() {
-        depositSellOrder(Alice, B + 1, DepositBT, B);
+        depositSellOrder(Alice, B + 1, DepositBT);
     }
 
     // Choose paired buy order in wrong pool reverts
     function test_ChoosePairedBuyOrderInWrongPoolReverts() public {
         vm.expectRevert("Wrong paired pool");
         depositBuyOrder(Alice, B, DepositQT, B + 2);
-    }
-
-    // Choose paired sell order in wrong pool reverts
-    function test_ChoosePairedSellOrderInWrongPoolReverts() public {
-        vm.expectRevert("Wrong paired pool");
-        depositSellOrder(Alice, B + 1, DepositBT, B - 1);
     }
 
     // Deposit buy order correctly adjusts balances
@@ -102,7 +96,7 @@ contract TestDeposit is Setup {
     function test_DepositSellOrderCheckBalances() public setLowPrice() {
         uint256 orderBookBalance = baseToken.balanceOf(OrderBook);
         uint256 userBalance = baseToken.balanceOf(Bob);
-        depositSellOrder(Bob, B + 1, DepositBT, B);
+        depositSellOrder(Bob, B + 1, DepositBT);
         assertEq(baseToken.balanceOf(OrderBook), orderBookBalance + DepositBT);
         assertEq(baseToken.balanceOf(Bob), userBalance - DepositBT);
         checkOrderQuantity(FirstOrderId, DepositBT);
@@ -139,9 +133,9 @@ contract TestDeposit is Setup {
     function test_DepositThreeSellOrders() public setLowPrice() {
         uint256 orderBookBalance = baseToken.balanceOf(OrderBook);
         uint256 userBalance = baseToken.balanceOf(Alice);
-        depositSellOrder(Alice, B + 1, DepositBT, B);
-        depositSellOrder(Alice, B + 3, 2 * DepositBT, B + 2);
-        depositSellOrder(Alice, B + 5, DepositBT, B + 4);
+        depositSellOrder(Alice, B + 1, DepositBT);
+        depositSellOrder(Alice, B + 3, 2 * DepositBT);
+        depositSellOrder(Alice, B + 5, DepositBT);
         assertEq(baseToken.balanceOf(OrderBook), orderBookBalance + 4 * DepositBT);
         assertEq(baseToken.balanceOf(Alice), userBalance - 4 * DepositBT);
         checkOrderQuantity(FirstOrderId, DepositBT);
@@ -157,7 +151,7 @@ contract TestDeposit is Setup {
 
     function test_RevertSellOrderIfZeroDeposit() public setLowPrice() {
         vm.expectRevert("Deposit zero");
-        depositSellOrder(Alice, B + 1, 0, B + 1 - 1);
+        depositSellOrder(Alice, B + 1, 0);
     }
 
     // When deposit is less than min deposit, revert
@@ -168,7 +162,7 @@ contract TestDeposit is Setup {
 
     function test_RevertSellOrderIfLessMinDeposit() public setLowPrice() {
         vm.expectRevert("Not enough deposited");
-        depositSellOrder(Alice, B + 1, 1 * WAD / 10, B + 1 - 1);
+        depositSellOrder(Alice, B + 1, 1 * WAD / 10);
     }
 
     // When identical buy orders exist, increase deposit
@@ -181,8 +175,8 @@ contract TestDeposit is Setup {
 
     // When identical sell order exists, increase deposit
     function test_AggregateIdenticalSellOrder() public setLowPrice() {
-        depositSellOrder(Alice, B + 1, DepositBT, B);
-        depositSellOrder(Alice, B + 1, 2 * DepositBT, B);
+        depositSellOrder(Alice, B + 1, DepositBT);
+        depositSellOrder(Alice, B + 1, 2 * DepositBT);
         checkOrderQuantity(FirstOrderId, 3 * DepositBT);
         checkOrderQuantity(FirstOrderId + 1, 0);
     }
@@ -195,12 +189,12 @@ contract TestDeposit is Setup {
         checkOrderQuantity(FirstOrderId + 1, 2 * DepositQT);
     }
 
-    // Identical sell orders, except pairedPriceId => two separate orders
-    function test_SeparateNearIdenticalSellOrder() public setLowPrice() {
-        depositSellOrder(Alice, B + 1, DepositBT, B);
-        depositSellOrder(Alice, B + 1, 2 * DepositBT, B - 2);
-        checkOrderQuantity(FirstOrderId, DepositBT);
-        checkOrderQuantity(FirstOrderId + 1, 2 * DepositBT);
+    // Identical two sell orders => merged orders
+    function test_MergeIdenticalSellOrder() public setLowPrice() {
+        depositSellOrder(Alice, B + 1, DepositBT);
+        depositSellOrder(Alice, B + 1, 2 * DepositBT);
+        checkOrderQuantity(FirstOrderId, 3 * DepositBT);
+        checkOrderQuantity(FirstOrderId + 1, 0);
     }
 
     // Two identical buy order deposits correctly adjust balances
@@ -217,8 +211,8 @@ contract TestDeposit is Setup {
     function test_IncreaseSellOrderCheckBalances() public setLowPrice() {
         uint256 bookBalance = baseToken.balanceOf(OrderBook);
         uint256 userBalance = baseToken.balanceOf(Alice);
-        depositSellOrder(Alice, B + 1, DepositBT, B);
-        depositSellOrder(Alice, B + 1, 2 * DepositBT, B);
+        depositSellOrder(Alice, B + 1, DepositBT);
+        depositSellOrder(Alice, B + 1, 2 * DepositBT);
         assertEq(baseToken.balanceOf(OrderBook), bookBalance + 3 * DepositBT);
         assertEq(baseToken.balanceOf(Alice), userBalance - 3 * DepositBT);
     }
@@ -254,22 +248,10 @@ contract TestDeposit is Setup {
         depositBuyOrder(Alice, B, DepositQT, B - 1);
     }
 
-    // revert if inconsistent paired prices in sell order
-    function test_RvertSellOrderInconsistentPairedPrice() public setLowPrice() {
-        vm.expectRevert("Inconsistent prices");
-        depositSellOrder(Alice, B + 1, DepositBT, B + 2);
-    }
-
     // revert if same paired prices in buy order
     function test_RevertBuyOrderSamePairedPrice() public {
         vm.expectRevert("Wrong paired pool");
         depositBuyOrder(Alice, B, DepositQT, B);
-    }
-
-    // revert if same paired prices in sell order
-    function test_RevertSellOrderSamePairedPrice() public setLowPrice() {
-        vm.expectRevert("Wrong paired pool");
-        depositSellOrder(Alice, B + 1, DepositBT, B + 1);
     }
 
     // User excess collateral is correct after deposit in buy order
