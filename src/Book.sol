@@ -14,7 +14,7 @@ import {MathLib, WAD} from "../lib/MathLib.sol";
 import {console} from "forge-std/Test.sol";
 
 contract Book is IBook {
-    using MathLib for uint256;
+    using MathLib for uint256; 
     using SafeERC20 for IERC20;
 
     /// @notice the contract has 8 external functions:
@@ -127,7 +127,7 @@ contract Book is IBook {
         uint256 orderWeightedRate;
     }
 
-    // borrowing positions
+    // borrowing positions 
     struct Position {
         // pool id in mapping orders, from which assets are borrowed
         uint256 poolId;
