@@ -7,43 +7,20 @@ import {MathLib, WAD} from "../lib/MathLib.sol";
 
 contract TestLiquidate is Setup {
 
-    // function test_LiquidateBuyFailsIfPositionDoesntExist() public {
-    //     depositBuyOrder(Alice, 6000, 50);
-    //     depositSellOrder(Bob, 100, 200);
-    //     borrow(Bob, Alice_Order, 5000);
-    //     setPriceFeed(100);
-    //     vm.expectRevert("Position does not exist");
-    //     liquidate(Alice, Carol_Position);
-    // }
+    // market price set initially at 4001
+    function test_LiquidateFailsIfSupplyZero() public depositBuy(B) depositSell(B + 3) {
+        borrow(Bob, B , DepositQT / 2);
+        vm.expectRevert("Supply zero");
+        liquidateUser(Bob, 0);
+    }
+    
+    function test_LiquidateailsIfPositionSolvent() public depositBuy(B) depositSell(B + 3) {
+        borrow(Bob, B , DepositQT / 2);
+        vm.expectRevert("Solvent");
+        liquidateUser(Bob, DepositQT / 2);
+    }
 
-    // function test_LiquidateSellFailsIfPositionDoesntExist() public {
-    //     depositSellOrder(Alice, 60, 200);
-    //     depositBuyOrder(Bob, 10000, 50);
-    //     borrow(Bob, Alice_Order, 50);
-    //     setPriceFeed(100);
-    //     vm.expectRevert("Position does not exist");
-    //     liquidate(Alice, Carol_Position);
-    // }
 
-    // // only maker can liquidate buy order
-    // function test_LiquidateBuyFailsIfNotMaker() public {
-    //     depositBuyOrder(Alice, 6000, 50);
-    //     depositSellOrder(Bob, 100, 200);
-    //     borrow(Bob, Alice_Order, 5000);
-    //     setPriceFeed(100);
-    //     vm.expectRevert("Only maker can modify order");
-    //     liquidate(Carol, Bob_Position);
-    // }
-
-    // // only maker can liquidate sell order
-    // function test_LiquidateSellFailsIfNotMaker() public {
-    //     depositSellOrder(Alice, 60, 200);
-    //     depositBuyOrder(Bob, 10000, 50);
-    //     borrow(Bob, Alice_Order, 50);
-    //     setPriceFeed(100);
-    //     vm.expectRevert("Only maker can modify order");
-    //     liquidate(Carol, Bob_Position);
-    // }
 
     // // only borrower of buy order with excess collateral <= 0 can be liquidated
     // function test_LiquidateBuyFailsIfExcessCollateralIsPositive() public {

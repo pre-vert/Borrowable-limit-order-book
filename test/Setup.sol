@@ -40,13 +40,14 @@ contract Setup is StdCheats, Test {
     uint256 constant DepositBT = 10 * WAD;
     uint256 constant TakeQT = 900 * WAD;
     uint256 constant TakeBT = 10 * WAD;
-    uint256 constant LowPrice = 3960 * WAD;
-    uint256 constant HighPrice = 4040 * WAD;
+    uint256 constant LowPrice = 3990 * WAD;
+    uint256 constant HighPrice = 4010 * WAD;
     uint256 constant UltraLowPrice = 3500 * WAD;
     uint256 constant UltraHighPrice = 4500 * WAD;
 
     // variables //
     uint256 public genesisLimitPriceWAD; // initial limit price in WAD of genesis pool = 4000
+    uint256 public initialPrice = genesisLimitPriceWAD / WAD + 1; // initial price feed
     uint256 public priceStep;
     uint256 public minDepositBase;
     uint256 public minDepositQuote;
@@ -56,17 +57,23 @@ contract Setup is StdCheats, Test {
     address Bob;
     address Carol;
     address Dave;
+    address Linda;
     address Takashi;
 
     mapping(uint256 => address) public acc;
 
     modifier depositBuy(uint256 _poolId) {
-        depositBuyOrder(Alice, _poolId, DepositQT, _poolId + 3);
+        depositBuyOrder(Alice, _poolId, DepositQT, _poolId + 1);
         _;
     }
 
     modifier depositSell(uint256 _poolId) {
         depositSellOrder(Bob, _poolId, DepositBT);
+        _;
+    }
+
+    modifier depositInAccount(uint256 _quantity) {
+        depositInBaseAccount(Bob, _quantity);
         _;
     }
 
@@ -117,6 +124,7 @@ contract Setup is StdCheats, Test {
         Bob = acc[2];
         Carol = acc[3];
         Dave = acc[4];
+        Linda = acc[AccountNumber - 1];
         Takashi = acc[AccountNumber];
     }
 
@@ -139,6 +147,8 @@ contract Setup is StdCheats, Test {
     function setPriceFeed(uint256 _price) public {
         book.setPriceFeed(_price * WAD);
     }
+
+    //******** ACTIONS  *********//
     
     function depositBuyOrder(
         address _user,
@@ -159,9 +169,24 @@ contract Setup is StdCheats, Test {
         book.deposit(_poolId, _quantity, 0);
     }
 
+    function depositInBaseAccount(address _user, uint256 _quantity) public {
+        vm.prank(_user);
+        book.depositInCollateralAccount(_quantity);
+    }
+
     function withdraw(address _user, uint256 _orderId, uint256 _quantity) public {
         vm.prank(_user);
         book.withdraw(_orderId, _quantity);
+    }
+
+    function withdrawFromBaseAccount(address _user, uint256 _quantity) public {
+        vm.prank(_user);
+        book.withdrawFromAccount(_quantity, InBaseToken);
+    }
+
+    function withdrawFromQuoteAccount(address _user, uint256 _quantity) public {
+        vm.prank(_user);
+        book.withdrawFromAccount(_quantity, InQuoteToken);
     }
 
     function borrow(address _user, uint256 _poolId, uint256 _quantity) public {
@@ -174,20 +199,27 @@ contract Setup is StdCheats, Test {
         book.repay(_positionId, _quantity);
     }
 
-    function takeQuoteTokens(address _user, uint256 _poolId, uint256 _takenQuantity) public {
-        vm.prank(_user);
+    function takeQuoteTokens(uint256 _poolId, uint256 _takenQuantity) public {
+        vm.prank(Takashi);
         book.takeQuoteTokens(_poolId, _takenQuantity);
     }
 
-    function takeBaseTokens(address _user, uint256 _poolId, uint256 _takenQuantity) public {
-        vm.prank(_user);
+    function takeBaseTokens(uint256 _poolId, uint256 _takenQuantity) public {
+        vm.prank(Takashi);
         book.takeBaseTokens(_poolId, _takenQuantity);
     }
 
-    function liquidateBorrower(address _user, uint256 _quantity) public {
-        vm.prank(_user);
-        book.liquidateUser(_user, _quantity);
+    function liquidateUser(address _borrower, uint256 _quantity) public {
+        vm.prank(Linda);
+        book.liquidateUser(_borrower, _quantity);
     }
+
+     function changePairedPrice(address _user, uint256 _orderId, uint256 _pairedPoolId) public {
+        vm.prank(_user);
+        book.changePairedPrice(_orderId, _pairedPoolId);
+    }
+
+    //******** CHECK ORDERS  *********//
 
     // check maker of order
     function checkOrderMaker(uint256 _orderId, address _maker) public {
@@ -195,10 +227,9 @@ contract Setup is StdCheats, Test {
         assertEq(maker, _maker);
     }
 
-    // check assets in order == _quantity
-    function checkOrderQuantity(uint256 _orderId, uint256 _quantity) public {
-        (,,, uint256 quantity,) = book.orders(_orderId);
-        assertEq(quantity, _quantity);
+    // get order quantity
+    function getOrderQuantity(uint256 _orderId) public  view returns (uint256 quantity_) {
+        (,,, quantity_,) = book.orders(_orderId);
     }
 
     // check limit price in order
@@ -213,23 +244,28 @@ contract Setup is StdCheats, Test {
         assertEq(pairedPoolId, _pairedPoolId);
     }
 
-    // check assets borrowed in position = _quantity
-    function checkBorrowingQuantity(uint256 _positionId, uint256 _quantity) public {
-        (,, uint256 quantity,) = book.positions(_positionId);
-        assertEq(quantity, _quantity);
+    // time-weighted and UR-weighted average interest rate for supply since initial deposit or reset
+    function getOrderWeightedRate(uint256 _orderId) public view returns (uint256 timeWeightedRate_) {
+        (,,,, timeWeightedRate_) = book.orders(_orderId);
     }
 
-    // check assets borrowed in position = _quantity
-    function checkPoolDeposits(uint256 _poolId, uint256 _totalDeposits) public {
-        (uint256 deposits,,,,,,,,) = book.pools(_poolId);
-        assertEq(deposits, _totalDeposits);
+    //******** CHECK POSITIONS  *********//
+
+    // // check assets borrowed in position = _quantity
+    // function checkBorrowingQuantity(uint256 _positionId, uint256 _quantity) public {
+    //     (,, uint256 quantity,) = book.positions(_positionId);
+    //     assertEq(quantity, _quantity);
+    // }
+
+    function getPositionQuantity(uint256 _positionId) public view returns (uint256 _quantity) {
+        (,, _quantity, ) = book.positions(_positionId);
     }
-    
-    // check assets borrowed in position = _quantity
-    function checkPoolBorrows(uint256 _poolId, uint256 _totalBorrows) public {
-        (, uint256 borrows,,,,,,,) = book.pools(_poolId);
-        assertEq(borrows, _totalBorrows);
+
+    function getPositionWeightedRate(uint256 _positionId) public view returns (uint256 _weightedRate) {
+        (,,, _weightedRate) = book.positions(_positionId);
     }
+
+    //******** CHECK USERS  *********//
     
     // input row, starting at 0, returns order id
     function checkUserDepositId(address _user, uint256 _row, uint256 _orderId) public {
@@ -241,23 +277,69 @@ contract Setup is StdCheats, Test {
         assertEq(book.getUserBorrowFromIds(_user)[_row], _positionId);
     }
 
-    function checkInstantRate(uint256 _poolId) public {
-        uint256 annualRate = book.ALPHA() + book.BETA() * book.viewUtilizationRate(_poolId) / WAD;
-        assertEq(book.viewLendingRate(_poolId), annualRate / YEAR);
-        console.log("Utilization rate in buy order market (1e04): ",
-            book.viewUtilizationRate(_poolId) * 1e4 / WAD);
-        console.log("Annualized rate in buy order market (1e05): ",
-            book.viewLendingRate(_poolId) * 1e5 * YEAR / WAD);
+    function checkUserBaseAccount(address _user, uint256 _quantity) public {
+        (uint256 baseAccount,) = book.users(_user);
+        assertEq(baseAccount, _quantity);
     }
 
-    // function changeLimitPrice(address _user, uint256 _orderId, uint256 _poolId) public {
-    //     vm.prank(_user);
-    //     book.changeLimitPrice(_orderId, _poolId);
-    // }
-
-    function changePairedPrice(address _user, uint256 _orderId, uint256 _pairedPoolId) public {
-        vm.prank(_user);
-        book.changePairedPrice(_orderId, _pairedPoolId);
+    function checkUserQuoteAccount(address _user, uint256 _quantity) public {
+        (, uint256 quoteAccount) = book.users(_user);
+        assertEq(quoteAccount, _quantity);
     }
+
+    //******** CHECK POOLS & INTEREST RATES *********//
+
+    // get deposited assets in pool
+    function getPoolDeposits(uint256 _poolId) public view returns (uint256 poolDeposits_) {
+        (poolDeposits_,,,,,,,,) = book.pools(_poolId);
+    }
+
+    // get borrowed assets in pool
+    function getPoolBorrows(uint256 _poolId) public view returns (uint256 poolBorrows_) {
+        (, poolBorrows_,,,,,,,) = book.pools(_poolId);
+    }
+
+    // get last timestamp in pool = _time
+    function getPoolLastTimeStamp(uint256 _poolId) public view returns (uint256 lastTimeStamp_) {
+        (,, lastTimeStamp_,,,,,,) = book.pools(_poolId);
+    }
+
+    // get timeWeightedRate in pool 
+    function getTimeWeightedRate(uint256 _poolId) public view returns (uint256 timeWeightedRate_) {
+        (,,, timeWeightedRate_,,,,,) = book.pools(_poolId);
+    }
+
+    // get timeURWeightedRate in pool = _rate
+    function getTimeUrWeightedRate(uint256 _poolId) public view returns (uint256 timeURWeightedRate_) {
+        (,,,, timeURWeightedRate_,,,,) = book.pools(_poolId);
+    }
+
+    // get UR in pool
+    function getUtilizationRate(uint256 _poolId) public view returns (uint256 utilizationRate_) {
+        utilizationRate_ = book.viewUtilizationRate(_poolId);
+    }
+
+    // get annual borrowing rate in pool
+    function getBorrowingRate(uint256 _poolId) public view returns (uint256 borrowingRate_) {
+        borrowingRate_ = book.viewBorrowingRate(_poolId);
+    }
+
+    // get annual Lending rate in pool
+    function getLendingRate(uint256 _poolId) public view returns (uint256 lendingRate_) {
+        lendingRate_ = book.viewLendingRate(_poolId);
+    }
+
+    // get annual Lending rate in pool
+    function getAvailableAssets(uint256 _poolId) public view returns (uint256 availableAssets_) {
+        availableAssets_ = book.viewPoolAvailableAssets(_poolId);
+    }
+
+    // function getBorrowingRate(uint256 _poolId) public view returns (uint256 ) {
+    //     uint256 uR = book.viewUtilizationRate(_poolId);
+    //     borrowing = book.viewBorrowingRate(_poolId);
+    //     assertEq(bR, _rate);
+    //     console.log("Utilization rate (1e04): ", uR * 1e4 / WAD);
+    //     console.log("Annualized rate (1e05): ", bR * 1e5 / WAD);
+    // }   
 
 }

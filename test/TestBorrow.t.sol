@@ -8,16 +8,24 @@ import {MathLib, WAD} from "../lib/MathLib.sol";
 contract TestBorrow is Setup {
 
     // ok if borrower is maker
-    // market price set initially at 2001
+    // market price set initially at 4001
     // deposit buy order at limit price = 2000 = limit price pool(0) < market price
     // deposit sell order price at 2200 = limit price pool(1) > market price 
 
     function test_BorrowBuyOrderOkIfMaker() public {
+        assertEq(book.viewPoolAvailableAssets(B), 0);
+        assertEq(book.viewUtilizationRate(B), 0);
         depositBuyOrder(Alice, B, DepositQT, B + 1);
+        assertEq(book.viewPoolAvailableAssets(B), book.PHI() * DepositQT / WAD);
+        assertEq(book.viewUtilizationRate(B), 0);
         depositSellOrder(Alice, B + 3, DepositBT);
         borrow(Alice, B , DepositQT / 2);
-        checkOrderQuantity(FirstOrderId, DepositQT);
-        checkBorrowingQuantity(FirstPositionId, DepositQT / 2); 
+        assertEq(getOrderQuantity(FirstOrderId), DepositQT);
+        assertEq(getPositionQuantity(FirstPositionId), DepositQT / 2);
+        assertEq(book.viewUserBorrow(FirstPositionId), DepositQT / 2);
+        assertEq(book.viewPoolBorrow(B), DepositQT / 2);
+        assertEq(getPositionQuantity(SecondPositionId), 0); 
+        assertEq(book.viewUtilizationRate(B), WAD / 2);
     }
 
     // borrow reverts if borrow base tokens in sell order pool
@@ -48,15 +56,27 @@ contract TestBorrow is Setup {
         assertEq(quoteToken.balanceOf(OrderBook), bookBalance - DepositQT / 2);
         assertEq(quoteToken.balanceOf(Alice), lenderBalance);
         assertEq(quoteToken.balanceOf(Bob), borrowerBalance + DepositQT / 2);
-        checkOrderQuantity(FirstOrderId, DepositQT);
-        checkOrderQuantity(SecondOrderId, DepositBT);
-        checkBorrowingQuantity(FirstPositionId, DepositQT / 2); 
+        assertEq(getOrderQuantity(FirstOrderId), DepositQT);
+        assertEq(getOrderQuantity(SecondOrderId), DepositBT);
+        assertEq(getPositionQuantity(FirstPositionId), DepositQT / 2); 
     }
 
     // revert if borrow all assets in a pool
     function test_FailsIfBorrowAllDeposit() public depositBuy(B) depositSell(B + 3) {
         vm.expectRevert("Borrow too much_2");
         borrow(Bob, B, DepositQT); 
+    }
+
+    // User can borrow after depositing in base account
+    function test_DepositInAccountBorrow() public depositBuy(B) depositInAccount(DepositBT) {
+       borrow(Bob, B, DepositQT / 2);
+    }
+
+    // User can't withdraw after depositing in base account and borrowing
+    function test_WithdrawFromBaseAccountAfterBorrowFails() public depositBuy(B) depositInAccount(DepositBT) {
+       borrow(Bob, B, DepositQT / 2);
+       vm.expectRevert("Remove too much_5");
+       withdrawFromBaseAccount(Bob, DepositBT);
     }
 
     // Borrower excess collateral in base token is correct
@@ -87,8 +107,8 @@ contract TestBorrow is Setup {
         borrow(Bob, B, DepositQT / 4);
         checkUserBorrowId(Bob, FirstRow, FirstPositionId);
         checkUserBorrowId(Bob, SecondRow, NoPositionId);
-        checkBorrowingQuantity(FirstPositionId, DepositQT / 2);
-        checkBorrowingQuantity(SecondPositionId, 0);
+        assertEq(getPositionQuantity(FirstPositionId), DepositQT / 2);
+        assertEq(getPositionQuantity(SecondPositionId), 0);
     }
 
     // Bob borrows twice from two distinct pools, borrowing positions should not be aggregated
@@ -98,8 +118,8 @@ contract TestBorrow is Setup {
         borrow(Bob, B - 2, DepositQT / 4);
         checkUserBorrowId(Bob, FirstRow, FirstPositionId);
         checkUserBorrowId(Bob, SecondRow, SecondPositionId);
-        checkBorrowingQuantity(FirstPositionId, DepositQT / 4);
-        checkBorrowingQuantity(SecondPositionId, DepositQT / 4);
+        assertEq(getPositionQuantity(FirstPositionId), DepositQT / 4);
+        assertEq(getPositionQuantity(SecondPositionId), DepositQT / 4);
     }
 
     // fail if user has more than max number of positions
@@ -116,7 +136,8 @@ contract TestBorrow is Setup {
         for (uint256 i = 2; i <= (maxPositions + 1); i++) {
             depositBuyOrder(acc[i], B - 2 * (i - 2), DepositQT, B + 3);
             borrow(Alice, B - 2 * (i - 2), borrowedQuantity);
-            checkBorrowingQuantity(i - 1, borrowedQuantity);
+            assertEq(getPositionQuantity(i - 1), borrowedQuantity);
+            //checkBorrowingQuantity(i - 1, borrowedQuantity);
         }
         uint256 agentId = maxPositions + 2;
         depositBuyOrder(acc[agentId], B - 2 * (agentId - 2), DepositQT, B + 3);
@@ -132,9 +153,9 @@ contract TestBorrow is Setup {
         borrow(Alice, B, DepositQT / 2);
         assertEq(quoteToken.balanceOf(OrderBook), bookBalance - DepositQT / 2);
         assertEq(quoteToken.balanceOf(Alice), lenderBorrowerBalance + DepositQT / 2);
-        checkOrderQuantity(FirstOrderId, DepositQT);
-        checkOrderQuantity(SecondOrderId, DepositBT);
-        checkBorrowingQuantity(FirstPositionId, DepositQT / 2);
+        assertEq(getOrderQuantity(FirstOrderId), DepositQT);
+        assertEq(getOrderQuantity(SecondOrderId), DepositBT);
+        assertEq(getPositionQuantity(FirstPositionId), DepositQT / 2);
     }
 
     // // test liquidate a huge number of positions at once

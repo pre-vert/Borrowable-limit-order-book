@@ -46,7 +46,7 @@ contract TestRepay is Setup {
         borrow(Bob, B,  DepositQT / 2);
         vm.expectRevert("Not Borrower");
         repay(Carol, FirstPositionId, DepositQT / 2);
-        checkBorrowingQuantity(FirstPositionId, DepositQT / 2);
+        assertEq(getPositionQuantity(FirstPositionId), DepositQT / 2);
     }
 
     // ok if borrower/repayer is maker
@@ -59,7 +59,7 @@ contract TestRepay is Setup {
         depositSellOrder(Alice, B + 3, DepositBT);
         borrow(Alice, B, DepositQT / 2);
         repay(Alice, FirstPositionId, DepositQT / 2);
-        checkBorrowingQuantity(FirstPositionId, 0); 
+        assertEq(getPositionQuantity(FirstPositionId), 0);
     }
     
     // repay correctly adjusts balances
@@ -72,7 +72,7 @@ contract TestRepay is Setup {
         assertEq(quoteToken.balanceOf(OrderBook), bookBalance + DepositQT / 2);
         assertEq(quoteToken.balanceOf(Alice), lenderBalance);
         assertEq(quoteToken.balanceOf(Bob), borrowerBalance - DepositQT / 2);
-        checkBorrowingQuantity(FirstPositionId, 0); 
+        assertEq(getPositionQuantity(FirstPositionId), 0);
     }
 
     // Borrower excess collateral in base token is correct

@@ -7,132 +7,173 @@ import {MathLib, WAD} from "../lib/MathLib.sol";
 
 contract TestTake is Setup {
 
-    // taking half vanilla buy order succeeds + liquidity is correctly reposted
+    // taking half vanilla buy order succeeds + liquidity correctly reposted
+    // Initail price is 4001, Alice deposits in buy order at 4000
+    // Then price glides below 4000, allowing take
+
     function test_TakingHalfBuyOrder() public depositBuy(B) {
-        setPriceFeed(1990);
-        takeQuoteTokens(Bob, B, DepositQT / 2);
-        checkOrderQuantity(FirstOrderId, DepositQT / 2);
+        setPriceFeed(3990);
+        takeQuoteTokens(B, DepositQT / 2);
+        assertEq(getOrderQuantity(FirstOrderId), DepositQT / 2);
+        // checkOrderQuantity(FirstOrderId, DepositQT / 2);
         uint256 aliceGets = WAD * (DepositQT / book.limitPrice(B)) / 2;
-        checkOrderQuantity(SecondOrderId, aliceGets);
+        assertEq(getOrderQuantity(SecondOrderId), aliceGets);
+        // checkOrderQuantity(SecondOrderId, aliceGets);
     }
     
     // taking half vanilla sell order succeeds
-    function test_TakingHalfSellOrder() public setLowPrice() depositSell(B + 1) {
-        setPriceFeed(2010);
-        takeBaseTokens(Bob, B + 1, DepositBT / 2);
-        checkOrderQuantity(FirstOrderId, DepositBT / 2);
+    // set price at 3990, Bob deposits in sell order at limit price 4000
+    // Then price is up to 4010, allowing take at limit price 4000
+
+    function test_TakingHalfSellOrder() public setLowPrice() depositSell(B + 1) setHighPrice() {
+        takeBaseTokens(B + 1, DepositBT / 2);
+        assertEq(getOrderQuantity(FirstOrderId), DepositBT / 2);
+        // checkOrderQuantity(FirstOrderId, DepositBT / 2);
         uint256 aliceGets = ((DepositBT * book.limitPrice(B + 1)) / 2) / WAD;
-        checkOrderQuantity(SecondOrderId, aliceGets);
+        assertEq(getOrderQuantity(SecondOrderId), aliceGets);
+        // checkOrderQuantity(SecondOrderId, aliceGets);
     }
     
     // taking fails if non-existing buy order
-    function test_TakingBuyOrderFailsIfEmptyPool() public depositBuy(B) {
-        setPriceFeed(1990);
+    function test_TakingBuyOrderFailsIfEmptyPool() public depositBuy(B) setLowPrice() {
         vm.expectRevert("Pool_empty_2");
-        takeQuoteTokens(Bob, B + 1, DepositQT);
-        checkOrderQuantity(FirstOrderId, DepositQT);
+        takeQuoteTokens(B + 1, DepositQT);
+        assertEq(getOrderQuantity(FirstOrderId), DepositQT);
+        //checkOrderQuantity(FirstOrderId, DepositQT);
     }
 
     // taking fails if non existing sell order
-    function test_TakingSellOrderFailsIfEmptyPool() public setLowPrice() depositSell(B + 1) {
-        setPriceFeed(2010);
-        vm.expectRevert("Pool_empty_2");
-        takeBaseTokens(Bob, B - 1, DepositBT);
+    function test_TakingSellOrderFailsIfEmptyPool() public setLowPrice() depositSell(B + 1) setHighPrice() {
+        vm.expectRevert("Pool_empty_3");
+        takeBaseTokens(B - 1, DepositBT);
     }
 
     // take buy order for zero is ok
-    function test_takeBuyOrderWithZero() public depositBuy(B) {
-        setPriceFeed(1990);
-        takeQuoteTokens(Bob, B, 0);
-        checkOrderQuantity(FirstOrderId, DepositQT);
+    function test_takeBuyOrderWithZero() public depositBuy(B) setLowPrice() {
+        takeQuoteTokens(B, 0);
+        assertEq(getOrderQuantity(FirstOrderId), DepositQT);
+        //checkOrderQuantity(FirstOrderId, DepositQT);
     }
 
     // take sell order for zero reverts
-    function test_TakingSellOrderFailsIfZeroTaken() public setLowPrice() depositSell(B + 1) {
-        setPriceFeed(2010);
+    function test_TakingSellOrderFailsIfZeroTaken() public setLowPrice() depositSell(B + 1) setHighPrice() {
         vm.expectRevert("Take zero");
-        takeBaseTokens(Bob, B + 1, 0);
+        takeBaseTokens(B + 1, 0);
     }
 
     // taking fails if greater than non borrowed pool of buy order
-    function test_TakeBuyOrderFailsIfTooMuch() public depositBuy(B) {
-        setPriceFeed(1990);
+    function test_TakeBuyOrderFailsIfTooMuch() public depositBuy(B) setLowPrice() {
         vm.expectRevert("Take too much");
-        takeQuoteTokens(Bob, B, 2 * DepositQT);
+        takeQuoteTokens(B, 2 * DepositQT);
     }
 
     // taking fails if greater than pool of sell orders
-    function test_TakeSellOrderFailsIfTooMuch() public setLowPrice() depositSell(B + 1) {
-        setPriceFeed(2010);
+    function test_TakeSellOrderFailsIfTooMuch() public setLowPrice() depositSell(B + 1) setHighPrice() {
         vm.expectRevert("Take too much");
-        takeBaseTokens(Bob, B + 1, 2 * DepositBT);
+        takeBaseTokens(B + 1, 2 * DepositBT);
     }
 
     // taking non profitable sell orders just loses money
     function test_TakingIsOkIfNonProfitableSellOrder() public setLowPrice() depositSell(B + 1) {
-        takeBaseTokens(Bob, B + 1, DepositBT);
-        checkOrderQuantity(FirstOrderId, 0);
+        takeBaseTokens(B + 1, DepositBT);
+        assertEq(getOrderQuantity(FirstOrderId), 0);
+        //checkOrderQuantity(FirstOrderId, 0);
     }
 
     // taking 0 from non profitable sell orders reverts
     function test_TakingIIfNonProfitableSellOrder() public setLowPrice() depositSell(B + 1) {
         vm.expectRevert("Take zero");
-        takeBaseTokens(Bob, B + 1, 0);
+        takeBaseTokens(B + 1, 0);
     }
 
     // taking non profitable buy orders reverts
     function test_TakingFailsIfNonProfitableBuyOrder() public depositBuy(B) {
         vm.expectRevert("Not profitable");
-        takeQuoteTokens(Bob, B, DepositQT);
+        takeQuoteTokens(B, DepositQT);
     }
 
     // taking non profitable buy orders with 0 reverts
     function test_TakingZeroFailsIfNonProfitableBuyOrder() public depositBuy(B) {
         vm.expectRevert("Not profitable");
-        takeQuoteTokens(Bob, B, 0);
+        takeQuoteTokens(B, 0);
     }
 
-    // taking vanilla buy order correctly adjuts balances + order is reposted as a sell order
-    // market price set initially at 2001, deposit buy order at 2000
-    // set price feed 1990 : buy order becomes takable
+    // taking buy order correctly adjuts balances + order is reposted in sell order
+    // market price set initially at 4001, deposit buy order at 4000
+    // set price feed 3990: buy order becomes takable
 
     function test_TakingBuyOrder() public depositBuy(B) setLowPrice() {
         uint256 orderBookBaseBalance = baseToken.balanceOf(OrderBook);
         uint256 orderBookQuoteBalance = quoteToken.balanceOf(OrderBook);
         uint256 makerBaseBalance = baseToken.balanceOf(Alice);
         uint256 makerQuoteBalance = quoteToken.balanceOf(Alice);
-        uint256 takerBaseBalance = baseToken.balanceOf(Bob);
-        uint256 takerQuoteBalance = quoteToken.balanceOf(Bob);
+        uint256 takerBaseBalance = baseToken.balanceOf(Takashi);
+        uint256 takerQuoteBalance = quoteToken.balanceOf(Takashi);
         uint256 aliceGets = WAD * DepositQT / book.limitPrice(B);
-        takeQuoteTokens(Bob, B, DepositQT);
-        assertEq(baseToken.balanceOf(Alice), makerBaseBalance);   // BT are not sent to Alice's wallet but reposted
+        takeQuoteTokens(B, DepositQT);
+        assertEq(baseToken.balanceOf(Alice), makerBaseBalance);   // BT not sent to Alice's wallet but reposted
         assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance);
-        assertEq(baseToken.balanceOf(Bob), takerBaseBalance - aliceGets);
-        assertEq(quoteToken.balanceOf(Bob), takerQuoteBalance + DepositQT);
+        assertEq(baseToken.balanceOf(Takashi), takerBaseBalance - aliceGets);
+        assertEq(quoteToken.balanceOf(Takashi), takerQuoteBalance + DepositQT);
         assertEq(baseToken.balanceOf(OrderBook), orderBookBaseBalance + aliceGets);
         assertEq(quoteToken.balanceOf(OrderBook), orderBookQuoteBalance - DepositQT);
-        checkOrderQuantity(FirstOrderId, 0);
-        checkOrderQuantity(SecondOrderId, aliceGets);
+        assertEq(getOrderQuantity(FirstOrderId), 0);
+        // checkOrderQuantity(FirstOrderId, 0);
+        assertEq(getOrderQuantity(SecondOrderId), aliceGets);
+        // checkOrderQuantity(SecondOrderId, aliceGets);
     }
     
-    // taking vanilla sell order correctly adjuts balances + order is reposted as a buy order
+    // taking sell order correctly adjusts balances + order is reposted as a buy order
+
     function test_TakingSellOrder() public setLowPrice() depositSell(B + 1) setHighPrice() {
         uint256 orderBookBaseBalance = baseToken.balanceOf(OrderBook);
         uint256 orderBookQuoteBalance = quoteToken.balanceOf(OrderBook);
         uint256 makerQuoteBalance = quoteToken.balanceOf(Alice);
         uint256 makerBaseBalance = baseToken.balanceOf(Alice);
-        uint256 takerBaseBalance = baseToken.balanceOf(Bob);
-        uint256 takerQuoteBalance = quoteToken.balanceOf(Bob);
-        uint256 aliceGets = DepositBT * book.limitPrice(B + 1) / WAD;
-        takeBaseTokens(Bob, B + 1, DepositBT);
+        uint256 takerBaseBalance = baseToken.balanceOf(Takashi);
+        uint256 takerQuoteBalance = quoteToken.balanceOf(Takashi);
+        uint256 bobGets = DepositBT * book.limitPrice(B + 1) / WAD;
+        takeBaseTokens(B + 1, DepositBT);
         assertEq(baseToken.balanceOf(OrderBook), orderBookBaseBalance - DepositBT);
-        assertEq(quoteToken.balanceOf(OrderBook), orderBookQuoteBalance + aliceGets);
+        assertEq(quoteToken.balanceOf(OrderBook), orderBookQuoteBalance + bobGets);
         assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance); // quotes are not sent to Alice's wallet but reposted
         assertEq(baseToken.balanceOf(Alice), makerBaseBalance);
-        assertEq(baseToken.balanceOf(Bob), takerBaseBalance + DepositBT);
-        assertEq(quoteToken.balanceOf(Bob), takerQuoteBalance - aliceGets);
-        checkOrderQuantity(FirstOrderId, 0);
-        checkOrderQuantity(SecondOrderId, aliceGets);
+        assertEq(baseToken.balanceOf(Takashi), takerBaseBalance + DepositBT);
+        assertEq(quoteToken.balanceOf(Takashi), takerQuoteBalance - bobGets);
+        assertEq(getOrderQuantity(FirstOrderId), 0);
+       // checkOrderQuantity(FirstOrderId, 0);
+        assertEq(getOrderQuantity(SecondOrderId), bobGets);
+        //checkOrderQuantity(SecondOrderId, bobGets);
+    }
+
+    // taking sell order of borrower correctly adjuts balances + liquidity is transferred to quote account
+    // initial market price 4001, deposit buy at 4000, price to 4400
+    
+    function test_TakingSellOrderOfBorrower() public depositBuy(B) depositSell(B + 3) {
+        uint256 BobDebt = DepositQT / 2;
+        borrow(Bob, B, BobDebt);
+        setPriceFeed(HighPrice);
+        uint256 orderBookBaseBalance = baseToken.balanceOf(OrderBook);
+        uint256 orderBookQuoteBalance = quoteToken.balanceOf(OrderBook);
+        uint256 BobQuoteBalance = quoteToken.balanceOf(Bob);
+        uint256 BobBaseBalance = baseToken.balanceOf(Bob);
+        uint256 takerBaseBalance = baseToken.balanceOf(Takashi);
+        uint256 takerQuoteBalance = quoteToken.balanceOf(Takashi);
+        uint256 BobGetsBeforeRepayDebt = DepositBT * book.limitPrice(B + 3) / WAD;
+        uint256 BobGetsAfterRepayDebt = BobGetsBeforeRepayDebt - BobDebt;
+        setPriceFeed(UltraHighPrice);
+        takeBaseTokens(B + 3, DepositBT);
+        assertEq(baseToken.balanceOf(OrderBook), orderBookBaseBalance - DepositBT);
+        assertEq(quoteToken.balanceOf(OrderBook), orderBookQuoteBalance + BobGetsBeforeRepayDebt);
+        assertEq(quoteToken.balanceOf(Bob), BobQuoteBalance);
+        assertEq(baseToken.balanceOf(Bob), BobBaseBalance);
+        assertEq(baseToken.balanceOf(Takashi), takerBaseBalance + DepositBT);
+        assertEq(quoteToken.balanceOf(Takashi), takerQuoteBalance - BobGetsBeforeRepayDebt);
+        assertEq(getOrderQuantity(FirstOrderId), DepositQT);
+        // checkOrderQuantity(FirstOrderId, DepositQT);
+        assertEq(getOrderQuantity(SecondOrderId), 0);
+        // checkOrderQuantity(SecondOrderId, 0);
+        checkUserQuoteAccount(Bob, BobGetsAfterRepayDebt);
     }
 
     // taking buy order by maker correctly adjuts balances
@@ -143,13 +184,16 @@ contract TestTake is Setup {
         uint256 makerQuoteBalance = quoteToken.balanceOf(Alice);
         uint256 aliceGets = WAD * DepositQT / book.limitPrice(B );
         console.log("Alice gets", aliceGets / WAD);
-        takeQuoteTokens(Alice, B, DepositQT);
+        vm.prank(Alice);
+        book.takeQuoteTokens(B, DepositQT);
         assertEq(baseToken.balanceOf(Alice), makerBaseBalance  - aliceGets); // as a taker
         assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance + DepositQT); // as a taker
         assertEq(baseToken.balanceOf(OrderBook), orderBookBaseBalance + aliceGets);
         assertEq(quoteToken.balanceOf(OrderBook), orderBookQuoteBalance - DepositQT);
-        checkOrderQuantity(FirstOrderId, 0);
-        checkOrderQuantity(SecondOrderId, aliceGets);
+        assertEq(getOrderQuantity(FirstOrderId), 0);
+        // checkOrderQuantity(FirstOrderId, 0);
+        assertEq(getOrderQuantity(SecondOrderId), aliceGets);
+        // checkOrderQuantity(SecondOrderId, aliceGets);
     }
 
     // taking sell order by maker correctly adjuts balances
@@ -159,13 +203,16 @@ contract TestTake is Setup {
         uint256 makerQuoteBalance = quoteToken.balanceOf(Alice);
         uint256 makerBaseBalance = baseToken.balanceOf(Alice);
         uint256 aliceGets = DepositBT * book.limitPrice(B + 1) / WAD;
-        takeBaseTokens(Alice, B + 1, DepositBT);
+        vm.prank(Alice);
+        book.takeBaseTokens(B + 1, DepositBT);
         assertEq(baseToken.balanceOf(OrderBook), orderBookBaseBalance - DepositBT);
         assertEq(quoteToken.balanceOf(OrderBook), orderBookQuoteBalance + aliceGets); // 
         assertEq(baseToken.balanceOf(Alice), makerBaseBalance  + DepositBT); // as a taker
         assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance - aliceGets); // as a taker
-        checkOrderQuantity(FirstOrderId, 0);
-        checkOrderQuantity(SecondOrderId, aliceGets);
+        assertEq(getOrderQuantity(FirstOrderId), 0);
+        //checkOrderQuantity(FirstOrderId, 0);
+        assertEq(getOrderQuantity(SecondOrderId), aliceGets);
+        //checkOrderQuantity(SecondOrderId, aliceGets);
     }
 
     // Taking borrowed buy order succeeds and correctly adjuts balances + order is reposted as a sell order
@@ -190,7 +237,7 @@ contract TestTake is Setup {
         setPriceFeed(LowPrice / WAD);
         uint256 aliceGets = WAD * DepositQT / book.limitPrice(B);
         console.log("Alice gets", aliceGets / WAD, "ETH reposted in a sell order");
-        takeQuoteTokens(Takashi, B, 3 * DepositQT / 5);
+        takeQuoteTokens(B, 3 * DepositQT / 5);
         assertEq(baseToken.balanceOf(OrderBook), bookBaseBalance + 3 * aliceGets / 5);
         assertEq(quoteToken.balanceOf(OrderBook), bookQuoteBalance - 3 * DepositQT / 5);
         assertEq(baseToken.balanceOf(Alice), makerBaseBalance); // BT are not sent to Alice's wallet but reposted
@@ -199,10 +246,13 @@ contract TestTake is Setup {
         assertEq(quoteToken.balanceOf(Bob), borrowerQuoteBalance);
         assertEq(baseToken.balanceOf(Takashi), takerBaseBalance - 3 * aliceGets / 5);
         assertEq(quoteToken.balanceOf(Takashi), takerQuoteBalance + 3 * DepositQT / 5);
-        checkOrderQuantity(FirstOrderId, 0);
-        checkOrderQuantity(SecondOrderId, DepositBT - 2 * DepositBT / 10);
-        checkOrderQuantity(ThirdOrderId, aliceGets);
-        checkBorrowingQuantity(FirstPositionId, 0);
+        assertEq(getOrderQuantity(FirstOrderId), 0);
+        //checkOrderQuantity(FirstOrderId, 0);
+        assertEq(getOrderQuantity(SecondOrderId), DepositBT - 2 * DepositBT / 10);
+        //checkOrderQuantity(SecondOrderId, DepositBT - 2 * DepositBT / 10);
+        assertEq(getOrderQuantity(ThirdOrderId), aliceGets);
+        //checkOrderQuantity(ThirdOrderId, aliceGets);
+        assertEq(getPositionQuantity(FirstPositionId), 0);
     }
 
     // taking buy order fails if exceeds available assets
@@ -210,7 +260,7 @@ contract TestTake is Setup {
         borrow(Bob, B, 4 * DepositQT / 5);
         setPriceFeed(LowPrice / WAD);
         vm.expectRevert("Take too much");
-        takeQuoteTokens(Takashi, B, 2 * DepositQT / 5);
+        takeQuoteTokens(B, 2 * DepositQT / 5);
     }
 
     // multiple deposits in same pool, no borrower, then take
@@ -222,15 +272,17 @@ contract TestTake is Setup {
         uint256 totalDeposits = numberDeposits * DepositQT;
         setPriceFeed(LowPrice / WAD);
         uint256 depositorGets = WAD * DepositQT / book.limitPrice(B);
-        takeQuoteTokens(Takashi, B, totalDeposits);
+        takeQuoteTokens(B, totalDeposits);
         for (uint256 i = 1; i <= numberDeposits; i++) {
-            checkOrderQuantity(i, 0);
+            assertEq(getOrderQuantity(i), 0);
+            //checkOrderQuantity(i, 0);
         }
         for (uint256 i = numberDeposits + 1; i <= 2 * numberDeposits; i++) {
-            checkOrderQuantity(i, depositorGets);
+            assertEq(getOrderQuantity(i), depositorGets);
+            //checkOrderQuantity(i, depositorGets);
         }
-        checkPoolDeposits(B, 0);
-        checkPoolBorrows(B, 0);
+        assertEq(getPoolDeposits(B), 0);
+        assertEq(getPoolBorrows(B), 0);
     }
 
     // Taking two borrowed buy order correctly adjuts balances + order is reposted as a sell order
@@ -259,8 +311,8 @@ contract TestTake is Setup {
         uint256 takerQuoteBalance = quoteToken.balanceOf(Takashi);
         setPriceFeed(LowPrice / WAD);
         uint256 aliceGets = WAD * DepositQT / book.limitPrice(B);
-        console.log("Alice gets", aliceGets / WAD, "ETH reposted in a sell order");
-        takeQuoteTokens(Takashi, B, DepositQT / 2);
+        console.log("Alice gets", aliceGets / WAD, "ETH reposted in sell order");
+        takeQuoteTokens(B, DepositQT / 2);
         assertEq(baseToken.balanceOf(OrderBook), bookBaseBalance + aliceGets / 2);
         assertEq(quoteToken.balanceOf(OrderBook), bookQuoteBalance - DepositQT / 2);
         assertEq(baseToken.balanceOf(Alice), makerBaseBalance);     // BT are not sent to Alice's wallet but reposted
@@ -271,13 +323,16 @@ contract TestTake is Setup {
         assertEq(quoteToken.balanceOf(Carol), borrowerTwoQuoteBalance);
         assertEq(baseToken.balanceOf(Takashi), takerBaseBalance - aliceGets / 2);
         assertEq(quoteToken.balanceOf(Takashi), takerQuoteBalance + DepositQT / 2);
-        checkOrderQuantity(FirstOrderId, 0);
-        checkOrderQuantity(SecondOrderId, DepositBT -  aliceGets / 4);
-        checkOrderQuantity(ThirdOrderId, DepositBT -  aliceGets / 4);
-        checkBorrowingQuantity(FirstPositionId, 0);
-        checkBorrowingQuantity(SecondPositionId, 0);
-        checkPoolDeposits(B, 0);
-        checkPoolBorrows(B, 0);
+        assertEq(getOrderQuantity(FirstOrderId), 0);
+        // checkOrderQuantity(FirstOrderId, 0);
+        assertEq(getOrderQuantity(SecondOrderId), DepositBT -  aliceGets / 4);
+        // checkOrderQuantity(SecondOrderId, DepositBT -  aliceGets / 4);
+        assertEq(getOrderQuantity(ThirdOrderId), DepositBT -  aliceGets / 4);
+        // checkOrderQuantity(ThirdOrderId, DepositBT -  aliceGets / 4);
+        assertEq(getPositionQuantity(FirstPositionId), 0);
+        assertEq(getPositionQuantity(SecondPositionId), 0);
+        assertEq(getPoolDeposits(B), 0);
+        assertEq(getPoolBorrows(B), 0);
     }
 
     // Same with many borrowers
@@ -299,7 +354,7 @@ contract TestTake is Setup {
         uint256 aliceGets = WAD * numberBorrowers * DepositQT / book.limitPrice(B);
         console.log("Alice gets", aliceGets / WAD, "ETH reposted in a sell order");
         uint256 takenAmount = numberBorrowers * DepositQT / 2;
-        takeQuoteTokens(Takashi, B, takenAmount);
+        takeQuoteTokens(B, takenAmount);
         assertEq(baseToken.balanceOf(OrderBook), bookBaseBalance + aliceGets / 2);
         assertEq(quoteToken.balanceOf(OrderBook), bookQuoteBalance - takenAmount);
         assertEq(baseToken.balanceOf(Alice), makerBaseBalance);
@@ -307,9 +362,10 @@ contract TestTake is Setup {
         assertEq(baseToken.balanceOf(Takashi), takerBaseBalance - aliceGets / 2);
         assertEq(quoteToken.balanceOf(Takashi), takerQuoteBalance + takenAmount);
         for (uint256 i = 2; i <= (numberBorrowers + 1); i++) 
-            checkBorrowingQuantity(i - 2, 0);
-        checkPoolDeposits(B, 0);
-        checkPoolBorrows(B, 0);
+            assertEq(getPositionQuantity(i - 2), 0);
+            //checkBorrowingQuantity(i - 2, 0);
+        assertEq(getPoolDeposits(B), 0);
+        assertEq(getPoolBorrows(B), 0);
     }
 
     // first taker is compelled to liquidate at least 3 positions
@@ -324,17 +380,20 @@ contract TestTake is Setup {
         }
         setPriceFeed(LowPrice / WAD);
         uint256 takenAmount = numberBorrowers * DepositQT / 2;
-        takeQuoteTokens(Takashi, B, 2 * takenAmount / 5);
-        takeQuoteTokens(Takashi, B, 3 * takenAmount / 5);
+        takeQuoteTokens(B, 2 * takenAmount / 5);
+        takeQuoteTokens(B, 3 * takenAmount / 5);
         uint256 borrowerRemainingAssets = DepositBT - WAD * (DepositQT / 2) / book.limitPrice(B);
         for (uint256 i = 2; i <= (numberBorrowers + 1); i++)
-            checkOrderQuantity(i, borrowerRemainingAssets);
+            assertEq(getOrderQuantity(i), borrowerRemainingAssets);
+            // checkOrderQuantity(i, borrowerRemainingAssets);
         uint256 aliceGets = WAD * numberBorrowers * DepositQT / book.limitPrice(B); // ETH reposted in a sell order
-        checkOrderQuantity(numberBorrowers + 2, aliceGets);
-        for (uint256 i = 2; i <= (numberBorrowers + 1); i++) 
-            checkBorrowingQuantity(i - 2, 0);
-        checkPoolDeposits(B, 0);
-        checkPoolBorrows(B, 0);
+        assertEq(getOrderQuantity(numberBorrowers + 2), aliceGets);
+        // checkOrderQuantity(numberBorrowers + 2, aliceGets);
+        for (uint256 i = 2; i <= (numberBorrowers + 1); i++)
+            assertEq(getPositionQuantity(i - 2), 0);
+            //checkBorrowingQuantity(i - 2, 0);
+        assertEq(getPoolDeposits(B), 0);
+        assertEq(getPoolBorrows(B), 0);
     }
 
     // Many borrowers with some repaying their debt before take
@@ -355,13 +414,16 @@ contract TestTake is Setup {
         }
         setPriceFeed(LowPrice / WAD);
         uint256 aliceGets = WAD * numberBorrowers * DepositQT / book.limitPrice(B);
-        takeQuoteTokens(Takashi, B, availableCapital);
-        for (uint256 i = 2; i <= (numberBorrowers + 1); i++) 
-            checkBorrowingQuantity(i - 2, 0);
-        checkOrderQuantity(FirstOrderId, 0);
-        checkOrderQuantity(1 + numberBorrowers + 1, aliceGets);
-        checkPoolDeposits(B, 0);
-        checkPoolBorrows(B, 0);
+        takeQuoteTokens(B, availableCapital);
+        for (uint256 i = 2; i <= (numberBorrowers + 1); i++)
+            assertEq(getPositionQuantity(i - 2), 0);
+            // checkBorrowingQuantity(i - 2, 0);
+        assertEq(getOrderQuantity(FirstOrderId), 0);
+        //checkOrderQuantity(FirstOrderId, 0);
+        assertEq(getOrderQuantity(1 + numberBorrowers + 1), aliceGets);
+        // checkOrderQuantity(1 + numberBorrowers + 1, aliceGets);
+        assertEq(getPoolDeposits(B), 0);
+        assertEq(getPoolBorrows(B), 0);
     }
 
     // Taking two buy orders borrowed once correctly adjuts balances + orders are reposted as a sell orders
@@ -388,7 +450,7 @@ contract TestTake is Setup {
         uint256 takerQuoteBalance = quoteToken.balanceOf(Takashi);
         setPriceFeed(LowPrice / WAD);
         uint256 aliceGets = WAD * DepositQT / book.limitPrice(B);
-        takeQuoteTokens(Takashi, B, DepositQT);
+        takeQuoteTokens(B, DepositQT);
         assertEq(baseToken.balanceOf(OrderBook), bookBaseBalance + aliceGets);
         assertEq(quoteToken.balanceOf(OrderBook), bookQuoteBalance - DepositQT);
         assertEq(baseToken.balanceOf(Alice), makerOneBaseBalance);
@@ -399,12 +461,15 @@ contract TestTake is Setup {
         assertEq(quoteToken.balanceOf(Bob), borrowerQuoteBalance);
         assertEq(baseToken.balanceOf(Takashi), takerBaseBalance - aliceGets);
         assertEq(quoteToken.balanceOf(Takashi), takerQuoteBalance + DepositQT);
-        checkOrderQuantity(FirstOrderId, 0);
-        checkOrderQuantity(SecondOrderId, 0);
-        checkOrderQuantity(ThirdOrderId, 2 * DepositBT - aliceGets);
-        checkBorrowingQuantity(FirstPositionId, 0);
-        checkPoolDeposits(B, 0);
-        checkPoolBorrows(B, 0);
+        assertEq(getOrderQuantity(FirstOrderId), 0);
+        assertEq(getOrderQuantity(SecondOrderId), 0);
+        assertEq(getOrderQuantity(ThirdOrderId), 2 * DepositBT - aliceGets);
+        // checkOrderQuantity(FirstOrderId, 0);
+        // checkOrderQuantity(SecondOrderId, 0);
+        // checkOrderQuantity(ThirdOrderId, 2 * DepositBT - aliceGets);
+        assertEq(getPositionQuantity(FirstPositionId), 0);
+        assertEq(getPoolDeposits(B), 0);
+        assertEq(getPoolBorrows(B), 0);
     }
 
     // multiple deposits in same pool, one (big) borrower), then take
@@ -419,14 +484,15 @@ contract TestTake is Setup {
         borrow(borrower, B, totalDeposits / 2);
         setPriceFeed(LowPrice / WAD);
         uint256 depositorGets = WAD * DepositQT / book.limitPrice(B);
-        takeQuoteTokens(Takashi, B, totalDeposits / 2);
-        for (uint256 i = 1; i <= numberDeposits; i++) {
-            checkOrderQuantity(i, 0);
-        }
-        checkOrderQuantity(numberDeposits + 1, numberDeposits * DepositBT - numberDeposits * depositorGets / 2);
-        checkBorrowingQuantity(FirstPositionId, 0);
-        checkPoolDeposits(B, 0);
-        checkPoolBorrows(B, 0);
+        takeQuoteTokens(B, totalDeposits / 2);
+        for (uint256 i = 1; i <= numberDeposits; i++)
+            assertEq(getOrderQuantity(i), 0);
+            // checkOrderQuantity(i, 0);
+        assertEq(getOrderQuantity(numberDeposits + 1), numberDeposits * DepositBT - numberDeposits * depositorGets / 2);
+        // checkOrderQuantity(numberDeposits + 1, numberDeposits * DepositBT - numberDeposits * depositorGets / 2);
+        assertEq(getPositionQuantity(FirstPositionId), 0);
+        assertEq(getPoolDeposits(B), 0);
+        assertEq(getPoolBorrows(B), 0);
     }
 
     // multiple deposits in same pool, some withdraw before borrow and take
@@ -448,14 +514,15 @@ contract TestTake is Setup {
         borrow(borrower, B, totalDeposits / 2);
         setPriceFeed(LowPrice / WAD);
         uint256 depositorGets = WAD * DepositQT / book.limitPrice(B);
-        takeQuoteTokens(Takashi, B, totalDeposits / 2);
-        for (uint256 i = 1; i <= numberDeposits; i++) {
-            checkOrderQuantity(i, 0);
-        }
-        checkOrderQuantity(numberDeposits + 1, numberDeposits * DepositBT - endNumberDeposits * depositorGets / 2);
-        checkBorrowingQuantity(FirstPositionId, 0);
-        checkPoolDeposits(B, 0);
-        checkPoolBorrows(B, 0);
+        takeQuoteTokens(B, totalDeposits / 2);
+        for (uint256 i = 1; i <= numberDeposits; i++)
+            assertEq(getOrderQuantity(i), 0);
+            // checkOrderQuantity(i, 0);
+        assertEq(getOrderQuantity(numberDeposits + 1), numberDeposits * DepositBT - endNumberDeposits * depositorGets / 2);
+        //checkOrderQuantity(numberDeposits + 1, numberDeposits * DepositBT - endNumberDeposits * depositorGets / 2);
+        assertEq(getPositionQuantity(FirstPositionId), 0);
+        assertEq(getPoolDeposits(B), 0);
+        assertEq(getPoolBorrows(B), 0);
     }
 
     // multiple deposits in same pool, multiple borrowers, then take
@@ -481,19 +548,22 @@ contract TestTake is Setup {
         uint256 totalBorrows = numberBorrowers * DepositQT / 2;
         setPriceFeed(LowPrice / WAD);
         uint256 depositorGets = WAD * DepositQT / book.limitPrice(B);
-        takeQuoteTokens(Takashi, B, totalDeposits - totalBorrows);
-        for (uint256 i = 1; i <= numberDeposits; i++) {
-            checkOrderQuantity(i, 0);
-        }
+        takeQuoteTokens(B, totalDeposits - totalBorrows);
+        for (uint256 i = 1; i <= numberDeposits; i++)
+            assertEq(getOrderQuantity(i), 0);
+            // checkOrderQuantity(i, 0);
         for (uint256 i = numberDeposits + 1; i <= (numberDeposits + numberBorrowers); i++) {
-            checkOrderQuantity(i, DepositBT - depositorGets / 2);
-            checkBorrowingQuantity(i - numberDeposits, 0);
+            assertEq(getOrderQuantity(i), DepositBT - depositorGets / 2);
+            // checkOrderQuantity(i, DepositBT - depositorGets / 2);
+            assertEq(getPositionQuantity(i - numberDeposits), 0);
+            //checkBorrowingQuantity(i - numberDeposits, 0);
         }
         for (uint256 i = numberDeposits + 1 + numberBorrowers; i <= 2 * numberDeposits + numberBorrowers; i++) {
-            checkOrderQuantity(i, depositorGets);
+            assertEq(getOrderQuantity(i), depositorGets);
+            // checkOrderQuantity(i, depositorGets);
         }
-        checkPoolDeposits(B, 0);
-        checkPoolBorrows(B, 0);
+        assertEq(getPoolDeposits(B), 0);
+        assertEq(getPoolBorrows(B), 0);
     }
 
     // multiple depositors, multiple borrowers, and multiple takers
@@ -518,21 +588,26 @@ contract TestTake is Setup {
         setPriceFeed(LowPrice / WAD);
         uint256 depositorGets = WAD * DepositQT / book.limitPrice(B);
         for (uint256 i = numberDeposits + numberBorrowers + 1; i <= (numberDeposits + numberBorrowers + numberTakers); i++) {
-            takeQuoteTokens(acc[i], B, (totalDeposits - totalBorrows) / numberTakers);
+            vm.prank(acc[i]);
+            book.takeQuoteTokens(B, (totalDeposits - totalBorrows) / numberTakers);
         }
         for (uint256 i = 1; i <= numberDeposits; i++) {
-            checkOrderQuantity(i, 0);
+            assertEq(getOrderQuantity(i), 0);
+            // checkOrderQuantity(i, 0);
         }
 
         for (uint256 i = numberDeposits + 1; i <= (numberDeposits + numberBorrowers); i++) {
-            checkOrderQuantity(i, DepositBT - depositorGets / 2);
-            checkBorrowingQuantity(i - numberDeposits, 0);
+            assertEq(getOrderQuantity(i), DepositBT - depositorGets / 2);
+            //checkOrderQuantity(i, DepositBT - depositorGets / 2);
+            assertEq(getPositionQuantity(i - numberDeposits), 0);
+            //checkBorrowingQuantity(i - numberDeposits, 0);
         }
         for (uint256 i = numberDeposits + 1 + numberBorrowers; i <= 2 * numberDeposits + numberBorrowers; i++) {
-            checkOrderQuantity(i, depositorGets);
+            assertEq(getOrderQuantity(i), depositorGets);
+            // checkOrderQuantity(i, depositorGets);
         }
-        checkPoolDeposits(B, 0);
-        checkPoolBorrows(B, 0);
+        assertEq(getPoolDeposits(B), 0);
+        assertEq(getPoolBorrows(B), 0);
     }
 
 

@@ -9,11 +9,10 @@ import {MathLib, WAD} from "../lib/MathLib.sol";
 contract TestDeposit is Setup {
 
     // if new limit order, create order in orders
-    // market price set initially at 2001
-    // deposit buy order at genesis limit price = 2000 = limit price pool(0) < market price
+    // market price set initially at 4001
+    // deposit buy order at genesis limit price = 4000 = limit price pool(0) < market price
 
     function test_DepositBuyOrder() public depositBuy(B) {
-        // vm.warp(0);
         (uint256 poolId,
         address maker,
         uint256 pairedPoolId,
@@ -23,17 +22,20 @@ contract TestDeposit is Setup {
         = book.orders(FirstOrderId);
         assertEq(poolId, B);
         assertEq(maker, Alice);
-        assertEq(pairedPoolId, B + 3);
+        assertEq(pairedPoolId, B + 1);
         assertEq(quantity, DepositQT);
         assertEq(orderWeightedRate, orderWeightedRate);
         assertEq(genesisLimitPriceWAD, book.limitPrice(B));
+        assertEq(getAvailableAssets(B), book.PHI() * DepositQT / WAD);
+        assertEq(book.viewUserQuoteDeposit(FirstOrderId), DepositQT);
+        assertEq(book.viewPoolDeposit(B), DepositQT);
     }
 
-    // // market price set initially at 2001
-    // // set low price at 1999
-    // // deposit sell order at initial price = 2000 > limit price pool(0)
+    // // market price set initially at 4001
+    // // set low price at 3999
+    // // deposit sell order at initial price = 4000 > limit price pool(0)
 
-    function test_DepositSellOrder() public setLowPrice() depositSell(B + 1) {
+    function test_DepositSellOrderSimple() public setLowPrice() depositSell(B + 1) {
         (uint256 poolId,
         address maker,
         uint256 pairedPoolId,
@@ -44,10 +46,22 @@ contract TestDeposit is Setup {
         assertEq(maker, Bob);
         assertEq(pairedPoolId, 0);
         assertEq(quantity, DepositBT);
-        assertEq(orderWeightedRate, WAD);
+        assertEq(orderWeightedRate, 0);
         assertEq(genesisLimitPriceWAD, book.limitPrice(B));
     }
 
+    // deposit base assets in account correctly adjusts balance
+    function test_DepositInBaseAccount() public depositInAccount(DepositBT) {
+        checkUserBaseAccount(Bob, DepositBT);
+        checkUserQuoteAccount(Bob, 0);
+    }
+
+    // deposit base assets twice in account correctly adjusts balance
+    function test_DepositTwiceInBaseAccount() public depositInAccount(DepositBT) depositInAccount(2 * DepositBT) {
+        checkUserBaseAccount(Bob, 3 * DepositBT);
+        checkUserQuoteAccount(Bob, 0);
+    }
+    
     // Deposit buy order correctly adjusts user deposit
     function test_DepositBuyOrderCheckUserDeposit() public depositBuy(B) {
         // first row of user.depositIds[0] is 1
@@ -83,13 +97,14 @@ contract TestDeposit is Setup {
     }
 
     // Deposit buy order correctly adjusts balances
+
     function test_DepositBuyOrderCheckBalances() public {
         uint256 OrderBookBalance = quoteToken.balanceOf(OrderBook);
         uint256 userBalance = quoteToken.balanceOf(Alice);
         depositBuyOrder(Alice, B, DepositQT, B + 1);
         assertEq(quoteToken.balanceOf(OrderBook), OrderBookBalance + DepositQT);
         assertEq(quoteToken.balanceOf(Alice), userBalance - DepositQT);
-        checkOrderQuantity(FirstOrderId, DepositQT);
+        assertEq(getOrderQuantity(FirstOrderId), DepositQT);
     }
 
     // Deposit sell order correctly adjusts balances
@@ -99,7 +114,7 @@ contract TestDeposit is Setup {
         depositSellOrder(Bob, B + 1, DepositBT);
         assertEq(baseToken.balanceOf(OrderBook), orderBookBalance + DepositBT);
         assertEq(baseToken.balanceOf(Bob), userBalance - DepositBT);
-        checkOrderQuantity(FirstOrderId, DepositBT);
+        assertEq(getOrderQuantity(FirstOrderId), DepositBT);
     }
 
     // // Two orders correctly adjusts external balances
@@ -110,8 +125,8 @@ contract TestDeposit is Setup {
         depositBuyOrder(Alice, B - 2, 2 * DepositQT, B - 1);
         assertEq(quoteToken.balanceOf(OrderBook), orderBookBalance + 3 * DepositQT);
         assertEq(quoteToken.balanceOf(Alice), userBalance - 3 * DepositQT);
-        checkOrderQuantity(FirstOrderId, DepositQT);
-        checkOrderQuantity(SecondOrderId, 2 * DepositQT);
+        assertEq(getOrderQuantity(FirstOrderId), DepositQT);
+        assertEq(getOrderQuantity(SecondOrderId), 2 * DepositQT);
     }
 
     // Three buy orders correctly adjusts external balances
@@ -124,9 +139,9 @@ contract TestDeposit is Setup {
         depositBuyOrder(Alice, B - 4, DepositQT, B - 3);
         assertEq(quoteToken.balanceOf(OrderBook), orderBookBalance + 4 * DepositQT);
         assertEq(quoteToken.balanceOf(Alice), userBalance - 4 * DepositQT);
-        checkOrderQuantity(FirstOrderId, DepositQT);
-        checkOrderQuantity(SecondOrderId, 2 * DepositQT);
-        checkOrderQuantity(ThirdOrderId, DepositQT);
+        assertEq(getOrderQuantity(FirstOrderId), DepositQT);
+        assertEq(getOrderQuantity(SecondOrderId), 2 * DepositQT);
+        assertEq(getOrderQuantity(ThirdOrderId), DepositQT);
     }
 
     // Three sell orders correctly adjusts external balances
@@ -138,9 +153,18 @@ contract TestDeposit is Setup {
         depositSellOrder(Alice, B + 5, DepositBT);
         assertEq(baseToken.balanceOf(OrderBook), orderBookBalance + 4 * DepositBT);
         assertEq(baseToken.balanceOf(Alice), userBalance - 4 * DepositBT);
-        checkOrderQuantity(FirstOrderId, DepositBT);
-        checkOrderQuantity(SecondOrderId, 2 * DepositBT);
-        checkOrderQuantity(ThirdOrderId, DepositBT);
+        assertEq(getOrderQuantity(FirstOrderId), DepositBT);
+        assertEq(getOrderQuantity(SecondOrderId), 2 * DepositBT);
+        assertEq(getOrderQuantity(ThirdOrderId), DepositBT);
+    }
+
+    // Deposit base asset in account correctly adjusts external balances
+    function test_DepositBaseAccountCheckBalances() public {
+        uint256 OrderBookBalance = baseToken.balanceOf(OrderBook);
+        uint256 userBalance = baseToken.balanceOf(Bob);
+        depositInBaseAccount(Bob, DepositBT);
+        assertEq(baseToken.balanceOf(OrderBook), OrderBookBalance + DepositBT);
+        assertEq(baseToken.balanceOf(Bob), userBalance - DepositBT);
     }
 
     // When buy order deposit is zero, revert
@@ -152,6 +176,12 @@ contract TestDeposit is Setup {
     function test_RevertSellOrderIfZeroDeposit() public setLowPrice() {
         vm.expectRevert("Deposit zero");
         depositSellOrder(Alice, B + 1, 0);
+    }
+
+    // deposit zero base assets in account reverts
+    function test_DepositZeroInBaseAccount() public {
+        vm.expectRevert("Deposit zero");
+        depositInBaseAccount(Bob, 0);
     }
 
     // When deposit is less than min deposit, revert
@@ -169,32 +199,35 @@ contract TestDeposit is Setup {
     function test_AggregateIdenticalBuyOrder() public {
         depositBuyOrder(Alice, B, DepositQT, B + 1);
         depositBuyOrder(Alice, B, 2 * DepositQT, B + 1);
-        checkOrderQuantity(FirstOrderId, 3 * DepositQT);
-        checkOrderQuantity(FirstOrderId + 1, 0);
+        assertEq(getOrderQuantity(FirstOrderId), 3 * DepositQT);
+        assertEq(getOrderQuantity(SecondOrderId), 0);
+        // checkOrderQuantity(FirstOrderId + 1, 0);
     }
 
     // When identical sell order exists, increase deposit
     function test_AggregateIdenticalSellOrder() public setLowPrice() {
         depositSellOrder(Alice, B + 1, DepositBT);
         depositSellOrder(Alice, B + 1, 2 * DepositBT);
-        checkOrderQuantity(FirstOrderId, 3 * DepositBT);
-        checkOrderQuantity(FirstOrderId + 1, 0);
+        assertEq(getOrderQuantity(FirstOrderId), 3 * DepositBT);
+        assertEq(getOrderQuantity(SecondOrderId), 0);
+        //checkOrderQuantity(FirstOrderId + 1, 0);
     }
 
     // Identical buy orders, except pairedPriceId => two separate orders
     function test_SeparateNearIdenticalBuyOrder() public {
         depositBuyOrder(Alice, B, DepositQT, B + 1);
         depositBuyOrder(Alice, B, 2 * DepositQT, B + 3);
-        checkOrderQuantity(FirstOrderId, DepositQT);
-        checkOrderQuantity(FirstOrderId + 1, 2 * DepositQT);
+        assertEq(getOrderQuantity(FirstOrderId), DepositQT);
+        assertEq(getOrderQuantity(SecondOrderId), 2 * DepositQT);
     }
 
     // Identical two sell orders => merged orders
     function test_MergeIdenticalSellOrder() public setLowPrice() {
         depositSellOrder(Alice, B + 1, DepositBT);
         depositSellOrder(Alice, B + 1, 2 * DepositBT);
-        checkOrderQuantity(FirstOrderId, 3 * DepositBT);
-        checkOrderQuantity(FirstOrderId + 1, 0);
+        assertEq(getOrderQuantity(FirstOrderId), 3 * DepositBT);
+        assertEq(getOrderQuantity(SecondOrderId), 0);
+        //checkOrderQuantity(FirstOrderId + 1, 0);
     }
 
     // Two identical buy order deposits correctly adjust balances
@@ -236,7 +269,8 @@ contract TestDeposit is Setup {
             depositBuyOrder(Alice, B - 2 * i, DepositQT / maxOrders, B - 2 * i + 1);
         }
         for (uint256 i = 0; i <= maxOrders; i++) {
-            checkOrderQuantity(i + 1, DepositQT / maxOrders);
+            assertEq(getOrderQuantity(i + 1), DepositQT / maxOrders);
+            // checkOrderQuantity(i + 1, DepositQT / maxOrders);
         }
         vm.expectRevert("Max orders reached");
         depositBuyOrder(Alice, B - 2 * (maxOrders + 1), DepositQT / maxOrders, B - 2 * (maxOrders + 1) + 1);
@@ -266,23 +300,11 @@ contract TestDeposit is Setup {
         assertEq(userEC, DepositBT);
     }
 
-    // // Paired price in buy order is used in paired limit order after taking
-    // function test_BuyOrderPairedPricereportsOk() public {
-    //     depositBuyOrderWithPairedPrice(Alice, 1800, 90, 110);
-    //     setPriceFeed(70);
-    //     take(Bob, Alice_Order, 1800);
-    //     checkOrderPrice(Alice_Order + 1, 110);
-    //     checkOrderPairedPrice(Alice_Order + 1, 90);
-    //     checkOrderQuantity(Alice_Order + 1, 1800 / 90);
-    // }
+    // User excess collateral is correct after deposit in base account
+    function test_DepositInAccountExcessCollateral() public depositInAccount(DepositBT) {
+       (bool isPositive, uint256 userEC) = book.viewUserExcessCollateral(Bob, 0);
+        assertEq(userEC, DepositBT);
+        assertEq(isPositive, true);
+    }
 
-    // // Paired price in sell order is used in paired limit order after taking
-    // function test_SellOrderPairedPricereportsOk() public {
-    //     depositSellOrderWithPairedPrice(Alice, 20, 110, 90);
-    //     setPriceFeed(120);
-    //     take(Bob, Alice_Order, 20);
-    //     checkOrderPrice(Alice_Order + 1, 90);
-    //     checkOrderPairedPrice(Alice_Order + 1, 110);
-    //     checkOrderQuantity(Alice_Order + 1, 20 * 110);
-    // }
 }
