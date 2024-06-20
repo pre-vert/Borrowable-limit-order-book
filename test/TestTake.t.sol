@@ -15,10 +15,8 @@ contract TestTake is Setup {
         setPriceFeed(3990);
         takeQuoteTokens(B, DepositQT / 2);
         assertEq(getOrderQuantity(FirstOrderId), DepositQT / 2);
-        // checkOrderQuantity(FirstOrderId, DepositQT / 2);
         uint256 aliceGets = WAD * (DepositQT / book.limitPrice(B)) / 2;
         assertEq(getOrderQuantity(SecondOrderId), aliceGets);
-        // checkOrderQuantity(SecondOrderId, aliceGets);
     }
     
     // taking half vanilla sell order succeeds
@@ -28,10 +26,8 @@ contract TestTake is Setup {
     function test_TakingHalfSellOrder() public setLowPrice() depositSell(B + 1) setHighPrice() {
         takeBaseTokens(B + 1, DepositBT / 2);
         assertEq(getOrderQuantity(FirstOrderId), DepositBT / 2);
-        // checkOrderQuantity(FirstOrderId, DepositBT / 2);
         uint256 aliceGets = ((DepositBT * book.limitPrice(B + 1)) / 2) / WAD;
         assertEq(getOrderQuantity(SecondOrderId), aliceGets);
-        // checkOrderQuantity(SecondOrderId, aliceGets);
     }
     
     // taking fails if non-existing buy order
@@ -39,7 +35,6 @@ contract TestTake is Setup {
         vm.expectRevert("Pool_empty_2");
         takeQuoteTokens(B + 1, DepositQT);
         assertEq(getOrderQuantity(FirstOrderId), DepositQT);
-        //checkOrderQuantity(FirstOrderId, DepositQT);
     }
 
     // taking fails if non existing sell order
@@ -52,7 +47,6 @@ contract TestTake is Setup {
     function test_takeBuyOrderWithZero() public depositBuy(B) setLowPrice() {
         takeQuoteTokens(B, 0);
         assertEq(getOrderQuantity(FirstOrderId), DepositQT);
-        //checkOrderQuantity(FirstOrderId, DepositQT);
     }
 
     // take sell order for zero reverts
@@ -77,7 +71,6 @@ contract TestTake is Setup {
     function test_TakingIsOkIfNonProfitableSellOrder() public setLowPrice() depositSell(B + 1) {
         takeBaseTokens(B + 1, DepositBT);
         assertEq(getOrderQuantity(FirstOrderId), 0);
-        //checkOrderQuantity(FirstOrderId, 0);
     }
 
     // taking 0 from non profitable sell orders reverts
@@ -118,9 +111,7 @@ contract TestTake is Setup {
         assertEq(baseToken.balanceOf(OrderBook), orderBookBaseBalance + aliceGets);
         assertEq(quoteToken.balanceOf(OrderBook), orderBookQuoteBalance - DepositQT);
         assertEq(getOrderQuantity(FirstOrderId), 0);
-        // checkOrderQuantity(FirstOrderId, 0);
         assertEq(getOrderQuantity(SecondOrderId), aliceGets);
-        // checkOrderQuantity(SecondOrderId, aliceGets);
     }
     
     // taking sell order correctly adjusts balances + order is reposted as a buy order
@@ -141,9 +132,7 @@ contract TestTake is Setup {
         assertEq(baseToken.balanceOf(Takashi), takerBaseBalance + DepositBT);
         assertEq(quoteToken.balanceOf(Takashi), takerQuoteBalance - bobGets);
         assertEq(getOrderQuantity(FirstOrderId), 0);
-       // checkOrderQuantity(FirstOrderId, 0);
         assertEq(getOrderQuantity(SecondOrderId), bobGets);
-        //checkOrderQuantity(SecondOrderId, bobGets);
     }
 
     // taking sell order of borrower correctly adjuts balances + liquidity is transferred to quote account
@@ -170,9 +159,7 @@ contract TestTake is Setup {
         assertEq(baseToken.balanceOf(Takashi), takerBaseBalance + DepositBT);
         assertEq(quoteToken.balanceOf(Takashi), takerQuoteBalance - BobGetsBeforeRepayDebt);
         assertEq(getOrderQuantity(FirstOrderId), DepositQT);
-        // checkOrderQuantity(FirstOrderId, DepositQT);
         assertEq(getOrderQuantity(SecondOrderId), 0);
-        // checkOrderQuantity(SecondOrderId, 0);
         checkUserQuoteAccount(Bob, BobGetsAfterRepayDebt);
     }
 
@@ -191,9 +178,7 @@ contract TestTake is Setup {
         assertEq(baseToken.balanceOf(OrderBook), orderBookBaseBalance + aliceGets);
         assertEq(quoteToken.balanceOf(OrderBook), orderBookQuoteBalance - DepositQT);
         assertEq(getOrderQuantity(FirstOrderId), 0);
-        // checkOrderQuantity(FirstOrderId, 0);
         assertEq(getOrderQuantity(SecondOrderId), aliceGets);
-        // checkOrderQuantity(SecondOrderId, aliceGets);
     }
 
     // taking sell order by maker correctly adjuts balances
@@ -210,9 +195,7 @@ contract TestTake is Setup {
         assertEq(baseToken.balanceOf(Alice), makerBaseBalance  + DepositBT); // as a taker
         assertEq(quoteToken.balanceOf(Alice), makerQuoteBalance - aliceGets); // as a taker
         assertEq(getOrderQuantity(FirstOrderId), 0);
-        //checkOrderQuantity(FirstOrderId, 0);
         assertEq(getOrderQuantity(SecondOrderId), aliceGets);
-        //checkOrderQuantity(SecondOrderId, aliceGets);
     }
 
     // Taking borrowed buy order succeeds and correctly adjuts balances + order is reposted as a sell order
@@ -247,11 +230,8 @@ contract TestTake is Setup {
         assertEq(baseToken.balanceOf(Takashi), takerBaseBalance - 3 * aliceGets / 5);
         assertEq(quoteToken.balanceOf(Takashi), takerQuoteBalance + 3 * DepositQT / 5);
         assertEq(getOrderQuantity(FirstOrderId), 0);
-        //checkOrderQuantity(FirstOrderId, 0);
         assertEq(getOrderQuantity(SecondOrderId), DepositBT - 2 * DepositBT / 10);
-        //checkOrderQuantity(SecondOrderId, DepositBT - 2 * DepositBT / 10);
         assertEq(getOrderQuantity(ThirdOrderId), aliceGets);
-        //checkOrderQuantity(ThirdOrderId, aliceGets);
         assertEq(getPositionQuantity(FirstPositionId), 0);
     }
 
@@ -275,11 +255,9 @@ contract TestTake is Setup {
         takeQuoteTokens(B, totalDeposits);
         for (uint256 i = 1; i <= numberDeposits; i++) {
             assertEq(getOrderQuantity(i), 0);
-            //checkOrderQuantity(i, 0);
         }
         for (uint256 i = numberDeposits + 1; i <= 2 * numberDeposits; i++) {
             assertEq(getOrderQuantity(i), depositorGets);
-            //checkOrderQuantity(i, depositorGets);
         }
         assertEq(getPoolDeposits(B), 0);
         assertEq(getPoolBorrows(B), 0);
@@ -324,11 +302,8 @@ contract TestTake is Setup {
         assertEq(baseToken.balanceOf(Takashi), takerBaseBalance - aliceGets / 2);
         assertEq(quoteToken.balanceOf(Takashi), takerQuoteBalance + DepositQT / 2);
         assertEq(getOrderQuantity(FirstOrderId), 0);
-        // checkOrderQuantity(FirstOrderId, 0);
         assertEq(getOrderQuantity(SecondOrderId), DepositBT -  aliceGets / 4);
-        // checkOrderQuantity(SecondOrderId, DepositBT -  aliceGets / 4);
         assertEq(getOrderQuantity(ThirdOrderId), DepositBT -  aliceGets / 4);
-        // checkOrderQuantity(ThirdOrderId, DepositBT -  aliceGets / 4);
         assertEq(getPositionQuantity(FirstPositionId), 0);
         assertEq(getPositionQuantity(SecondPositionId), 0);
         assertEq(getPoolDeposits(B), 0);
@@ -363,7 +338,6 @@ contract TestTake is Setup {
         assertEq(quoteToken.balanceOf(Takashi), takerQuoteBalance + takenAmount);
         for (uint256 i = 2; i <= (numberBorrowers + 1); i++) 
             assertEq(getPositionQuantity(i - 2), 0);
-            //checkBorrowingQuantity(i - 2, 0);
         assertEq(getPoolDeposits(B), 0);
         assertEq(getPoolBorrows(B), 0);
     }
@@ -385,13 +359,10 @@ contract TestTake is Setup {
         uint256 borrowerRemainingAssets = DepositBT - WAD * (DepositQT / 2) / book.limitPrice(B);
         for (uint256 i = 2; i <= (numberBorrowers + 1); i++)
             assertEq(getOrderQuantity(i), borrowerRemainingAssets);
-            // checkOrderQuantity(i, borrowerRemainingAssets);
         uint256 aliceGets = WAD * numberBorrowers * DepositQT / book.limitPrice(B); // ETH reposted in a sell order
         assertEq(getOrderQuantity(numberBorrowers + 2), aliceGets);
-        // checkOrderQuantity(numberBorrowers + 2, aliceGets);
         for (uint256 i = 2; i <= (numberBorrowers + 1); i++)
             assertEq(getPositionQuantity(i - 2), 0);
-            //checkBorrowingQuantity(i - 2, 0);
         assertEq(getPoolDeposits(B), 0);
         assertEq(getPoolBorrows(B), 0);
     }
@@ -417,11 +388,8 @@ contract TestTake is Setup {
         takeQuoteTokens(B, availableCapital);
         for (uint256 i = 2; i <= (numberBorrowers + 1); i++)
             assertEq(getPositionQuantity(i - 2), 0);
-            // checkBorrowingQuantity(i - 2, 0);
         assertEq(getOrderQuantity(FirstOrderId), 0);
-        //checkOrderQuantity(FirstOrderId, 0);
         assertEq(getOrderQuantity(1 + numberBorrowers + 1), aliceGets);
-        // checkOrderQuantity(1 + numberBorrowers + 1, aliceGets);
         assertEq(getPoolDeposits(B), 0);
         assertEq(getPoolBorrows(B), 0);
     }
@@ -464,9 +432,6 @@ contract TestTake is Setup {
         assertEq(getOrderQuantity(FirstOrderId), 0);
         assertEq(getOrderQuantity(SecondOrderId), 0);
         assertEq(getOrderQuantity(ThirdOrderId), 2 * DepositBT - aliceGets);
-        // checkOrderQuantity(FirstOrderId, 0);
-        // checkOrderQuantity(SecondOrderId, 0);
-        // checkOrderQuantity(ThirdOrderId, 2 * DepositBT - aliceGets);
         assertEq(getPositionQuantity(FirstPositionId), 0);
         assertEq(getPoolDeposits(B), 0);
         assertEq(getPoolBorrows(B), 0);
@@ -487,9 +452,7 @@ contract TestTake is Setup {
         takeQuoteTokens(B, totalDeposits / 2);
         for (uint256 i = 1; i <= numberDeposits; i++)
             assertEq(getOrderQuantity(i), 0);
-            // checkOrderQuantity(i, 0);
         assertEq(getOrderQuantity(numberDeposits + 1), numberDeposits * DepositBT - numberDeposits * depositorGets / 2);
-        // checkOrderQuantity(numberDeposits + 1, numberDeposits * DepositBT - numberDeposits * depositorGets / 2);
         assertEq(getPositionQuantity(FirstPositionId), 0);
         assertEq(getPoolDeposits(B), 0);
         assertEq(getPoolBorrows(B), 0);
@@ -517,9 +480,7 @@ contract TestTake is Setup {
         takeQuoteTokens(B, totalDeposits / 2);
         for (uint256 i = 1; i <= numberDeposits; i++)
             assertEq(getOrderQuantity(i), 0);
-            // checkOrderQuantity(i, 0);
         assertEq(getOrderQuantity(numberDeposits + 1), numberDeposits * DepositBT - endNumberDeposits * depositorGets / 2);
-        //checkOrderQuantity(numberDeposits + 1, numberDeposits * DepositBT - endNumberDeposits * depositorGets / 2);
         assertEq(getPositionQuantity(FirstPositionId), 0);
         assertEq(getPoolDeposits(B), 0);
         assertEq(getPoolBorrows(B), 0);
@@ -551,10 +512,8 @@ contract TestTake is Setup {
         takeQuoteTokens(B, totalDeposits - totalBorrows);
         for (uint256 i = 1; i <= numberDeposits; i++)
             assertEq(getOrderQuantity(i), 0);
-            // checkOrderQuantity(i, 0);
         for (uint256 i = numberDeposits + 1; i <= (numberDeposits + numberBorrowers); i++) {
             assertEq(getOrderQuantity(i), DepositBT - depositorGets / 2);
-            // checkOrderQuantity(i, DepositBT - depositorGets / 2);
             assertEq(getPositionQuantity(i - numberDeposits), 0);
             //checkBorrowingQuantity(i - numberDeposits, 0);
         }

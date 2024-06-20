@@ -444,7 +444,7 @@ contract Book is IBook {
         // check if user already borrows from pool even with zero quantity
         // return position id if found, else return id = zero
 
-        uint256 positionId_ = GetPositionIdInborrowIdsOfUser(msg.sender, _poolId);
+        uint256 positionId_ = getPositionIdInborrowIdsOfUser(msg.sender, _poolId);
 
         // if position already exists
         if (positionId_ != 0) {
@@ -1864,7 +1864,7 @@ contract Book is IBook {
     /// @notice get position id from borrowIds[] in user, even if has zero quantity
     /// return positionId_ which is 0 if not found
 
-    function GetPositionIdInborrowIdsOfUser(
+    function getPositionIdInborrowIdsOfUser(
         address _borrower,
         uint256 _poolId
     )
