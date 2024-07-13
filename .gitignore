@@ -9,6 +9,7 @@ out/
 
 # Docs
 docs/
+md/
 
 # Dotenv file
 .env
@@ -18,3 +19,5 @@ docs/
 personal_notes.md
 Functions_private.md
 Todo.md
+
+lcov.info

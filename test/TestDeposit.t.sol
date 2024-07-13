@@ -173,6 +173,7 @@ contract TestDeposit is Setup {
         depositBuyOrder(Alice, B, 0, B + 1);
     }
 
+    // When sell order deposit is zero, revert
     function test_RevertSellOrderIfZeroDeposit() public setLowPrice() {
         vm.expectRevert("Deposit zero");
         depositSellOrder(Alice, B + 1, 0);

@@ -2,6 +2,10 @@
 
 ## 1. Things to do
 
+- deux pentes IRM
+- oracles chainlink
+- liquidation fees
+
 progressive liquidation costs (high for low amount)
 
 adaptative curve
