@@ -6,6 +6,7 @@ libs = ["lib"]
 
 via_ir = false  # false => faster compilation
 
+remappings = ["@chainlink/=lib/chainlink-brownie-contracts/"]
 
 # see https://docs.soliditylang.org/en/latest/ir-breaking-changes.html
 

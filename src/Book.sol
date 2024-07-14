@@ -12,8 +12,8 @@ import {SafeERC20} from "../lib/openZeppelin/SafeERC20.sol";
 import {IBook} from "./interfaces/IBook.sol";
 import {MathLib, WAD} from "../lib/MathLib.sol";
 import {console} from "forge-std/Test.sol";
+// import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
-// import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 
 contract Book is IBook {
     using MathLib for uint256; 
@@ -174,8 +174,12 @@ contract Book is IBook {
     uint256 private lastOrderId = 1;
     // initial position id (0 for non existing positions)
     uint256 private lastPositionId = 1;
-    // Oracle price (simulated)
-    uint256 public priceFeed;
+    // Oracle price (manually set)
+    uint256 public manualPriceFeed;
+    // Chainlink oracle
+    AggregatorV3Interface internal chainlinkFeed;
+    // whether price feed is pulled from Chainlink or is set manually
+    bool public chainlinkFeedIsActive = false;
 
     // *** CONSTRUCTOR *** //
  
@@ -195,6 +199,7 @@ contract Book is IBook {
         minDepositBase = _minDepositBase;
         minDepositQuote = _minDepositQuote;
         liquidationLTV = _liquidationLTV;
+        chainlinkFeed = AggregatorV3Interface(0x1b44F3514812d835EB1BDB0acB33d3fA3351Ee43);
     }
 
 
@@ -740,7 +745,7 @@ contract Book is IBook {
         // the lower exchange rate ETH/USDC: p* = p/(1+fee_rate), the higher liqidator receives against USDC
         // we want liquidator to buy ETH cheap against USDC: price p must be decreased by fee rate
 
-        uint256 exchangeRate = priceFeed.wDivDown(WAD + LIQUIDATION_FEE); 
+        uint256 exchangeRate = viewPriceFeed().wDivDown(WAD + LIQUIDATION_FEE); 
 
         // console.log("   exchangeRate * 100 :", 100 * exchangeRate / WAD);
 
@@ -883,6 +888,14 @@ contract Book is IBook {
         _transferTo(msg.sender, _quantity, _inQuote);
 
         emit WithdrawFromAccount(msg.sender, _quantity, _inQuote);
+    }
+
+    /// @notice switch from one type of feed to another
+    
+    function switchPriceFeed()
+        public
+    {
+        chainlinkFeedIsActive = !chainlinkFeedIsActive;
     }
 
 
@@ -1665,56 +1678,8 @@ contract Book is IBook {
 
         // console.log("Exit _addInterestRateToDeposit");
     }
-    
-    // /// @notice update user's orders by adding interest rate to deposits before calculating required collateral
-    // /// as quote assets in eligible buy orders may count as collateral
-    // /// only deposits in buy orders accrue interest rate
-    
-    // function _addInterestRateToUserDeposits(address _user)
-    //     internal
-    // {
-    //     uint256[MAX_ORDERS] memory orderIds = users[_user].depositIds;
-    //     for (uint256 i = 0; i < MAX_ORDERS; i++) {
 
-    //         uint256 orderId = orderIds[i];      // position id from which user borrows assets
-
-    //         // look for buy order deposits to calculate interest rate
-    //         if (_isQuotePool(orders[orderId].poolId) && orders[orderId].quantity > 0) {
-
-    //             // update pool's total borrow and total deposits
-    //             // increment TWIR/TUWIR before changes in pool's UR and calculating user's excess collateral
-    //             _addInterestRateToPoolBorrowAndDeposits(orders[orderId].poolId);
-                
-    //             // add interest rate to deposit, update TWIR_t to TWIR_T to reset interest rate to zero
-    //             _addInterestRateToDeposit(orderId);
-    //         }
-    //     }
-    // }
-
-    // function _addInterestRateToUserPositions(address _borrower)
-    //     internal
-    // {
-    //     uint256[MAX_POSITIONS] memory borrowIds = users[_borrower].borrowIds;
-
-    //     for (uint256 i = 0; i < MAX_POSITIONS; i++) {
-
-    //         Position memory position = positions[borrowIds[i]];
-            
-    //         // look for borrowing positions to calculate required collateral
-    //         if (position.borrowedAssets > 0) {
-
-    //             // update pool's total borrow and total deposits
-    //             // increment TWIR/TUWIR before changes in pool's UR and calculating user's excess collateral
-    //             _addInterestRateToPoolBorrowAndDeposits(position.poolId);
-                
-    //             // add interest rate to borrowed quantity, update TWIR_t to TWIR_T to reset interest rate to zero
-    //             _addInterestRateToPosition(borrowIds[i]);
-    //         }
-    //     }
-    // }
-
-    /// @notice check if pool has a price
-    /// return priceExists_
+    /// @notice check if pool has a price, then return priceExists_
     /// If no price, generate one on the fly if not too far from an existing pool (stepMax left and right)
     /// else return false
     
@@ -1775,6 +1740,7 @@ contract Book is IBook {
     {
         // console.log("priceFeed in profitable() :", priceFeed / WAD);
         
+        uint256 priceFeed = viewPriceFeed();
         if (_isQuotePool(_poolId)) return (priceFeed < limitPrice[_poolId]);
         else return (priceFeed > limitPrice[_poolId]);
     }
@@ -2193,6 +2159,23 @@ contract Book is IBook {
         return _isBuyOrder == true ? minDepositQuote : minDepositBase;
     }
 
+    /// @return latest Chainlink price feed
+
+    function viewChainlinkPriceFeedLatestAnswer()
+        public view
+        returns (int)
+    {
+        (, int chainlinkPrice,,,) = chainlinkFeed.latestRoundData();
+        return chainlinkPrice;
+    }
+
+    /// @return price oracle, either manually set or pulled from Chainlink price feed
+
+    function viewPriceFeed() public view returns (uint256) {
+        return chainlinkFeedIsActive ? uint256(viewChainlinkPriceFeedLatestAnswer()) : manualPriceFeed;
+    }
+    
+
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                  INTERNAL PURE FUNCTIONS                   */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
@@ -2261,10 +2244,12 @@ contract Book is IBook {
 
     /////**** Functions used in tests ****//////
 
+    // manually set price feed
+    
     function setPriceFeed(uint256 _newPrice)
         public
     {
-        priceFeed = _newPrice;
+        manualPriceFeed = _newPrice;
     }
     
     // Add manual getter for depositIds for User, used in setup.sol for tests
