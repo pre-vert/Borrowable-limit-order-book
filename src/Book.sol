@@ -12,7 +12,8 @@ import {SafeERC20} from "../lib/openZeppelin/SafeERC20.sol";
 import {IBook} from "./interfaces/IBook.sol";
 import {MathLib, WAD} from "../lib/MathLib.sol";
 import {console} from "forge-std/Test.sol";
-import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
+// import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 
 contract Book is IBook {
     using MathLib for uint256; 
