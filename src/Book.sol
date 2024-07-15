@@ -12,7 +12,6 @@ import {SafeERC20} from "../lib/openZeppelin/SafeERC20.sol";
 import {IBook} from "./interfaces/IBook.sol";
 import {MathLib, WAD} from "../lib/MathLib.sol";
 import {console} from "forge-std/Test.sol";
-// import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 
 contract Book is IBook {
@@ -199,7 +198,7 @@ contract Book is IBook {
         minDepositBase = _minDepositBase;
         minDepositQuote = _minDepositQuote;
         liquidationLTV = _liquidationLTV;
-        chainlinkFeed = AggregatorV3Interface(0x1b44F3514812d835EB1BDB0acB33d3fA3351Ee43);
+        chainlinkFeed = AggregatorV3Interface(0x694AA1769357215DE4FAC081bf1f309aDC325306);
     }
 
 
