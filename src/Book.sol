@@ -2158,20 +2158,34 @@ contract Book is IBook {
         return _isBuyOrder == true ? minDepositQuote : minDepositBase;
     }
 
-    /// @return latest Chainlink price feed
+    /// @return chainlinkPrice256 latest Chainlink price feed converted in uint256
 
-    function viewChainlinkPriceFeedLatestAnswer()
+    function viewChainlinkPriceFeed()
         public view
-        returns (int)
+        returns (uint256 chainlinkPrice256)
     {
         (, int chainlinkPrice,,,) = chainlinkFeed.latestRoundData();
-        return chainlinkPrice;
+
+        // If price has 8 decimals, we add (1e18/1e8 decimals) to get 1e18 decimals
+        chainlinkPrice256 = uint256(chainlinkPrice) * WAD / 10**uint256(viewDecimals());
+    }
+
+    /// @return number of decimals
+
+    function viewDecimals()
+        public view
+        returns (uint8)
+    {
+        return chainlinkFeed.decimals();
     }
 
     /// @return price oracle, either manually set or pulled from Chainlink price feed
 
-    function viewPriceFeed() public view returns (uint256) {
-        return chainlinkFeedIsActive ? uint256(viewChainlinkPriceFeedLatestAnswer()) : manualPriceFeed;
+    function viewPriceFeed()
+        public view
+        returns (uint256)
+    {
+        return chainlinkFeedIsActive ? uint256(viewChainlinkPriceFeed()) : manualPriceFeed;
     }
     
 
