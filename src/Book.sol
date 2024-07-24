@@ -2030,7 +2030,7 @@ contract Book is IBook {
     }
 
     // sum all assets deposited by a given user in quote or base token in orders and user's account
-    // remark : several deposits with different paired pool id can be in the same pool 
+    // remark: several deposits with different paired pool id can be in the same pool 
     // (not true for borrowers, unclear for lenders)
 
     function viewUserTotalDeposits(
@@ -2048,9 +2048,7 @@ contract Book is IBook {
 
             if (_isQuotePool(orders[depositIds[i]].poolId) == _inQuote) {
 
-                totalDeposit_ = _inQuote
-                    ? viewUserQuoteDeposit(depositIds[i])
-                    : orders[depositIds[i]].quantity;
+                totalDeposit_ += orders[depositIds[i]].quantity;
             }   
         }
     }

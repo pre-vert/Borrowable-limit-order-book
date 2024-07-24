@@ -12,7 +12,7 @@ contract TestDeposit is Setup {
     // market price set initially at 4001
     // deposit buy order at genesis limit price = 4000 = limit price pool(0) < market price
 
-    function test_DepositBuyOrder() public depositBuy(B) {
+    function test_DepositSimpleBuyOrder() public depositBuy(B) {
         (uint256 poolId,
         address maker,
         uint256 pairedPoolId,
@@ -29,6 +29,7 @@ contract TestDeposit is Setup {
         assertEq(getAvailableAssets(B), book.PHI() * DepositQT / WAD);
         assertEq(book.viewUserQuoteDeposit(FirstOrderId), DepositQT);
         assertEq(book.viewPoolDeposit(B), DepositQT);
+        assertEq(book.viewUserTotalDeposits(Alice, InQuoteToken), DepositQT);
     }
 
     // // market price set initially at 4001
@@ -48,18 +49,21 @@ contract TestDeposit is Setup {
         assertEq(quantity, DepositBT);
         assertEq(orderWeightedRate, 0);
         assertEq(genesisLimitPriceWAD, book.limitPrice(B));
+        assertEq(book.viewUserTotalDeposits(Bob, InBaseToken), DepositBT);
     }
 
     // deposit base assets in account correctly adjusts balance
     function test_DepositInBaseAccount() public depositInAccount(DepositBT) {
         checkUserBaseAccount(Bob, DepositBT);
         checkUserQuoteAccount(Bob, 0);
+        assertEq(book.viewUserTotalDeposits(Bob, InBaseToken), DepositBT);
     }
 
     // deposit base assets twice in account correctly adjusts balance
     function test_DepositTwiceInBaseAccount() public depositInAccount(DepositBT) depositInAccount(2 * DepositBT) {
         checkUserBaseAccount(Bob, 3 * DepositBT);
         checkUserQuoteAccount(Bob, 0);
+        assertEq(book.viewUserTotalDeposits(Bob, InBaseToken), 3 * DepositBT);
     }
     
     // Deposit buy order correctly adjusts user deposit
@@ -127,6 +131,7 @@ contract TestDeposit is Setup {
         assertEq(quoteToken.balanceOf(Alice), userBalance - 3 * DepositQT);
         assertEq(getOrderQuantity(FirstOrderId), DepositQT);
         assertEq(getOrderQuantity(SecondOrderId), 2 * DepositQT);
+        assertEq(book.viewUserTotalDeposits(Alice, InQuoteToken), 3 * DepositQT);
     }
 
     // Three buy orders correctly adjusts external balances
@@ -142,6 +147,7 @@ contract TestDeposit is Setup {
         assertEq(getOrderQuantity(FirstOrderId), DepositQT);
         assertEq(getOrderQuantity(SecondOrderId), 2 * DepositQT);
         assertEq(getOrderQuantity(ThirdOrderId), DepositQT);
+        assertEq(book.viewUserTotalDeposits(Alice, InQuoteToken), 4 * DepositQT);
     }
 
     // Three sell orders correctly adjusts external balances
@@ -156,6 +162,7 @@ contract TestDeposit is Setup {
         assertEq(getOrderQuantity(FirstOrderId), DepositBT);
         assertEq(getOrderQuantity(SecondOrderId), 2 * DepositBT);
         assertEq(getOrderQuantity(ThirdOrderId), DepositBT);
+        assertEq(book.viewUserTotalDeposits(Alice, InBaseToken), 4 * DepositBT);
     }
 
     // Deposit base asset in account correctly adjusts external balances
@@ -220,6 +227,7 @@ contract TestDeposit is Setup {
         depositBuyOrder(Alice, B, 2 * DepositQT, B + 3);
         assertEq(getOrderQuantity(FirstOrderId), DepositQT);
         assertEq(getOrderQuantity(SecondOrderId), 2 * DepositQT);
+        assertEq(book.viewUserTotalDeposits(Alice, InQuoteToken), 3 * DepositQT);
     }
 
     // Identical two sell orders => merged orders
