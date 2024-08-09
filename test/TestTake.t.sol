@@ -569,5 +569,24 @@ contract TestTake is Setup {
         assertEq(getPoolBorrows(B), 0);
     }
 
+    // Custom test
+    // Alice: 0x403B4ab728856Cd31972f7390B8445D2bD82bF18
+    // Price of Genesis pool (1111111110) = 3200 => 2909 2644
+
+    // function test_CustomTake() public {
+    //    vm.warp(0); // setting starting timestamp to 0
+    //    setPriceFeed(3210000000000000000000 / WAD); // set price at 3210
+    //    depositBuyOrder(Alice, 1111111106, 100000000000000000000000, 1111111106 + 1);  // id 1, 100,000 USDC at 2644
+    //    depositInBaseAccount(Alice, 30000000000000000000); // 30 ETH
+    //    vm.warp(10 * 60 * 60); // 
+    //    borrow(Alice, 1111111106, 60000000000000000000000);  // id 1 borrow 60,000 USDC at 2644
+    //    vm.warp(100 * 60 * 60); // 
+    //    repay(Alice, 1, 20000000000000000000000); // repay 20,000 USDC at 2644
+    //    setPriceFeed(2520); // current price = 2520
+    //    vm.warp(500 * 60 * 60); // 
+    //    vm.prank(Alice);
+    //    book.takeQuoteTokens(1111111106, 29000000000000000000000); // take 29,000 USDC
+    // }
+
 
 }

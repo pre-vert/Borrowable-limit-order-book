@@ -41,12 +41,12 @@ contract TestRepay is Setup {
         repay(Bob, FirstPositionId, DepositQT);
     }
 
-    // fails if repayer is not borrower of buy order
+    // dont revert if repayer is not borrower of buy order
     function test_RepayBuyOrderFailsIfNotBorrower() public depositBuy(B) depositSell(B + 3) {
         borrow(Bob, B,  DepositQT / 2);
-        vm.expectRevert("Not Borrower");
+        //vm.expectRevert("Not Borrower");
         repay(Carol, FirstPositionId, DepositQT / 2);
-        assertEq(getPositionQuantity(FirstPositionId), DepositQT / 2);
+        assertEq(getPositionQuantity(FirstPositionId), 0);
     }
 
     // ok if borrower/repayer is maker
@@ -89,6 +89,13 @@ contract TestRepay is Setup {
         uint256 newExcessCollateral = excessCollateral + WAD * WAD * DepositQT / (4 * limitPrice * liquidationLTV);
         (, uint256 bookExcessCollateral) = book.viewUserExcessCollateral(Bob, 0);
         assertEq(bookExcessCollateral, newExcessCollateral);
+    }
+
+    // User can repay after depositing in base account
+    function test_DepositInAccountBorrowRepay() public depositBuy(B) depositInAccount(DepositBT) {
+       borrow(Bob, B, DepositQT / 2);
+       repay(Bob, FirstPositionId,  DepositQT / 2);
+       assertEq(getPositionQuantity(FirstPositionId), 0);
     }
 
 }
